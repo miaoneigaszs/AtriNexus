@@ -4,8 +4,13 @@
 
 **感谢所有让 AtriNexus 成为可能的人们与项目**
 
-[![Contributors](https://img.shields.io/github/contributors/AtriNexus/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/AtriNexus/AtriNexus/graphs/contributors)
-[![Stargazers](https://img.shields.io/github/stars/AtriNexus/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/AtriNexus/AtriNexus/stargazers)
+# AtriNexus
+
+[![GitHub Stars](https://img.shields.io/github/stars/miaoneigaszs/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/miaoneigaszs/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/network/members)
+[![License](https://img.shields.io/github/license/miaoneigaszs/AtriNexus?color=03a9f4&style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.4.3.2-ff69b4?style=flat-square)](version.json)
+
 
 </div>
 
