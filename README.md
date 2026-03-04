@@ -4,8 +4,6 @@
 
 **在虚拟与现实交织处，给予永恒的温柔羁绊**
 
-# AtriNexus
-
 [![GitHub Stars](https://img.shields.io/github/stars/miaoneigaszs/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/miaoneigaszs/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/network/members)
 [![License](https://img.shields.io/github/license/miaoneigaszs/AtriNexus?color=03a9f4&style=flat-square)](LICENSE)
@@ -30,6 +28,38 @@ AtriNexus 是一个基于企业微信的智能 AI 助手，集成了多模态对
 - ⏰ **定时任务** - 支持定时消息推送
 - 🎨 **WebUI 管理** - 可视化配置界面，易于管理
 - 👥 **多用户支持** - 完善的多用户与群聊支持
+
+---
+
+## 📸 功能展示
+
+### 智能记忆管理
+
+<div align="center">
+  <img src="docs/images/memory.png" width="600" alt="记忆管理">
+  <p><i>持久化记忆存储与智能管理</i></p>
+</div>
+
+### 知识库系统
+
+<div align="center">
+  <img src="docs/images/kb-knowledge.png" width="600" alt="知识库">
+  <p><i>文档上传与向量化检索</i></p>
+</div>
+
+### WebUI 配置界面
+
+<div align="center">
+  <img src="docs/images/setting.png" width="600" alt="设置界面">
+  <p><i>可视化配置管理界面</i></p>
+</div>
+
+### 系统监控面板
+
+<div align="center">
+  <img src="docs/images/grafana.png" width="600" alt="Grafana监控">
+  <p><i>实时系统监控与性能分析</i></p>
+</div>
 
 ---
 
