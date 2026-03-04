@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AtriNexus 记忆管理中心</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+            background-color: #FAF9F6;
+            color: #5C544E;
+            background-image: radial-gradient(#E9D8A6 0.5px, transparent 0.5px);
+            background-size: 24px 24px;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        input,
+        textarea,
+        select,
+        button {
+            cursor: default;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        input,
+        textarea,
+        [contenteditable="true"] {
+            -webkit-user-select: auto;
+            user-select: auto;
+            cursor: text;
+            -webkit-touch-callout: default;
+            caret-color: #D4A373;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        label {
+            cursor: default;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(233, 216, 166, 0.4);
+            box-shadow: 0 20px 25px -5px rgba(212, 163, 115, 0.1), 0 10px 10px -5px rgba(212, 163, 115, 0.04);
+        }
+
+        .warm-input {
+            background-color: #FFFFFF;
+            border: 1.5px solid #EAE2D5;
+            color: #5C544E;
+            border-radius: 10px;
+            padding: 10px 14px;
+            outline: none;
+            cursor: text;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: default;
+            user-select: text;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+            caret-color: #D4A373;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .warm-input:focus {
+            border-color: #D4A373;
+            box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.15);
+            cursor: text;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #D4A373 0%, #C29163 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(212, 163, 115, 0.3);
+            cursor: pointer;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(212, 163, 115, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #EAE2D5;
+            color: #B9B3A9;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #F5F0E6;
+            color: #D4A373;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            background: #E9D8A6;
+        }
+
+        .btn-danger {
+            background: #FEF2F2;
+            color: #DC2626;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover {
+            background: #FEE2E2;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translate(-50%, 100px);
+            padding: 12px 24px;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 280px;
+        }
+
+        .toast.show {
+            transform: translate(-50%, 0);
+        }
+
+        .tab-btn {
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .tab-btn.active {
+            background-color: #D4A373;
+            color: white;
+            box-shadow: 0 2px 4px rgba(212, 163, 115, 0.3);
+        }
+
+        .memory-card {
+            background: white;
+            border: 1px solid #EAE2D5;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .memory-card:hover {
+            border-color: #D4A373;
+            box-shadow: 0 4px 12px rgba(212, 163, 115, 0.15);
+        }
+
+        .memory-type-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-core {
+            background: #FEF3C7;
+            color: #D97706;
+        }
+
+        .badge-short {
+            background: #DBEAFE;
+            color: #2563EB;
+        }
+
+        .badge-vector {
+            background: #D1FAE5;
+            color: #059669;
+        }
+
+        .badge-diary {
+            background: #FCE7F3;
+            color: #DB2777;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #F5F0E6;
+            border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #D4A373;
+            border-radius: 10px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #FFFFFF;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #F9F7F3 0%, #F5F0E6 100%);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex items-start justify-center p-6 pt-12">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <span id="toast-icon"></span>
+        <span id="toast-message" class="font-medium text-sm">提示信息</span>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle" class="text-lg font-bold text-[#D4A373] mb-4">编辑记忆</h3>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <div class="max-w-4xl w-full">
+
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-[#F5F0E6] rounded-2xl mb-4 text-[#D4A373]">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"></path>
+                    <path d="M12 6v6l4 2"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-[#D4A373] tracking-tight">记忆管理中心</h1>
+            <p class="text-sm text-[#A8A29A] mt-2">三层记忆架构：短期 · 中期 · 核心</p>
+        </div>
+
+        <!-- User ID & Avatar Input -->
+        <div class="glass-card rounded-2xl p-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="userId" class="text-sm font-semibold text-[#786F66] flex items-center gap-1.5 mb-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        用户 ID (企微 UserID)
+                    </label>
+                    <input type="text" id="userId" placeholder="如: ShengZhiShuo" required class="warm-input w-full"
+                        pattern="^[a-zA-Z0-9_\-\@\.]+$">
+                </div>
+                <div>
+                    <label for="avatarName" class="text-sm font-semibold text-[#786F66] flex items-center gap-1.5 mb-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                            <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                            <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                        </svg>
+                        人设名称
+                    </label>
+                    <input type="text" id="avatarName" placeholder="默认: ATRI" value="ATRI" class="warm-input w-full">
+                </div>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button id="loadMemoryBtn" class="btn-primary flex-1 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    加载记忆
+                </button>
+                <button id="statsBtn" class="btn-secondary flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    统计
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div id="statsCards" class="hidden grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="stat-card">
+                <div class="text-2xl font-bold text-[#D4A373]" id="statShort">0</div>
+                <div class="text-xs text-[#A8A29A]">短期记忆</div>
+            </div>
+            <div class="stat-card">
+                <div class="text-2xl font-bold text-[#D4A373]" id="statVector">0</div>
+                <div class="text-xs text-[#A8A29A]">向量记忆</div>
+            </div>
+            <div class="stat-card">
+                <div class="text-2xl font-bold text-[#D4A373]" id="statCore">-</div>
+                <div class="text-xs text-[#A8A29A]">核心记忆</div>
+            </div>
+            <div class="stat-card">
+                <div class="text-2xl font-bold text-[#D4A373]" id="statConversations">0</div>
+                <div class="text-xs text-[#A8A29A]">对话轮次</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex bg-[#F5F0E6] p-1 rounded-xl mb-6 overflow-x-auto">
+            <button id="tabCore"
+                class="tab-btn active flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66] whitespace-nowrap">
+                核心记忆
+            </button>
+            <button id="tabShort"
+                class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66] whitespace-nowrap">
+                短期记忆
+            </button>
+            <button id="tabVector"
+                class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66] whitespace-nowrap">
+                向量记忆
+            </button>
+            <button id="tabDiary"
+                class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66] whitespace-nowrap">
+                日记回顾
+            </button>
+            <button id="tabSearch"
+                class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66] whitespace-nowrap">
+                语义搜索
+            </button>
+        </div>
+
+        <!-- Panel: Core Memory -->
+        <div id="panelCore" class="glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-[#D4A373]">核心记忆</h2>
+                <span class="memory-type-badge badge-core">永久存储</span>
+            </div>
+            <div class="bg-[#F9F7F3] rounded-xl p-4 mb-4">
+                <p class="text-sm text-[#A8A29A] mb-2">核心记忆是 AI 自动提取的关于用户的关键信息，如偏好、身份、重要事件等。</p>
+            </div>
+            <!-- 稳定信息区 -->
+            <div class="mb-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-xs font-semibold text-white bg-[#C29163] px-2 py-0.5 rounded-full">稳定信息</span>
+                    <span class="text-xs text-[#A8A29A]">用户基本信息、长期偏好（只在明确改变时更新）</span>
+                </div>
+                <textarea id="coreStableContent" class="warm-input w-full h-28 resize-none"
+                    placeholder="【稳定信息】区将显示在这里..."></textarea>
+            </div>
+            <!-- 近期信息区 -->
+            <div class="mb-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-xs font-semibold text-white bg-[#7BAE84] px-2 py-0.5 rounded-full">近期信息</span>
+                    <span class="text-xs text-[#A8A29A]">最近话题、进行中的事（每10轮对话自动滚动归档）</span>
+                </div>
+                <textarea id="coreRecentContent" class="warm-input w-full h-24 resize-none"
+                    placeholder="【近期信息】区将显示在这里..."></textarea>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button id="saveCoreBtn" class="btn-primary flex-1">保存修改</button>
+                <button id="clearCoreBtn" class="btn-danger">清空核心记忆</button>
+            </div>
+        </div>
+
+        <!-- Panel: Short Memory -->
+        <div id="panelShort" class="hidden glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-[#D4A373]">短期记忆</h2>
+                <span class="memory-type-badge badge-short">最近对话</span>
+            </div>
+            <div class="bg-[#F9F7F3] rounded-xl p-4 mb-4">
+                <p class="text-sm text-[#A8A29A]">短期记忆存储最近 N 轮对话的原文，按时间倒序排列。</p>
+            </div>
+            <div id="shortMemoryList" class="max-h-[400px] overflow-y-auto custom-scrollbar">
+                <div class="text-center text-[#A8A29A] py-8">点击"加载记忆"查看</div>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button id="clearShortBtn" class="btn-danger w-full">清空短期记忆</button>
+            </div>
+        </div>
+
+        <!-- Panel: Vector Memory -->
+        <div id="panelVector" class="hidden glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-[#D4A373]">向量记忆</h2>
+                <span class="memory-type-badge badge-vector">语义检索</span>
+            </div>
+            <div class="bg-[#F9F7F3] rounded-xl p-4 mb-4">
+                <p class="text-sm text-[#A8A29A]">向量记忆存储对话摘要，支持语义相似度检索。</p>
+            </div>
+            <div id="vectorMemoryList" class="max-h-[400px] overflow-y-auto custom-scrollbar">
+                <div class="text-center text-[#A8A29A] py-8">点击"加载记忆"查看</div>
+            </div>
+        </div>
+
+        <!-- Panel: Search -->
+        <div id="panelSearch" class="hidden glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-[#D4A373]">语义搜索</h2>
+            </div>
+            <div class="flex gap-3 mb-4">
+                <input type="text" id="searchQuery" class="warm-input flex-1" placeholder="输入关键词搜索相关记忆...">
+                <button id="searchBtn" class="btn-primary">搜索</button>
+            </div>
+            <div id="searchResults" class="max-h-[400px] overflow-y-auto custom-scrollbar">
+                <div class="text-center text-[#A8A29A] py-8">输入关键词进行语义搜索</div>
+            </div>
+        </div>
+
+        <!-- Panel: Diary -->
+        <div id="panelDiary" class="hidden glass-card rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-[#D4A373]">日记回顾</h2>
+                <span class="memory-type-badge badge-diary">每日对话回忆</span>
+            </div>
+            <div class="bg-[#F9F7F3] rounded-xl p-4 mb-4">
+                <p class="text-sm text-[#A8A29A]">日记系统每日自动生成，以第一人称回顾当天的对话内容。</p>
+            </div>
+
+            <!-- 日期选择器 -->
+            <div class="flex gap-3 mb-4 items-center">
+                <input type="date" id="diaryDate" class="warm-input" style="max-width: 180px;">
+                <button id="loadDiaryBtn" class="btn-secondary flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                        <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                        <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                    </svg>
+                    查看
+                </button>
+                <button id="generateDiaryBtn" class="btn-secondary flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M12 20h9"></path>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                    </svg>
+                    生成
+                </button>
+            </div>
+
+            <!-- 日记内容 -->
+            <div id="diaryContent" class="max-h-[400px] overflow-y-auto custom-scrollbar">
+                <div class="text-center text-[#A8A29A] py-8">选择日期查看日记</div>
+            </div>
+
+            <!-- 日历视图 -->
+            <div id="diaryCalendar" class="mt-4 hidden">
+                <div class="flex items-center justify-between mb-2">
+                    <button id="prevMonth" class="btn-secondary py-1 px-3 text-sm">&lt;</button>
+                    <span id="currentMonth" class="font-medium text-[#5C544E]"></span>
+                    <button id="nextMonth" class="btn-secondary py-1 px-3 text-sm">&gt;</button>
+                </div>
+                <div id="calendarGrid" class="grid grid-cols-7 gap-1 text-center text-sm"></div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="text-center mt-8">
+            <a href="/kb-upload" class="text-[#D4A373] hover:underline text-sm">
+                ← 前往知识库管理
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Elements
+        const userIdInput = document.getElementById('userId');
+        const avatarNameInput = document.getElementById('avatarName');
+        const loadMemoryBtn = document.getElementById('loadMemoryBtn');
+        const statsBtn = document.getElementById('statsBtn');
+        const statsCards = document.getElementById('statsCards');
+
+        // Tabs
+        const tabs = ['Core', 'Short', 'Vector', 'Diary', 'Search'];
+        const panels = {
+            Core: document.getElementById('panelCore'),
+            Short: document.getElementById('panelShort'),
+            Vector: document.getElementById('panelVector'),
+            Diary: document.getElementById('panelDiary'),
+            Search: document.getElementById('panelSearch')
+        };
+
+        // Memory elements
+        const coreMemoryContent = document.getElementById('coreMemoryContent');
+        const shortMemoryList = document.getElementById('shortMemoryList');
+        const vectorMemoryList = document.getElementById('vectorMemoryList');
+        const searchQuery = document.getElementById('searchQuery');
+        const searchResults = document.getElementById('searchResults');
+
+        // Diary elements
+        const diaryDate = document.getElementById('diaryDate');
+        const diaryContent = document.getElementById('diaryContent');
+
+        // Modal
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalContent = document.getElementById('modalContent');
+
+        // Load saved values
+        const savedUserId = localStorage.getItem('kb_user_id');
+        if (savedUserId) {
+            userIdInput.value = savedUserId;
+        }
+
+        // Tab switching
+        tabs.forEach(tab => {
+            document.getElementById(`tab${tab}`).addEventListener('click', () => {
+                tabs.forEach(t => {
+                    document.getElementById(`tab${t}`).classList.remove('active');
+                    panels[t].classList.add('hidden');
+                });
+                document.getElementById(`tab${tab}`).classList.add('active');
+                panels[tab].classList.remove('hidden');
+            });
+        });
+
+        // Toast
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+
+            msgEl.textContent = message;
+            toast.style.borderLeft = type === 'success' ? '4px solid #10B981' : '4px solid #EF4444';
+            iconEl.innerHTML = type === 'success'
+                ? '<svg class="text-emerald-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg class="text-red-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // Modal
+        function showModal(title, content) {
+            modalTitle.textContent = title;
+            modalContent.innerHTML = content;
+            modal.classList.add('show');
+        }
+
+        function hideModal() {
+            modal.classList.remove('show');
+        }
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) hideModal();
+        });
+
+        // API calls
+        async function fetchApi(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                const result = await response.json();
+                return { ok: response.ok, ...result };
+            } catch (error) {
+                return { ok: false, message: '网络请求失败' };
+            }
+        }
+
+        // Load all memories
+        async function loadMemories() {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            if (!userId) {
+                showToast('请输入用户 ID', 'error');
+                return;
+            }
+
+            localStorage.setItem('kb_user_id', userId);
+
+            // Load core memory
+            const coreResult = await fetchApi(`/api/memory/core?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
+            if (coreResult.ok) {
+                const raw = coreResult.data.content || '';
+                // 解析双区格式
+                const stableMarker = '【稳定信息】';
+                const recentMarker = '【近期信息】';
+                let stable = '', recent = '';
+                if (raw.includes(stableMarker) && raw.includes(recentMarker)) {
+                    const afterStable = raw.split(stableMarker)[1] || '';
+                    stable = afterStable.split(recentMarker)[0].trim();
+                    recent = raw.split(recentMarker)[1]?.trim() || '';
+                } else {
+                    // 旧格式兼容：整体显示在稳定区
+                    stable = raw;
+                }
+                document.getElementById('coreStableContent').value = stable;
+                document.getElementById('coreRecentContent').value = recent;
+            }
+
+            // Load short memory
+            const shortResult = await fetchApi(`/api/memory/short?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
+            if (shortResult.ok) {
+                renderShortMemory(shortResult.data.memories);
+                document.getElementById('statShort').textContent = shortResult.data.count;
+            }
+
+            // Load vector memory
+            const vectorResult = await fetchApi(`/api/memory/vector?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&limit=50`);
+            if (vectorResult.ok) {
+                renderVectorMemory(vectorResult.data.memories);
+                document.getElementById('statVector').textContent = vectorResult.data.total_in_store;
+            }
+
+            // Load stats
+            const statsResult = await fetchApi(`/api/memory/stats?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
+            if (statsResult.ok) {
+                document.getElementById('statCore').textContent = statsResult.data.total_core_memories;
+                document.getElementById('statConversations').textContent = statsResult.data.total_conversation_counters;
+            }
+
+            statsCards.classList.remove('hidden');
+            showToast('记忆加载完成');
+        }
+
+        function renderShortMemory(memories) {
+            if (!memories || memories.length === 0) {
+                shortMemoryList.innerHTML = '<div class="text-center text-[#A8A29A] py-8">暂无短期记忆</div>';
+                return;
+            }
+
+            shortMemoryList.innerHTML = memories.map((m, i) => `
+                <div class="memory-card">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs text-[#A8A29A]">${m.timestamp || `第 ${i + 1} 轮`}</span>
+                    </div>
+                    <div class="mb-2">
+                        <span class="text-xs font-medium text-[#2563EB]">用户:</span>
+                        <p class="text-sm text-[#5C544E]">${escapeHtml(m.user)}</p>
+                    </div>
+                    <div>
+                        <span class="text-xs font-medium text-[#D4A373]">AI:</span>
+                        <p class="text-sm text-[#5C544E]">${escapeHtml(m.bot)}</p>
+                    </div>
+                </div>
+            `).reverse().join('');
+        }
+
+        function renderVectorMemory(memories) {
+            if (!memories || memories.length === 0) {
+                vectorMemoryList.innerHTML = '<div class="text-center text-[#A8A29A] py-8">暂无向量记忆</div>';
+                return;
+            }
+
+            vectorMemoryList.innerHTML = memories.map(m => `
+                <div class="memory-card">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-xs text-[#A8A29A]">${m.metadata?.timestamp || ''}</span>
+                        <button class="text-xs text-red-500 hover:underline" onclick="deleteVectorMemory('${m.id}')">删除</button>
+                    </div>
+                    <p class="text-sm text-[#5C544E]">${escapeHtml(m.content)}</p>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Save core memory
+        document.getElementById('saveCoreBtn').addEventListener('click', async () => {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+            const stable = document.getElementById('coreStableContent').value.trim();
+            const recent = document.getElementById('coreRecentContent').value.trim();
+            // 重新组装双区格式
+            const content = `【稳定信息】\n${stable}\n\n【近期信息】\n${recent || '无'}`;
+
+            const result = await fetchApi('/api/memory/core', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, avatar_name: avatarName, content })
+            });
+
+            if (result.ok) {
+                showToast('核心记忆已保存');
+            } else {
+                showToast(result.message || '保存失败', 'error');
+            }
+        });
+
+        // Clear core memory
+        document.getElementById('clearCoreBtn').addEventListener('click', async () => {
+            if (!confirm('确定要清空核心记忆吗？此操作不可撤销。')) return;
+
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            const result = await fetchApi(`/api/memory/core?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`, {
+                method: 'DELETE'
+            });
+
+            if (result.ok) {
+                document.getElementById('coreStableContent').value = '';
+                document.getElementById('coreRecentContent').value = '';
+                showToast('核心记忆已清空');
+
+            } else {
+                showToast(result.message || '清空失败', 'error');
+            }
+        });
+
+        // Clear short memory
+        document.getElementById('clearShortBtn').addEventListener('click', async () => {
+            if (!confirm('确定要清空短期记忆吗？此操作不可撤销。')) return;
+
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            const result = await fetchApi(`/api/memory/short?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`, {
+                method: 'DELETE'
+            });
+
+            if (result.ok) {
+                shortMemoryList.innerHTML = '<div class="text-center text-[#A8A29A] py-8">暂无短期记忆</div>';
+                document.getElementById('statShort').textContent = '0';
+                showToast('短期记忆已清空');
+            } else {
+                showToast(result.message || '清空失败', 'error');
+            }
+        });
+
+        // Search
+        document.getElementById('searchBtn').addEventListener('click', async () => {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+            const query = searchQuery.value.trim();
+
+            if (!query) {
+                showToast('请输入搜索关键词', 'error');
+                return;
+            }
+
+            const result = await fetchApi(`/api/memory/search?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&query=${encodeURIComponent(query)}&top_k=10`);
+
+            if (result.ok) {
+                const memories = result.data.memories;
+                if (!memories || memories.length === 0) {
+                    searchResults.innerHTML = '<div class="text-center text-[#A8A29A] py-8">未找到相关记忆</div>';
+                } else {
+                    searchResults.innerHTML = memories.map((m, i) => `
+                        <div class="memory-card">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="memory-type-badge badge-vector">相关度 ${i + 1}</span>
+                            </div>
+                            <p class="text-sm text-[#5C544E]">${escapeHtml(m)}</p>
+                        </div>
+                    `).join('');
+                }
+            } else {
+                showToast(result.message || '搜索失败', 'error');
+            }
+        });
+
+        // Delete vector memory
+        async function deleteVectorMemory(memoryId) {
+            if (!confirm('确定要删除这条记忆吗？')) return;
+
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            const result = await fetchApi(`/api/memory/vector?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&memory_id=${encodeURIComponent(memoryId)}`, {
+                method: 'DELETE'
+            });
+
+            if (result.ok) {
+                showToast('记忆已删除');
+                loadMemories();
+            } else {
+                showToast(result.message || '删除失败', 'error');
+            }
+        }
+
+        // Event listeners
+        loadMemoryBtn.addEventListener('click', loadMemories);
+
+        statsBtn.addEventListener('click', async () => {
+            const result = await fetchApi('/api/memory/stats');
+            if (result.ok) {
+                const collections = result.data.vector_collections || [];
+
+                // 分类向量集合：知识库(kb_) vs 记忆(mem_)
+                const kbCollections = collections.filter(c => c.name.startsWith('kb_'));
+                const memCollections = collections.filter(c => c.name.startsWith('mem_'));
+                const otherCollections = collections.filter(c => !c.name.startsWith('kb_') && !c.name.startsWith('mem_'));
+
+                // 构建知识库列表HTML
+                let kbHtml = '';
+                if (kbCollections.length > 0) {
+                    kbHtml = '<div><h4 class="font-medium text-[#5C544E] mb-2">知识库向量 (用于RAG检索)</h4><div class="max-h-32 overflow-y-auto custom-scrollbar bg-blue-50 rounded-lg p-2">';
+                    kbCollections.forEach(c => {
+                        kbHtml += '<div class="flex justify-between py-1.5 border-b border-blue-100"><span class="text-sm text-[#5C544E]">' + c.name + '</span><span class="text-sm text-blue-600">' + c.count + ' 条文档块</span></div>';
+                    });
+                    kbHtml += '</div></div>';
+                }
+
+                // 构建记忆列表HTML
+                let memHtml = '';
+                if (memCollections.length > 0) {
+                    memHtml = '<div><h4 class="font-medium text-[#5C544E] mb-2">对话记忆向量 (长期记忆摘要)</h4><div class="max-h-32 overflow-y-auto custom-scrollbar bg-green-50 rounded-lg p-2">';
+                    memCollections.forEach(c => {
+                        memHtml += '<div class="flex justify-between py-1.5 border-b border-green-100"><span class="text-sm text-[#5C544E]">' + c.name + '</span><span class="text-sm text-green-600">' + c.count + ' 条摘要</span></div>';
+                    });
+                    memHtml += '</div></div>';
+                }
+
+                showModal('全局记忆统计',
+                    '<div class="space-y-4">' +
+                    '<div class="grid grid-cols-2 gap-4">' +
+                    '<div class="stat-card"><div class="text-xl font-bold text-[#D4A373]">' + result.data.total_short_memories + '</div><div class="text-xs text-[#A8A29A]">短期记忆总数</div></div>' +
+                    '<div class="stat-card"><div class="text-xl font-bold text-[#D4A373]">' + result.data.total_core_memories + '</div><div class="text-xs text-[#A8A29A]">核心记忆总数</div></div>' +
+                    '</div>' +
+                    kbHtml + memHtml +
+                    '</div>' +
+                    '<button class="btn-primary w-full mt-4" onclick="hideModal()">关闭</button>'
+                );
+            }
+        });
+
+        // Enter key to search
+        searchQuery.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                document.getElementById('searchBtn').click();
+            }
+        });
+
+        // ========== 日记功能 ==========
+
+        // 初始化日期选择器（默认昨天）
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        diaryDate.value = yesterday.toISOString().split('T')[0];
+
+        // 日历状态
+        let calendarYear = new Date().getFullYear();
+        let calendarMonth = new Date().getMonth() + 1;
+        let diaryDates = [];
+
+        // 加载日记
+        async function loadDiary() {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+            const dateStr = diaryDate.value;
+
+            if (!userId) {
+                showToast('请输入用户 ID', 'error');
+                return;
+            }
+
+            if (!dateStr) {
+                showToast('请选择日期', 'error');
+                return;
+            }
+
+            const result = await fetchApi(`/api/diary?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&date=${dateStr}`);
+
+            if (result.ok) {
+                if (result.data) {
+                    diaryContent.innerHTML = `
+                        <div class="memory-card">
+                            <div class="flex justify-between items-start mb-3">
+                                <span class="memory-type-badge badge-diary">${result.data.date}</span>
+                                <span class="text-xs text-[#A8A29A]">${result.data.conversation_count} 轮对话</span>
+                            </div>
+                            <p class="text-sm text-[#5C544E] leading-relaxed whitespace-pre-wrap">${escapeHtml(result.data.content)}</p>
+                            <div class="mt-3 pt-3 border-t border-[#EAE2D5]">
+                                <button class="text-xs text-red-500 hover:underline" onclick="deleteDiary('${result.data.date}')">删除此日记</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    diaryContent.innerHTML = `
+                        <div class="text-center text-[#A8A29A] py-8">
+                            <p class="mb-2">该日期暂无日记</p>
+                            <p class="text-xs">点击"生成"按钮可以手动生成日记</p>
+                        </div>
+                    `;
+                }
+            } else {
+                showToast(result.message || '加载失败', 'error');
+            }
+        }
+
+        // 生成日记
+        async function generateDiary() {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+            const dateStr = diaryDate.value;
+
+            if (!userId) {
+                showToast('请输入用户 ID', 'error');
+                return;
+            }
+
+            diaryContent.innerHTML = '<div class="text-center py-8"><div class="spinner mx-auto mb-2" style="border-top-color: #D4A373;"></div><p class="text-sm text-[#A8A29A]">正在生成日记...</p></div>';
+
+            const result = await fetchApi('/api/diary/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    user_id: userId,
+                    avatar_name: avatarName,
+                    date: dateStr,
+                    force_regenerate: true
+                })
+            });
+
+            if (result.ok && result.data) {
+                showToast('日记生成成功');
+                loadDiary();
+            } else {
+                diaryContent.innerHTML = `<div class="text-center text-[#A8A29A] py-8">${result.message || '生成失败'}</div>`;
+            }
+        }
+
+        // 删除日记
+        async function deleteDiary(dateStr) {
+            if (!confirm('确定要删除这条日记吗？')) return;
+
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            const result = await fetchApi(`/api/diary?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&date=${dateStr}`, {
+                method: 'DELETE'
+            });
+
+            if (result.ok) {
+                showToast('日记已删除');
+                diaryContent.innerHTML = '<div class="text-center text-[#A8A29A] py-8">日记已删除</div>';
+            } else {
+                showToast(result.message || '删除失败', 'error');
+            }
+        }
+
+        // 加载日历
+        async function loadCalendar() {
+            const userId = userIdInput.value.trim();
+            const avatarName = avatarNameInput.value.trim() || 'ATRI';
+
+            if (!userId) return;
+
+            const result = await fetchApi(`/api/diary/dates?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&year=${calendarYear}&month=${calendarMonth}`);
+
+            if (result.ok) {
+                diaryDates = result.data.dates;
+                renderCalendar();
+            }
+        }
+
+        // 渲染日历
+        function renderCalendar() {
+            document.getElementById('currentMonth').textContent = `${calendarYear}年${calendarMonth}月`;
+
+            const grid = document.getElementById('calendarGrid');
+            const firstDay = new Date(calendarYear, calendarMonth - 1, 1).getDay();
+            const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+
+            let html = ['日', '一', '二', '三', '四', '五', '六'].map(d =>
+                `<div class="text-xs text-[#A8A29A] py-1">${d}</div>`
+            ).join('');
+
+            // 空白填充
+            for (let i = 0; i < firstDay; i++) {
+                html += '<div></div>';
+            }
+
+            // 日期
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${calendarYear}-${String(calendarMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const hasDiary = diaryDates.includes(dateStr);
+                const isToday = dateStr === new Date().toISOString().split('T')[0];
+
+                html += `<div class="py-1 rounded cursor-pointer text-sm ${hasDiary ? 'bg-pink-100 text-pink-600 font-medium' : 'text-[#5C544E]'} ${isToday ? 'ring-1 ring-[#D4A373]' : ''} hover:bg-[#F5F0E6]" onclick="selectDiaryDate('${dateStr}')">${day}</div>`;
+            }
+
+            grid.innerHTML = html;
+        }
+
+        // 选择日期
+        function selectDiaryDate(dateStr) {
+            diaryDate.value = dateStr;
+            loadDiary();
+        }
+
+        // 事件绑定
+        document.getElementById('loadDiaryBtn').addEventListener('click', loadDiary);
+        document.getElementById('generateDiaryBtn').addEventListener('click', generateDiary);
+
+        document.getElementById('prevMonth').addEventListener('click', () => {
+            calendarMonth--;
+            if (calendarMonth < 1) { calendarMonth = 12; calendarYear--; }
+            loadCalendar();
+        });
+
+        document.getElementById('nextMonth').addEventListener('click', () => {
+            calendarMonth++;
+            if (calendarMonth > 12) { calendarMonth = 1; calendarYear++; }
+            loadCalendar();
+        });
+
+        // 切换到日记Tab时加载日历
+        document.getElementById('tabDiary').addEventListener('click', () => {
+            const userId = userIdInput.value.trim();
+            if (userId) {
+                document.getElementById('diaryCalendar').classList.remove('hidden');
+                loadCalendar();
+            }
+        });
+    </script>
+</body>
+
+</html>

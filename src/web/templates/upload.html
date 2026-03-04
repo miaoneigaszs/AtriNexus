@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AtriNexus 知识库管理中心</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+            background-color: #FAF9F6;
+            color: #5C544E;
+            background-image: radial-gradient(#E9D8A6 0.5px, transparent 0.5px);
+            background-size: 24px 24px;
+            /* 防止移动端光标闪烁 */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        /* 全局输入元素光标稳定 - 增强版 */
+        input, textarea, select, button {
+            cursor: default;
+            -webkit-tap-highlight-color: transparent;
+            /* 移除移动端默认的灰色遮罩 */
+            -webkit-touch-callout: none;
+            /* 禁止长按菜单 */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* 输入区域本身允许选择文本，但保持光标稳定 */
+        input, textarea, [contenteditable="true"] {
+            -webkit-user-select: auto;
+            user-select: auto;
+            cursor: text;
+            /* 修复 iOS 上光标闪烁的核心规则 */
+            -webkit-touch-callout: default;
+            /* 允许长按菜单，但保持光标不闪烁 */
+            caret-color: #D4A373;
+            /* 统一光标颜色，视觉上更稳定 */
+        }
+
+        /* 修复 iOS 上输入框获得焦点时的闪烁问题 */
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            /* 我们已经自定义了焦点样式 */
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* 防止 label 标签干扰光标 */
+        label {
+            cursor: default;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(233, 216, 166, 0.4);
+            box-shadow: 0 20px 25px -5px rgba(212, 163, 115, 0.1), 0 10px 10px -5px rgba(212, 163, 115, 0.04);
+        }
+
+        .warm-input {
+            background-color: #FFFFFF;
+            border: 1.5px solid #EAE2D5;
+            color: #5C544E;
+            border-radius: 10px;
+            padding: 10px 14px;
+            outline: none;
+            cursor: text;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: default;
+            user-select: text;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+            /* 修复光标闪烁的核心属性 */
+            caret-color: #D4A373;
+            /* 统一光标颜色 */
+            -webkit-appearance: none;
+            /* 重置 iOS 默认样式 */
+            appearance: none;
+        }
+
+        .warm-input:focus {
+            border-color: #D4A373;
+            box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.15);
+            cursor: text;
+        }
+
+        /* 防止输入框容器闪烁 */
+        .warm-input * {
+            cursor: text !important;
+        }
+
+        /* 修复 datalist 导致的光标闪烁 */
+        input[list]::-webkit-calendar-picker-indicator {
+            opacity: 0.6;
+            cursor: pointer;
+        }
+
+        input[list]:focus::-webkit-calendar-picker-indicator {
+            opacity: 1;
+        }
+
+        /* 修复自动完成时的闪烁问题 */
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus,
+        input:-webkit-autofill:active {
+            -webkit-box-shadow: 0 0 0 1000px white inset !important;
+            -webkit-text-fill-color: #5C544E !important;
+            caret-color: #D4A373 !important;
+            transition: background-color 5000s ease-in-out 0s;
+        }
+
+        /* 修复 iOS 上点击输入框时出现的灰色背景闪烁 */
+        input:focus::placeholder,
+        textarea:focus::placeholder {
+            opacity: 0.6;
+            transition: opacity 0.2s;
+        }
+
+        .upload-zone {
+            background-color: rgba(255, 255, 255, 0.5);
+            border: 2px dashed #D4A373;
+            border-radius: 16px;
+            padding: 40px 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .upload-zone:hover {
+            border-style: solid;
+            background-color: rgba(212, 163, 115, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .upload-zone.dragover {
+            border-color: #C29163;
+            background-color: rgba(212, 163, 115, 0.12);
+            transform: scale(1.02);
+        }
+
+        .submit-btn {
+            background: linear-gradient(135deg, #D4A373 0%, #C29163 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 14px;
+            width: 100%;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(212, 163, 115, 0.3);
+            cursor: pointer;
+            /* 明确指定按钮光标 */
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(212, 163, 115, 0.4);
+        }
+
+        .submit-btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        .submit-btn:disabled {
+            background: #EAE2D5;
+            color: #B9B3A9;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #FFFFFF;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translate(-50%, 100px);
+            padding: 12px 24px;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 280px;
+        }
+
+        .toast.show {
+            transform: translate(-50%, 0);
+        }
+
+        .tab-btn {
+            transition: all 0.2s;
+            cursor: pointer;
+            /* 明确标签按钮光标 */
+        }
+
+        .tab-btn.active {
+            background-color: #D4A373;
+            color: white;
+            box-shadow: 0 2px 4px rgba(212, 163, 115, 0.3);
+        }
+
+        /* 添加自定义滚动条样式 */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #F5F0E6;
+            border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #D4A373;
+            border-radius: 10px;
+        }
+
+        /* 修复删除按钮的光标 */
+        .delete-file-btn {
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex items-start justify-center p-6 pt-12">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <span id="toast-icon"></span>
+        <span id="toast-message" class="font-medium text-sm">提示信息</span>
+    </div>
+
+    <div class="max-w-2xl w-full glass-card rounded-3xl overflow-hidden p-8">
+
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-[#F5F0E6] rounded-2xl mb-4 text-[#D4A373]">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                    <path d="M12 6v6"></path>
+                    <path d="m9 9 3 3 3-3"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-[#D4A373] tracking-tight">知识库管理中心</h1>
+            <p class="text-sm text-[#A8A29A] mt-2">为您的 AI 扩充弹药与记忆神经元</p>
+        </div>
+
+        <!-- User ID Global Input -->
+        <div class="mb-8 p-4 bg-white/50 rounded-xl border border-[#E9D8A6]">
+            <label for="userId" class="text-sm font-semibold text-[#786F66] flex items-center gap-1.5 mb-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                当前操作身份 (企微 UserID)
+            </label>
+            <div class="flex gap-2">
+                <input type="text" id="userId" placeholder="输入 ID 后生效 (如: ShengZhiShuo)" required
+                    class="warm-input flex-1" pattern="^[a-zA-Z0-9_\-\@\.]+$">
+                <button id="refreshKbBtn"
+                    class="bg-[#F5F0E6] text-[#D4A373] px-4 rounded-lg font-medium hover:bg-[#E9D8A6] transition-colors">
+                    刷新资产
+                </button>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex bg-[#F5F0E6] p-1 rounded-xl mb-6">
+            <button id="tabUpload" class="tab-btn active flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">
+                上传知识
+            </button>
+            <button id="tabManage" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">
+                文档资产管理
+            </button>
+            <button id="tabSearch" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">
+                知识检索
+            </button>
+        </div>
+
+        <!-- Navigation Link -->
+        <div class="text-center mb-4">
+            <a href="/memory" class="text-[#D4A373] hover:underline text-sm">
+                → 前往记忆管理中心
+            </a>
+        </div>
+
+        <!-- PANEL: UPLOAD -->
+        <div id="panelUpload" class="block transition-opacity duration-300">
+            <form id="uploadForm" class="space-y-6">
+                <!-- Category -->
+                <div class="space-y-1.5">
+                    <label for="category" class="text-sm font-semibold text-[#786F66] flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2">
+                            </path>
+                        </svg>
+                        归类标签
+                    </label>
+                    <input type="text" id="category" name="category" list="categoryOptions"
+                        placeholder="请选择或输入标签 (默认为：常规)" class="warm-input w-full">
+                    <datalist id="categoryOptions">
+                        <option value="产品文档">
+                        <option value="技术手册">
+                        <option value="操作指南">
+                        <option value="规章制度">
+                        <option value="行业报告">
+                    </datalist>
+                </div>
+
+                <!-- File Upload Zone -->
+                <div class="space-y-1.5">
+                    <label class="text-sm font-semibold text-[#786F66] flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" x2="12" y1="3" y2="15"></line>
+                        </svg>
+                        选择文件
+                    </label>
+                    <div id="dropZone" class="upload-zone group relative">
+                        <!-- 修改这里的 input 样式，确保它在移动端正常触发 -->
+                        <input type="file" id="fileInput"
+                            class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            accept=".pdf,.doc,.docx,.txt,.md">
+
+                        <div id="uploadUI">
+                            <div
+                                class="mx-auto w-12 h-12 bg-[#F9F7F3] rounded-full flex items-center justify-center text-[#D4A373] mb-4 group-hover:scale-110 transition-transform">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round">
+                                    <rect width="18" height="18" x="3" y="3" rx="2" />
+                                    <path d="M12 8v8" />
+                                    <path d="m8 12 4 4 4-4" />
+                                </svg>
+                            </div>
+                            <p id="filePrompt" class="text-[#786F66] font-medium text-sm">
+                                点击或将文件拖拽至此
+                            </p>
+                            <p class="text-xs text-[#B9B3A9] mt-2">支持 PDF, Word, TXT, MD (最大 100MB)</p>
+                        </div>
+
+                        <!-- Selected file preview -->
+                        <div id="filePreview" class="hidden">
+                            <div class="flex flex-col items-center">
+                                <div
+                                    class="bg-white p-4 rounded-xl shadow-sm border border-[#E9D8A6] flex items-center gap-3">
+                                    <svg class="text-[#D4A373]" xmlns="http://www.w3.org/2000/svg" width="24"
+                                        height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z">
+                                        </path>
+                                        <polyline points="14.5 2 14.5 7 20 7"></polyline>
+                                    </svg>
+                                    <div class="text-left">
+                                        <p id="fileNameDisplay"
+                                            class="text-sm font-semibold text-[#5C544E] truncate max-w-[180px]">
+                                            filename.pdf
+                                        </p>
+                                        <p id="fileSizeDisplay" class="text-xs text-[#B9B3A9]">0 KB</p>
+                                    </div>
+                                </div>
+                                <button type="button" id="removeFile"
+                                    class="mt-3 text-xs text-[#B91C1C] hover:underline">重新选择</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" id="submitBtn" class="submit-btn flex items-center justify-center gap-2 mt-4"
+                    disabled>
+                    <div id="btnSpinner" class="spinner hidden"></div>
+                    <span id="btnText">开始结构化投喂</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- PANEL: MANAGE -->
+        <div id="panelManage" class="hidden transition-opacity duration-300">
+            <div class="bg-white rounded-xl border border-[#E9D8A6] p-4 min-h-[300px]">
+                <div id="kbLoading" class="flex flex-col items-center justify-center h-full space-y-3 py-10 hidden">
+                    <div class="w-8 h-8 border-4 border-[#E9D8A6] border-t-[#D4A373] rounded-full animate-spin"></div>
+                    <span class="text-sm text-[#A8A29A]">正在调取知识神经元记忆...</span>
+                </div>
+
+                <div id="kbEmpty" class="flex flex-col items-center justify-center h-full space-y-3 py-10 text-center">
+                    <svg class="w-12 h-12 text-[#EAE2D5]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        <line x1="9" y1="9" x2="15" y2="9"></line>
+                        <line x1="9" y1="13" x2="15" y2="13"></line>
+                    </svg>
+                    <span class="text-sm font-medium text-[#A8A29A]">该用户名下暂无已解析的资产<br />请输入正确的 ID 或先进行上传</span>
+                </div>
+
+                <div id="kbListContainer" class="hidden space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                    <!-- Dynamic Content -->
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL: SEARCH -->
+        <div id="panelSearch" class="hidden transition-opacity duration-300">
+            <div class="bg-white rounded-xl border border-[#E9D8A6] p-4 min-h-[300px]">
+                <div class="mb-4">
+                    <p class="text-sm text-[#A8A29A] mb-3">在知识库中语义检索相关内容</p>
+                    <div class="flex gap-3">
+                        <input type="text" id="kbSearchQuery" class="warm-input flex-1" 
+                            placeholder="输入关键词检索知识库...">
+                        <button id="kbSearchBtn" class="bg-[#D4A373] text-white px-6 rounded-lg font-medium hover:bg-[#C29163] transition-colors">
+                            检索
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="kbSearchLoading" class="flex flex-col items-center justify-center py-10 hidden">
+                    <div class="w-8 h-8 border-4 border-[#E9D8A6] border-t-[#D4A373] rounded-full animate-spin"></div>
+                    <span class="text-sm text-[#A8A29A] mt-3">语义检索中...</span>
+                </div>
+                
+                <div id="kbSearchEmpty" class="text-center py-10 text-[#A8A29A]">
+                    输入关键词开始检索知识库内容
+                </div>
+                
+                <div id="kbSearchResults" class="hidden space-y-3 max-h-[350px] overflow-y-auto custom-scrollbar">
+                    <!-- Search Results -->
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const MAX_FILE_SIZE = 100 * 1024 * 1024;
+        const ALLOWED_EXTS = ['.pdf', '.doc', '.docx', '.txt', '.md'];
+
+        // Elements
+        const form = document.getElementById('uploadForm');
+        const userIdInput = document.getElementById('userId');
+        const categoryInput = document.getElementById('category');
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+        const btnSpinner = document.getElementById('btnSpinner');
+        const uploadUI = document.getElementById('uploadUI');
+        const filePreview = document.getElementById('filePreview');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const fileSizeDisplay = document.getElementById('fileSizeDisplay');
+        const removeFileBtn = document.getElementById('removeFile');
+        const refreshKbBtn = document.getElementById('refreshKbBtn');
+
+        // Panels
+        const tabUpload = document.getElementById('tabUpload');
+        const tabManage = document.getElementById('tabManage');
+        const tabSearch = document.getElementById('tabSearch');
+        const panelUpload = document.getElementById('panelUpload');
+        const panelManage = document.getElementById('panelManage');
+        const panelSearch = document.getElementById('panelSearch');
+        const kbLoading = document.getElementById('kbLoading');
+        const kbEmpty = document.getElementById('kbEmpty');
+        const kbListContainer = document.getElementById('kbListContainer');
+        const kbSearchQuery = document.getElementById('kbSearchQuery');
+        const kbSearchBtn = document.getElementById('kbSearchBtn');
+        const kbSearchLoading = document.getElementById('kbSearchLoading');
+        const kbSearchEmpty = document.getElementById('kbSearchEmpty');
+        const kbSearchResults = document.getElementById('kbSearchResults');
+
+        // Initialization
+        const savedUserId = localStorage.getItem('kb_user_id');
+        if (savedUserId) {
+            userIdInput.value = savedUserId;
+        }
+
+        // Tab Switching Logic
+        tabUpload.addEventListener('click', () => {
+            tabUpload.classList.add('active');
+            tabManage.classList.remove('active');
+            tabSearch.classList.remove('active');
+            panelUpload.classList.remove('hidden');
+            panelManage.classList.add('hidden');
+            panelSearch.classList.add('hidden');
+        });
+
+        tabManage.addEventListener('click', () => {
+            tabManage.classList.add('active');
+            tabUpload.classList.remove('active');
+            tabSearch.classList.remove('active');
+            panelManage.classList.remove('hidden');
+            panelUpload.classList.add('hidden');
+            panelSearch.classList.add('hidden');
+            if (userIdInput.checkValidity() && userIdInput.value.trim() !== '') {
+                fetchKnowledgeBaseList();
+            }
+        });
+
+        tabSearch.addEventListener('click', () => {
+            tabSearch.classList.add('active');
+            tabUpload.classList.remove('active');
+            tabManage.classList.remove('active');
+            panelSearch.classList.remove('hidden');
+            panelUpload.classList.add('hidden');
+            panelManage.classList.add('hidden');
+        });
+
+        refreshKbBtn.addEventListener('click', () => {
+            if (userIdInput.checkValidity() && userIdInput.value.trim() !== '') {
+                localStorage.setItem('kb_user_id', userIdInput.value.trim());
+                showToast('已更新当前身份', 'success');
+                if (!panelManage.classList.contains('hidden')) {
+                    fetchKnowledgeBaseList();
+                }
+            } else {
+                showToast('请输入有效的企微 UserID', 'error');
+            }
+        });
+
+        // Utilities
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024, sizes = ['Bytes', 'KB', 'MB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function validateFile(file) {
+            if (!file) return false;
+            if (file.size > MAX_FILE_SIZE) {
+                showToast(`文件太大 (${formatBytes(file.size)})，上限 100MB`, 'error');
+                return false;
+            }
+            const fileName = file.name.toLowerCase();
+            if (!ALLOWED_EXTS.some(ext => fileName.endsWith(ext))) {
+                showToast(`格式不支持，仅限: ${ALLOWED_EXTS.join(', ')}`, 'error');
+                return false;
+            }
+            return true;
+        }
+
+        function checkFormValidity() {
+            const userIdValid = userIdInput.checkValidity() && userIdInput.value.trim() !== '';
+            const fileValid = fileInput.files.length > 0;
+            submitBtn.disabled = !(userIdValid && fileValid);
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+
+            msgEl.textContent = message;
+            toast.style.borderLeft = type === 'success' ? '4px solid #10B981' : '4px solid #EF4444';
+            iconEl.innerHTML = type === 'success'
+                ? '<svg class="text-emerald-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg class="text-red-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // File Drag & Select Logic
+        function handleFileSelection() {
+            const file = fileInput.files[0];
+            if (file && validateFile(file)) {
+                fileNameDisplay.textContent = file.name;
+                fileSizeDisplay.textContent = formatBytes(file.size);
+                uploadUI.classList.add('hidden');
+                filePreview.classList.remove('hidden');
+                checkFormValidity();
+            } else {
+                resetFileInput();
+            }
+        }
+
+        function resetFileInput() {
+            fileInput.value = '';
+            uploadUI.classList.remove('hidden');
+            filePreview.classList.add('hidden');
+            checkFormValidity();
+        }
+
+        fileInput.addEventListener('change', handleFileSelection);
+        removeFileBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetFileInput();
+        });
+        userIdInput.addEventListener('input', checkFormValidity);
+
+        ['dragenter', 'dragover'].forEach(e => {
+            dropZone.addEventListener(e, (ev) => {
+                ev.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(e => {
+            dropZone.addEventListener(e, (ev) => {
+                ev.preventDefault();
+                dropZone.classList.remove('dragover');
+            });
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                handleFileSelection();
+            }
+        });
+
+        // Form Submit
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (submitBtn.disabled) return;
+
+            const userId = userIdInput.value.trim();
+            localStorage.setItem('kb_user_id', userId);
+
+            const formData = new FormData();
+            formData.append('user_id', userId);
+            formData.append('category', categoryInput.value.trim() || '常规');
+            formData.append('file', fileInput.files[0]);
+
+            submitBtn.disabled = true;
+            btnText.textContent = '正在结构化解析与切片...';
+            btnSpinner.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/kb/upload', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showToast(result.message || '入库完成，已生成神经记忆元。');
+                    resetFileInput();
+                } else {
+                    showToast(result.message || '投喂失败请重试', 'error');
+                }
+            } catch (error) {
+                showToast('无法连接到服务器，请检查网络', 'error');
+            } finally {
+                btnText.textContent = '开始结构化投喂';
+                btnSpinner.classList.add('hidden');
+                checkFormValidity();
+            }
+        });
+
+        // Management API Calls
+        async function fetchKnowledgeBaseList() {
+            const userId = userIdInput.value.trim();
+            kbLoading.classList.remove('hidden');
+            kbEmpty.classList.add('hidden');
+            kbListContainer.classList.add('hidden');
+
+            try {
+                const response = await fetch(`/api/kb/list?user_id=${encodeURIComponent(userId)}`);
+                const result = await response.json();
+
+                kbLoading.classList.add('hidden');
+
+                if (response.ok && result.success) {
+                    renderKbList(result.data);
+                } else {
+                    kbEmpty.classList.remove('hidden');
+                    kbEmpty.innerHTML = `<span class="text-sm font-medium text-red-500">${result.message || '获取失败'}</span>`;
+                }
+            } catch (error) {
+                kbLoading.classList.add('hidden');
+                kbEmpty.classList.remove('hidden');
+                kbEmpty.innerHTML = `<span class="text-sm font-medium text-red-500">网络异常，无法拉取记忆。</span>`;
+            }
+        }
+
+        function renderKbList(data) {
+            kbListContainer.innerHTML = '';
+            const categories = Object.keys(data);
+
+            if (categories.length === 0) {
+                kbEmpty.classList.remove('hidden');
+                return;
+            }
+
+            kbEmpty.classList.add('hidden');
+            kbListContainer.classList.remove('hidden');
+
+            categories.forEach(cat => {
+                const files = data[cat];
+                const catGroup = document.createElement('div');
+                catGroup.className = 'mb-4 border border-[#F5F0E6] rounded-xl overflow-hidden';
+
+                // Category Header
+                const catHeader = document.createElement('div');
+                catHeader.className = 'bg-[#F9F7F3] px-4 py-2 text-sm font-bold text-[#D4A373] flex items-center justify-between border-b border-[#F5F0E6]';
+                catHeader.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        <span>${cat}</span>
+                    </div>
+                    <span class="text-xs font-medium text-[#A8A29A]">${files.length} 个文件</span>
+                `;
+                catGroup.appendChild(catHeader);
+
+                // Files List
+                const fileList = document.createElement('div');
+                fileList.className = 'divide-y divide-[#F5F0E6]';
+
+                files.forEach(file => {
+                    // 文件容器（包含标题行和可展开的内容区）
+                    const fileContainer = document.createElement('div');
+                    fileContainer.className = 'file-container';
+
+                    // 文件标题行
+                    const fileRow = document.createElement('div');
+                    fileRow.className = 'px-4 py-3 flex items-center justify-between hover:bg-white/50 transition-colors cursor-pointer';
+                    fileRow.innerHTML = `
+                        <div class="flex items-center gap-3 overflow-hidden flex-1">
+                            <svg class="expand-icon text-[#A8A29A] flex-shrink-0 transition-transform duration-200" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                            <svg class="text-[#A8A29A] flex-shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                            <span class="text-sm text-[#5C544E] truncate font-medium" title="${file}">${file}</span>
+                        </div>
+                        <button class="delete-file-btn text-xs text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2 py-1 rounded transition-colors ml-2 flex-shrink-0" data-filename="${file}" onclick="event.stopPropagation()">
+                            删除
+                        </button>
+                    `;
+
+                    // 可展开的内容区（默认隐藏）
+                    const outlineContainer = document.createElement('div');
+                    outlineContainer.className = 'outline-container hidden bg-[#FEFDFB] border-t border-[#F5F0E6]';
+                    outlineContainer.dataset.filename = file;
+                    outlineContainer.dataset.loaded = 'false';
+
+                    fileContainer.appendChild(fileRow);
+                    fileContainer.appendChild(outlineContainer);
+
+                    // 点击展开/收起
+                    fileRow.addEventListener('click', () => toggleFileOutline(file, outlineContainer, fileRow.querySelector('.expand-icon')));
+
+                    fileList.appendChild(fileContainer);
+                });
+
+                catGroup.appendChild(fileList);
+                kbListContainer.appendChild(catGroup);
+            });
+
+            // Attach delete listeners
+            document.querySelectorAll('.delete-file-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => deleteKnowledgeFile(e.target.dataset.filename));
+            });
+        }
+
+        async function toggleFileOutline(fileName, container, icon) {
+            const isExpanded = !container.classList.contains('hidden');
+
+            if (isExpanded) {
+                // 收起
+                container.classList.add('hidden');
+                icon.style.transform = 'rotate(0deg)';
+            } else {
+                // 展开
+                container.classList.remove('hidden');
+                icon.style.transform = 'rotate(90deg)';
+
+                // 如果还没加载过，则加载大纲
+                if (container.dataset.loaded === 'false') {
+                    await loadFileOutline(fileName, container);
+                }
+            }
+        }
+
+        async function loadFileOutline(fileName, container) {
+            const userId = userIdInput.value.trim();
+
+            container.innerHTML = '<div class="px-4 py-3 text-center text-sm text-[#A8A29A]"><div class="w-5 h-5 border-2 border-[#E9D8A6] border-t-[#D4A373] rounded-full animate-spin inline-block mr-2"></div>加载目录结构...</div>';
+
+            try {
+                const response = await fetch(`/api/kb/outline?user_id=${encodeURIComponent(userId)}&file_name=${encodeURIComponent(fileName)}`);
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    renderOutline(container, result.data, fileName);
+                    container.dataset.loaded = 'true';
+                } else {
+                    container.innerHTML = '<div class="px-4 py-3 text-center text-sm text-red-500">加载失败</div>';
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="px-4 py-3 text-center text-sm text-red-500">网络异常</div>';
+            }
+        }
+
+        function renderOutline(container, outlineData, fileName) {
+            const docStructure = outlineData.documents?.[fileName];
+
+            if (!docStructure) {
+                container.innerHTML = '<div class="px-4 py-3 text-center text-sm text-[#A8A29A]">无目录结构</div>';
+                return;
+            }
+
+            const h1List = docStructure.H1 || [];
+            const h2List = docStructure.H2 || [];
+            const h3List = docStructure.H3 || [];
+
+            if (h1List.length === 0 && h2List.length === 0 && h3List.length === 0) {
+                container.innerHTML = '<div class="px-4 py-3 text-center text-sm text-[#A8A29A]">文档无标题结构</div>';
+                return;
+            }
+
+            let html = '<div class="px-4 py-3 space-y-2 text-sm">';
+
+            if (h1List.length > 0) {
+                html += '<div class="mb-2"><span class="text-[#D4A373] font-medium">📖 一级章节</span></div>';
+                h1List.forEach(h1 => {
+                    html += `<div class="pl-4 py-1 text-[#5C544E] hover:text-[#D4A373] transition-colors">├─ ${escapeHtml(h1)}</div>`;
+                });
+            }
+
+            if (h2List.length > 0) {
+                html += '<div class="mb-2 mt-3"><span class="text-[#D4A373] font-medium">📑 二级章节</span></div>';
+                h2List.slice(0, 15).forEach(h2 => {
+                    html += `<div class="pl-4 py-1 text-[#5C544E] hover:text-[#D4A373] transition-colors">├─ ${escapeHtml(h2)}</div>`;
+                });
+                if (h2List.length > 15) {
+                    html += `<div class="pl-4 py-1 text-[#A8A29A]">└─ ... 还有 ${h2List.length - 15} 个</div>`;
+                }
+            }
+
+            if (h3List.length > 0) {
+                html += '<div class="mb-2 mt-3"><span class="text-[#D4A373] font-medium">📝 三级章节</span></div>';
+                h3List.slice(0, 10).forEach(h3 => {
+                    html += `<div class="pl-4 py-1 text-[#5C544E] hover:text-[#D4A373] transition-colors">├─ ${escapeHtml(h3)}</div>`;
+                });
+                if (h3List.length > 10) {
+                    html += `<div class="pl-4 py-1 text-[#A8A29A]">└─ ... 还有 ${h3List.length - 10} 个</div>`;
+                }
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        async function deleteKnowledgeFile(fileName) {
+            if (!confirm(`⚠️ 危险操作：确认抹除向量数据库中关于《${fileName}》的所有记忆切片吗？该操作不可逆。`)) {
+                return;
+            }
+
+            const userId = userIdInput.value.trim();
+            try {
+                const response = await fetch(`/api/kb/delete?user_id=${encodeURIComponent(userId)}&file_name=${encodeURIComponent(fileName)}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+
+                if (response.ok && result.success) {
+                    showToast(`已从大脑中物理擦除《${fileName}》`);
+                    fetchKnowledgeBaseList(); // Refresh list
+                } else {
+                    showToast(result.message || '删除遭遇阻碍', 'error');
+                }
+            } catch (error) {
+                showToast('网络断开，无法下达擦除指令', 'error');
+            }
+        }
+
+        // Knowledge Base Search
+        async function searchKnowledgeBase() {
+            const query = kbSearchQuery.value.trim();
+            const userId = userIdInput.value.trim();
+            
+            if (!query) {
+                showToast('请输入检索关键词', 'error');
+                return;
+            }
+            
+            if (!userId) {
+                showToast('请先输入用户 ID', 'error');
+                return;
+            }
+            
+            kbSearchLoading.classList.remove('hidden');
+            kbSearchEmpty.classList.add('hidden');
+            kbSearchResults.classList.add('hidden');
+            
+            try {
+                const response = await fetch(`/api/kb/search?user_id=${encodeURIComponent(userId)}&query=${encodeURIComponent(query)}&top_k=10`);
+                const result = await response.json();
+                
+                kbSearchLoading.classList.add('hidden');
+                
+                if (response.ok && result.success) {
+                    const chunks = result.data.chunks || [];
+                    if (chunks.length === 0) {
+                        kbSearchEmpty.classList.remove('hidden');
+                        kbSearchEmpty.textContent = '未找到相关内容';
+                    } else {
+                        renderSearchResults(chunks, result.data.query);
+                    }
+                } else {
+                    kbSearchEmpty.classList.remove('hidden');
+                    kbSearchEmpty.textContent = result.message || '检索失败';
+                }
+            } catch (error) {
+                kbSearchLoading.classList.add('hidden');
+                kbSearchEmpty.classList.remove('hidden');
+                kbSearchEmpty.textContent = '网络异常，无法检索';
+            }
+        }
+        
+        function renderSearchResults(chunks, query) {
+            kbSearchResults.classList.remove('hidden');
+            kbSearchResults.innerHTML = chunks.map((chunk, i) => {
+                const metadata = chunk.metadata || {};
+                const source = metadata.file_name || '未知来源';
+                const category = metadata.category || '';
+                const h1 = metadata.H1 || '';
+                const h2 = metadata.H2 || '';
+                const score = chunk.score !== undefined ? (chunk.score * 100).toFixed(0) + '%' : '-';
+                
+                return '<div class="bg-[#F9F7F3] rounded-xl p-4 border border-[#EAE2D5]">' +
+                    '<div class="flex justify-between items-start mb-2">' +
+                        '<span class="text-xs font-medium text-[#D4A373] bg-[#FEF3C7] px-2 py-0.5 rounded">' + source + '</span>' +
+                        '<span class="text-xs text-[#A8A29A]">相关度: ' + score + '</span>' +
+                    '</div>' +
+                    (category ? '<div class="text-xs text-[#786F66] mb-1">分类: ' + category + '</div>' : '') +
+                    (h1 ? '<div class="text-xs text-blue-600 mb-1">标题: ' + h1 + '</div>' : '') +
+                    (h2 ? '<div class="text-xs text-green-600 mb-2">小节: ' + h2 + '</div>' : '') +
+                    '<p class="text-sm text-[#5C544E] leading-relaxed">' + escapeHtml(chunk.content || '') + '</p>' +
+                '</div>';
+            }).join('');
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        kbSearchBtn.addEventListener('click', searchKnowledgeBase);
+        kbSearchQuery.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchKnowledgeBase();
+            }
+        });
+
+        // 移动端优化：防止点击输入框时的闪烁
+        if ('ontouchstart' in window) {
+            document.querySelectorAll('input, textarea, select').forEach(el => {
+                el.addEventListener('touchstart', function(e) {
+                    // 预先阻止可能导致闪烁的默认行为，但不影响输入
+                    e.stopPropagation();
+                }, { passive: true });
+            });
+        }
+    </script>
+</body>
+
+</html>

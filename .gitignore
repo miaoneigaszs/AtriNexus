@@ -1,0 +1,191 @@
+# ============ 敏感配置 ============
+data/config/config.json
+data/config/backups
+
+# ============ 数据库文件 ============
+*.db
+*.sqlite
+*.sqlite3
+memory/
+!modules/memory/
+
+
+# ============ 用户数据 ============
+# ============ 用户数据 ============
+# 忽略 avatars 下除了 ATRI 之外的所有内容
+data/avatars/**/*
+!data/avatars/ATRI/
+!data/avatars/ATRI/**
+
+data/voices/
+
+# ============ 日志文件 ============
+logs/
+*.log
+
+# ============ 环境变量 ============
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# ============ 用户特定配置 ============
+user_config.json
+local_config.json
+
+# ============ 数据目录 ============
+# 用户数据库
+data/database/
+data/mode/
+
+# 向量数据库
+data/vectordb/
+
+# 用户知识库
+data/knowledge/
+
+# Token 统计
+data/token_stats/
+
+# 定时任务数据
+data/tasks.json
+
+# ============ 其他敏感文件 ============
+# 备份文件
+.backup/
+*.bak
+archive/
+resume-1.0.0
+resume-1.0.0/*
+resume-1.0.0/**
+
+# 临时测试数据
+test_data/
+*.test.json
+
+# 临时文件和缓存
+*.tmp
+*.temp
+*.cache
+.DS_Store
+Thumbs.db
+
+# ============ Python ============
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============ IDE 配置 ============
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+*.iml
+
+# Cursor
+.cursor/
+.cursorrules
+.cursorignore
+.cursorindexingignore
+
+# Kiro
+.kiro/
+.kiro/*
+
+# Ruff
+.ruff_cache/
+
+# ============ 系统文件 ============
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+# ============ 其他 ============
+# 云端测试数据和缓存
+src/autoupdate/cloud/*
+!src/autoupdate/cloud/version.json
+
+# PyPI configuration file
+.pypirc
+
+# ============ 文档文件 ============
+# 忽略所有 .md 文档，只保留核心文档
+*.md
+*.txt
+# 但保留以下重要文档
+!README.md
+!Thanks.md
+!项目技术文档.md
+!LICENSE

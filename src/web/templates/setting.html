@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AtriNexus 系统配置</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+        body {
+            font-family: 'Inter', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+            background-color: #FAF9F6;
+            color: #5C544E;
+            background-image: radial-gradient(#E9D8A6 0.5px, transparent 0.5px);
+            background-size: 24px 24px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(233, 216, 166, 0.4);
+            box-shadow: 0 20px 25px -5px rgba(212, 163, 115, 0.1), 0 10px 10px -5px rgba(212, 163, 115, 0.04);
+        }
+
+        .warm-input {
+            background-color: #FFFFFF;
+            border: 1.5px solid #EAE2D5;
+            color: #5C544E;
+            border-radius: 10px;
+            padding: 10px 14px;
+            outline: none;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease;
+            caret-color: #D4A373;
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+        }
+
+        .warm-input:focus {
+            border-color: #D4A373;
+            box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.15);
+        }
+
+        .warm-input:disabled {
+            background-color: #F5F0E6;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #D4A373 0%, #C29163 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 12px 20px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(212, 163, 115, 0.3);
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            filter: brightness(1.05);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(212, 163, 115, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #EAE2D5;
+            color: #B9B3A9;
+            box-shadow: none;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #F5F0E6;
+            color: #D4A373;
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-secondary:hover {
+            background: #E9D8A6;
+        }
+
+        .tab-btn {
+            transition: all 0.2s;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .tab-btn.active {
+            background-color: #D4A373;
+            color: white;
+            box-shadow: 0 2px 4px rgba(212, 163, 115, 0.3);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translate(-50%, 100px);
+            padding: 12px 24px;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 280px;
+        }
+
+        .toast.show {
+            transform: translate(-50%, 0);
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background-color: #EAE2D5;
+            border-radius: 24px;
+            transition: 0.3s;
+        }
+
+        .toggle-slider:before {
+            content: "";
+            position: absolute;
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            border-radius: 50%;
+            transition: 0.3s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        }
+
+        .toggle-switch input:checked+.toggle-slider {
+            background-color: #D4A373;
+        }
+
+        .toggle-switch input:checked+.toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Password toggle */
+        .password-wrapper {
+            position: relative;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #A8A29A;
+            background: none;
+            border: none;
+            padding: 4px;
+        }
+
+        .password-toggle:hover {
+            color: #D4A373;
+        }
+
+        .field-group {
+            margin-bottom: 20px;
+        }
+
+        .field-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #786F66;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .field-desc {
+            font-size: 11px;
+            color: #A8A29A;
+            margin-top: 4px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #C29163;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #EAE2D5;
+        }
+
+        /* Tag input for fallback_models */
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            padding: 8px;
+            border: 1.5px solid #EAE2D5;
+            border-radius: 10px;
+            background: #FFFFFF;
+            min-height: 42px;
+            cursor: text;
+        }
+
+        .tag-container:focus-within {
+            border-color: #D4A373;
+            box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.15);
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            background: #F5F0E6;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #5C544E;
+        }
+
+        .tag button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #A8A29A;
+            font-size: 14px;
+            line-height: 1;
+            padding: 0;
+        }
+
+        .tag button:hover {
+            color: #DC2626;
+        }
+
+        .tag-input {
+            border: none;
+            outline: none;
+            font-size: 13px;
+            flex: 1;
+            min-width: 100px;
+            background: transparent;
+            color: #5C544E;
+            caret-color: #D4A373;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #EAE2D5;
+            border-radius: 50%;
+            border-top-color: #D4A373;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .panel-enter {
+            animation: fadeIn 0.25s ease-out;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #F5F0E6;
+            border-radius: 10px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #D4A373;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen flex items-start justify-center p-6 pt-12">
+
+    <!-- Toast -->
+    <div id="toast" class="toast">
+        <span id="toast-icon"></span>
+        <span id="toast-message" class="font-medium text-sm">提示信息</span>
+    </div>
+
+    <div class="max-w-3xl w-full">
+
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-[#F5F0E6] rounded-2xl mb-4 text-[#D4A373]">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    </path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-[#D4A373] tracking-tight">系统配置</h1>
+            <p class="text-sm text-[#A8A29A] mt-2">管理模型、API、行为等核心配置</p>
+        </div>
+
+        <!-- Tabs -->
+        <div class="flex bg-[#F5F0E6] p-1 rounded-xl mb-6 overflow-x-auto gap-1">
+            <button data-tab="llm" class="tab-btn active flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">🤖
+                LLM</button>
+            <button data-tab="image" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">🖼️
+                图像</button>
+            <button data-tab="intent" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">🧠
+                意图</button>
+            <button data-tab="embedding" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">📐
+                向量</button>
+            <button data-tab="search" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">🔍
+                搜索</button>
+            <button data-tab="tasks" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">📋
+                任务</button>
+            <button data-tab="wecom" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">🏢
+                企微</button>
+            <button data-tab="system" class="tab-btn flex-1 py-2 font-medium text-sm rounded-lg text-[#786F66]">⚙️
+                系统</button>
+        </div>
+
+        <!-- Panel Container -->
+        <div id="panelContainer">
+            <!-- Panels are rendered dynamically via JS -->
+            <div class="glass-card rounded-2xl p-6">
+                <div class="text-center text-[#A8A29A] py-8">
+                    <div class="spinner mx-auto mb-3"></div>
+                    正在加载配置...
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="mt-6 flex gap-3">
+            <button id="saveBtn" class="btn-primary flex-1 flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                    <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                    <polyline points="7 3 7 8 15 8"></polyline>
+                </svg>
+                保存配置
+            </button>
+            <button id="reloadBtn" class="btn-secondary flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                </svg>
+                重新加载
+            </button>
+        </div>
+
+        <!-- Navigation -->
+        <div class="text-center mt-8 flex justify-center gap-6">
+            <a href="/memory" class="text-[#D4A373] hover:underline text-sm">← 记忆管理</a>
+            <a href="/kb-upload" class="text-[#D4A373] hover:underline text-sm">知识库管理 →</a>
+        </div>
+    </div>
+
+    <script>
+        // ========== State ==========
+        let configData = null;
+        let currentTab = 'llm';
+        let availableModels = [];
+
+        // ========== Tab definitions ==========
+        const TAB_DEFS = {
+            llm: {
+                title: '大语言模型配置',
+                category: 'llm_settings',
+                fields: ['api_key', 'base_url', 'model', 'max_tokens', 'temperature', 'auto_model_switch', 'fallback_models']
+            },
+            image: {
+                title: '图像识别配置',
+                category: 'media_settings',
+                path: ['image_recognition'],
+                fields: ['api_key', 'base_url', 'model', 'temperature']
+            },
+            intent: {
+                title: '意图识别配置',
+                category: 'intent_recognition_settings',
+                fields: ['api_key', 'base_url', 'model', 'temperature']
+            },
+            embedding: {
+                title: 'Embedding 配置',
+                category: 'embedding_settings',
+                fields: ['api_key', 'base_url', 'model', 'reranker_model']
+            },
+            search: {
+                title: '网络搜索配置',
+                category: 'network_search_settings',
+                fields: ['search_enabled', 'search_provider', 'weblens_enabled', 'api_key', 'base_url']
+            },
+            tasks: {
+                title: '定时任务',
+                custom: true
+            },
+            wecom: {
+                title: '企业微信配置',
+                category: 'wecom_settings',
+                fields: ['corp_id', 'agent_id', 'secret', 'token', 'encoding_aes_key']
+            },
+            system: {
+                title: '系统性能配置',
+                category: 'system_performance_settings',
+                custom: true
+            }
+        };
+
+        // ========== Toast ==========
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toast-message');
+            const iconEl = document.getElementById('toast-icon');
+            msgEl.textContent = message;
+            toast.style.borderLeft = type === 'success' ? '4px solid #10B981' : '4px solid #EF4444';
+            iconEl.innerHTML = type === 'success'
+                ? '<svg class="text-emerald-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+                : '<svg class="text-red-500" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // ========== API ==========
+        async function fetchApi(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                return await response.json();
+            } catch (error) {
+                return { success: false, message: '网络请求失败' };
+            }
+        }
+
+        async function loadConfig() {
+            const result = await fetchApi('/api/config');
+            if (result.success) {
+                configData = result.data;
+                renderCurrentPanel();
+                showToast('配置加载完成');
+            } else {
+                showToast(result.message || '加载配置失败', 'error');
+            }
+        }
+
+        async function saveConfig() {
+            if (!configData) return;
+
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 保存中...';
+
+            // Collect values from DOM
+            collectFormValues();
+
+            const result = await fetchApi('/api/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ categories: configData })
+            });
+
+            btn.disabled = false;
+            btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> 保存配置`;
+
+            if (result.success) {
+                showToast('配置已保存');
+            } else {
+                showToast(result.message || '保存失败', 'error');
+            }
+        }
+
+        async function refreshModels() {
+            const btn = document.getElementById('refreshModelsBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner"></span>';
+            }
+
+            const result = await fetchApi('/api/models/refresh');
+            if (result.success) {
+                availableModels = result.data || [];
+                // Update the datalist
+                const datalist = document.getElementById('modelDatalist');
+                if (datalist) {
+                    datalist.innerHTML = availableModels.map(m => `<option value="${m}">`).join('');
+                }
+                showToast(`已刷新，共 ${availableModels.length} 个模型`);
+            } else {
+                showToast(result.message || '刷新失败', 'error');
+            }
+
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '🔄';
+            }
+        }
+
+        // ========== Rendering ==========
+        function getSettings(category, path) {
+            let settings = configData[category]?.settings;
+            if (!settings) return {};
+            if (path) {
+                for (const p of path) {
+                    settings = settings[p];
+                    if (!settings) return {};
+                }
+            }
+            return settings;
+        }
+
+        function renderField(key, fieldData, fieldId) {
+            if (!fieldData) return '';
+
+            const id = fieldId || key;
+            const desc = fieldData.description || '';
+            const value = fieldData.value;
+            const type = fieldData.type;
+            const isSecret = fieldData.is_secret || false;
+            const options = fieldData.options;
+            const min = fieldData.min;
+            const max = fieldData.max;
+
+            let inputHtml = '';
+
+            if (type === 'boolean') {
+                inputHtml = `
+                    <label class="toggle-switch">
+                        <input type="checkbox" data-field="${id}" ${value ? 'checked' : ''}>
+                        <span class="toggle-slider"></span>
+                    </label>`;
+                return `<div class="field-group flex items-center justify-between">
+                    <div>
+                        <div class="field-label">${desc}</div>
+                    </div>
+                    ${inputHtml}
+                </div>`;
+            }
+
+            if (type === 'array' && key === 'fallback_models') {
+                const tags = (value || []).map(v => `<span class="tag">${escapeHtml(v)}<button onclick="removeTag(this)" type="button">&times;</button></span>`).join('');
+                inputHtml = `
+                    <div class="tag-container" data-field="${id}" onclick="this.querySelector('.tag-input')?.focus()">
+                        ${tags}
+                        <input class="tag-input" placeholder="输入模型名后按 Enter" onkeydown="handleTagInput(event, this)">
+                    </div>`;
+            } else if (options && options.length > 0) {
+                const opts = options.map(o => `<option value="${o}" ${o === value ? 'selected' : ''}>${o}</option>`).join('');
+                inputHtml = `<select class="warm-input" data-field="${id}">${opts}</select>`;
+            } else if (type === 'number') {
+                const minAttr = min !== undefined ? `min="${min}"` : '';
+                const maxAttr = max !== undefined ? `max="${max}"` : '';
+                const step = (max !== undefined && max <= 2) ? 'step="0.1"' : 'step="1"';
+                inputHtml = `<input type="number" class="warm-input" data-field="${id}" value="${value}" ${minAttr} ${maxAttr} ${step}>`;
+            } else if (isSecret) {
+                const masked = typeof value === 'string' ? value : '';
+                inputHtml = `
+                    <div class="password-wrapper">
+                        <input type="password" class="warm-input" data-field="${id}" value="${masked}" style="padding-right: 40px;">
+                        <button class="password-toggle" onclick="togglePassword(this)" type="button" title="显示/隐藏">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                    </div>`;
+            } else {
+                inputHtml = `<input type="text" class="warm-input" data-field="${id}" value="${escapeHtml(String(value || ''))}">`;
+            }
+
+            // Special: model field with refresh button
+            if (key === 'model' && id.startsWith('llm_settings')) {
+                inputHtml = `
+                    <div class="flex gap-2 items-center">
+                        <input type="text" class="warm-input flex-1" data-field="${id}" list="modelDatalist" value="${escapeHtml(String(value || ''))}">
+                        <datalist id="modelDatalist"></datalist>
+                        <button id="refreshModelsBtn" class="btn-secondary py-2 px-3 text-lg" onclick="refreshModels()" type="button" title="刷新模型列表">🔄</button>
+                    </div>`;
+            }
+
+            return `<div class="field-group">
+                <div class="field-label">${desc || key}</div>
+                ${inputHtml}
+            </div>`;
+        }
+
+        function renderStandardPanel(tab) {
+            const def = TAB_DEFS[tab];
+            const settings = getSettings(def.category, def.path);
+            const prefix = def.path ? `${def.category}.${def.path.join('.')}` : def.category;
+
+            let html = `<div class="section-title">${def.title}</div>`;
+            for (const key of def.fields) {
+                const fieldId = `${prefix}.${key}`;
+                html += renderField(key, settings[key], fieldId);
+            }
+            return html;
+        }
+
+        // ========== Tasks Panel ==========
+        let tasksData = [];
+
+        async function loadTasks() {
+            const result = await fetchApi('/api/tasks');
+            if (result.success) {
+                tasksData = result.data || [];
+            }
+        }
+
+        async function createTask() {
+            const taskId = document.getElementById('newTaskId')?.value.trim();
+            const chatId = document.getElementById('newChatId')?.value.trim();
+            const scheduleTime = document.getElementById('newScheduleTime')?.value.trim();
+            const content = document.getElementById('newContent')?.value.trim();
+
+            if (!taskId || !chatId || !scheduleTime || !content) {
+                showToast('请填写所有必填字段', 'error');
+                return;
+            }
+
+            const result = await fetchApi('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: taskId, chat_id: chatId, schedule_time: scheduleTime, content: content, is_active: true })
+            });
+
+            if (result.success) {
+                showToast('任务已创建');
+                await loadTasks();
+                renderCurrentPanel();
+            } else {
+                showToast(result.message || '创建失败', 'error');
+            }
+        }
+
+        async function deleteTask(taskId) {
+            if (!confirm(`确定删除任务 "${taskId}" 吗？`)) return;
+            const result = await fetchApi(`/api/tasks/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+            if (result.success) {
+                showToast('任务已删除');
+                await loadTasks();
+                renderCurrentPanel();
+            } else {
+                showToast(result.message || '删除失败', 'error');
+            }
+        }
+
+        async function toggleTask(taskId, isActive) {
+            const result = await fetchApi(`/api/tasks/${encodeURIComponent(taskId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: isActive })
+            });
+            if (result.success) {
+                showToast(isActive ? '任务已启用' : '任务已暂停');
+                await loadTasks();
+            } else {
+                showToast(result.message || '操作失败', 'error');
+            }
+        }
+
+        function renderTasksPanel() {
+            let html = '<div class="section-title">定时任务管理</div>';
+            html += '<p class="text-xs text-[#A8A29A] mb-4">任务到点后将加载人设和记忆，由 LLM 生成自然消息发送给用户。</p>';
+
+            // Task list
+            if (tasksData.length === 0) {
+                html += '<div class="text-center text-[#A8A29A] py-4">暂无定时任务，请在下方添加</div>';
+            } else {
+                for (const task of tasksData) {
+                    const active = task.is_active !== false;
+                    html += `
+                    <div class="flex items-start gap-3 p-4 rounded-xl mb-3" style="background: ${active ? '#FDFCF8' : '#F5F0E6'}; border: 1px solid #EAE2D5;">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="font-semibold text-sm text-[#5C544E]">${escapeHtml(task.task_id)}</span>
+                                <span class="text-xs px-2 py-0.5 rounded" style="background: ${active ? '#D4A373' : '#EAE2D5'}; color: ${active ? 'white' : '#A8A29A'};">${active ? '启用' : '暂停'}</span>
+                            </div>
+                            <div class="text-xs text-[#A8A29A] mb-1">⏰ <code>${escapeHtml(task.schedule_time || '')}</code> · 👤 ${escapeHtml(task.chat_id || '')}</div>
+                            <div class="text-xs text-[#786F66] truncate">${escapeHtml(task.content || '')}</div>
+                        </div>
+                        <div class="flex gap-1 flex-shrink-0">
+                            <button onclick="toggleTask('${escapeHtml(task.task_id)}', ${!active})" class="btn-secondary py-1 px-2 text-xs">${active ? '暂停' : '启用'}</button>
+                            <button onclick="deleteTask('${escapeHtml(task.task_id)}')" class="py-1 px-2 text-xs rounded-lg" style="background: #FEE2E2; color: #DC2626; border: none; cursor: pointer;">删除</button>
+                        </div>
+                    </div>`;
+                }
+            }
+
+            // Add task form
+            html += `
+            <div class="section-title mt-6">添加新任务</div>
+            <div class="field-group">
+                <div class="field-label">任务 ID</div>
+                <input type="text" class="warm-input" id="newTaskId" placeholder="例如: lunch_reminder">
+            </div>
+            <div class="field-group">
+                <div class="field-label">目标用户 ID（企业微信 UserID）</div>
+                <input type="text" class="warm-input" id="newChatId" placeholder="企业微信中的用户ID">
+            </div>
+            <div class="field-group">
+                <div class="field-label">Cron 表达式（分 时 日 月 周）</div>
+                <input type="text" class="warm-input" id="newScheduleTime" placeholder="例如: 0 8 * * * (每天8:00)">
+                <div class="field-desc">常用: 0 8 * * * (每天8:00) | 30 12 * * * (每天12:30) | 0 23 * * * (每天23:00)</div>
+            </div>
+            <div class="field-group">
+                <div class="field-label">提示词（发给 LLM 的 prompt，不是直接发的消息）</div>
+                <textarea class="warm-input" id="newContent" rows="3" placeholder="例如: 系统提示：现在是早上8点，请发送一条温馨的早安问候，提醒我开始新的一天。" style="resize: vertical;"></textarea>
+            </div>
+            <button onclick="createTask()" class="btn-primary w-full">➕ 添加任务</button>`;
+
+            return html;
+        }
+
+        function renderSystemPanel() {
+            const settings = configData.system_performance_settings?.settings;
+            if (!settings) return '<div class="text-[#A8A29A]">系统性能设置不可用</div>';
+
+            let html = '';
+
+            html += '<div class="section-title">线程池</div>';
+            html += renderField('max_workers', settings.thread_pool?.max_workers, 'system.thread_pool.max_workers');
+
+            html += '<div class="section-title mt-6">HTTP 客户端</div>';
+            html += renderField('timeout', settings.http_client?.timeout, 'system.http_client.timeout');
+            html += renderField('connect_timeout', settings.http_client?.connect_timeout, 'system.http_client.connect_timeout');
+            html += renderField('max_connections', settings.http_client?.max_connections, 'system.http_client.max_connections');
+            html += renderField('max_keepalive_connections', settings.http_client?.max_keepalive_connections, 'system.http_client.max_keepalive_connections');
+            html += renderField('keepalive_expiry', settings.http_client?.keepalive_expiry, 'system.http_client.keepalive_expiry');
+
+            return html;
+        }
+
+        function renderCurrentPanel() {
+            const container = document.getElementById('panelContainer');
+            const def = TAB_DEFS[currentTab];
+            let content = '';
+
+            if (def.custom) {
+                content = currentTab === 'tasks' ? renderTasksPanel() : renderSystemPanel();
+            } else {
+                content = renderStandardPanel(currentTab);
+            }
+
+            container.innerHTML = `<div class="glass-card rounded-2xl p-6 panel-enter">${content}</div>`;
+        }
+
+        // ========== Collect form values ==========
+        function collectFormValues() {
+            document.querySelectorAll('[data-field]').forEach(el => {
+                const fieldPath = el.dataset.field;
+                let value;
+
+                if (el.type === 'checkbox') {
+                    value = el.checked;
+                } else if (el.type === 'number') {
+                    value = parseFloat(el.value);
+                } else if (el.classList.contains('tag-container')) {
+                    value = Array.from(el.querySelectorAll('.tag')).map(t => t.firstChild.textContent.trim());
+                } else {
+                    value = el.value;
+                }
+
+                setNestedValue(fieldPath, value);
+            });
+        }
+
+        function setNestedValue(path, value) {
+            const parts = path.split('.');
+
+            // Standard categories: llm_settings.api_key -> categories.llm_settings.settings.api_key.value
+            if (parts.length === 2) {
+                const [category, key] = parts;
+                if (configData[category]?.settings?.[key]) {
+                    configData[category].settings[key].value = value;
+                }
+            }
+            // Media: media_settings.image_recognition.api_key
+            else if (parts.length === 3 && parts[0] !== 'behavior' && parts[0] !== 'system') {
+                const [category, sub, key] = parts;
+                if (configData[category]?.settings?.[sub]?.[key]) {
+                    configData[category].settings[sub][key].value = value;
+                }
+            }
+            // (tasks tab is managed separately via /api/tasks, not via config save)
+            // System performance
+            else if (parts[0] === 'system') {
+                const sysSettings = configData.system_performance_settings?.settings;
+                if (!sysSettings) return;
+                if (sysSettings[parts[1]]?.[parts[2]]) {
+                    sysSettings[parts[1]][parts[2]].value = value;
+                }
+            }
+        }
+
+        // ========== Helpers ==========
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function togglePassword(btn) {
+            const input = btn.parentElement.querySelector('input');
+            input.type = input.type === 'password' ? 'text' : 'password';
+        }
+
+        function removeTag(btn) {
+            btn.parentElement.remove();
+        }
+
+        function handleTagInput(event, input) {
+            if (event.key === 'Enter' && input.value.trim()) {
+                event.preventDefault();
+                const container = input.closest('.tag-container');
+                const tag = document.createElement('span');
+                tag.className = 'tag';
+                tag.innerHTML = `${escapeHtml(input.value.trim())}<button onclick="removeTag(this)" type="button">&times;</button>`;
+                container.insertBefore(tag, input);
+                input.value = '';
+            }
+        }
+
+        // ========== Tab Switching ==========
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Collect current form values before switching
+                if (configData) collectFormValues();
+
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTab = btn.dataset.tab;
+                renderCurrentPanel();
+            });
+        });
+
+        // ========== Event Listeners ==========
+        document.getElementById('saveBtn').addEventListener('click', saveConfig);
+        document.getElementById('reloadBtn').addEventListener('click', loadConfig);
+
+        // ========== Init ==========
+        async function init() {
+            await loadConfig();
+            await loadTasks();
+        }
+        init();
+    </script>
+</body>
+
+</html>

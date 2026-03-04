@@ -1,0 +1,23 @@
+[Unit]
+Description=AtriNexus WeCom Service
+After=network.target
+
+[Service]
+# 用户名 (脚本会自动替换为当前用户，或手动修改为 root/ubuntu)
+User=root
+# 工作目录 (脚本会自动替换)
+WorkingDirectory=/opt/AtriNexus
+# 启动命令 (脚本会自动替换)
+ExecStart=/opt/AtriNexus/.venv/bin/python run.py
+# 环境变量
+Environment=WECOM_HOST=127.0.0.1
+Environment=WECOM_PORT=8080
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+
+# 自动重启配置
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
