@@ -4,9 +4,11 @@
 
 **在虚拟与现实交织处，给予永恒的温柔羁绊**
 
-[![GitHub Stars](https://img.shields.io/github/stars/AtriNexus/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/AtriNexus/AtriNexus/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/AtriNexus/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/AtriNexus/AtriNexus/network/members)
-[![License](https://img.shields.io/github/license/AtriNexus/AtriNexus?color=03a9f4&style=flat-square)](LICENSE)
+# AtriNexus
+
+[![GitHub Stars](https://img.shields.io/github/stars/miaoneigaszs/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/miaoneigaszs/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/network/members)
+[![License](https://img.shields.io/github/license/miaoneigaszs/AtriNexus?color=03a9f4&style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.4.3.2-ff69b4?style=flat-square)](version.json)
 
 </div>
