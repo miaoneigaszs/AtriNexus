@@ -347,13 +347,6 @@ data/avatars/ATRI/
 - 使用者需对自身行为负全责
 - 未成年人应在监护下使用
 
----
-
-## 🙏 致谢
-
-本项目离不开以下支持和贡献，详见 [Thanks.md](Thanks.md)
-
----
 
 <div align="center">
 
