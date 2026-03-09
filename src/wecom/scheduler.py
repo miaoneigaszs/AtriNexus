@@ -64,23 +64,32 @@ def execute_scheduled_task(task: dict):
     logger.info(f"[定时任务] 开始执行: {task_id} -> 用户 {chat_id}")
     
     try:
-        # 1. 加载人设（使用 MessageHandler 的公共方法）
+        # 1. 构建系统提示词（通过 ContextBuilder）
         avatar_name = 'ATRI'  # 默认人设
-        system_prompt = message_handler._load_avatar_prompt(avatar_name)
+        system_prompt = message_handler.context_builder.build_system_prompt(
+            avatar_name=avatar_name,
+            current_mode='companion'
+        )
         
-        # 2. 加载核心记忆
+        # 2. 加载核心记忆和近期上下文
         core_memory = ""
+        previous_context = []
         try:
             core_memory = message_handler.memory.get_core_memory(chat_id, avatar_name)
+            
+            # 取最近10轮对话作为上下文
+            short_memory = message_handler.memory.get_short_memory(chat_id, avatar_name)
+            recent_10 = short_memory[-10:] if short_memory else []
+            previous_context = message_handler.memory.build_context_from_memory(recent_10)
         except Exception as mem_err:
-            logger.warning(f"[定时任务] 加载核心记忆失败: {mem_err}")
+            logger.warning(f"[定时任务] 加载记忆/上下文失败: {mem_err}")
         
         # 3. 调用 LLM 生成消息
         reply = message_handler.llm_service.get_response(
             message=content,
             user_id=chat_id,
             system_prompt=system_prompt,
-            previous_context=[],
+            previous_context=previous_context,
             core_memory=core_memory or "",
             kb_context=None
         )

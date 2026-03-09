@@ -55,20 +55,6 @@ class IntentService:
             return self._default_result(content)
         return await self._send_request_async(params, content, user_id)
     
-    def generate_clarification_message(
-        self, query: str, suggestions: List[str], kb_list: Dict
-    ) -> str:
-        """生成分类选择询问消息"""
-        reply = f"🤔 您的问题可能涉及以下知识库分类：\n\n"
-        for i, cat in enumerate(suggestions, 1):
-            files = kb_list.get(cat, [])
-            reply += f"{i}. 【{cat}】- 包含 {len(files)} 个文档\n"
-        reply += "\n请回复数字选择分类"
-        if len(suggestions) > 1:
-            reply += f"（1-{len(suggestions)}）"
-        reply += '，或回复"全部"搜索所有分类。'
-        return reply
-    
     # ========== 内部方法 ==========
 
     def _prepare_params(
@@ -91,8 +77,7 @@ class IntentService:
         system_prompt = self._build_system_prompt(category_descriptions, context_str)
 
         return {
-            "system_prompt": system_prompt,
-            "categories": categories
+            "system_prompt": system_prompt
         }
     
     def _build_request(self, system_prompt: str, content: str):
@@ -100,7 +85,7 @@ class IntentService:
         return {
             "url": f"{self.base_url.rstrip('/')}/chat/completions",
             "headers": {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-            "payload": {
+            "json": {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
@@ -118,7 +103,7 @@ class IntentService:
         try:
             response = get_sync_client().post(**request)
             response.raise_for_status()
-            return self._process_response(response.json(), content, params["categories"], user_id)
+            return self._process_response(response.json(), content)
         except Exception as e:
             return self._handle_request_error(e, content)
 
@@ -128,7 +113,7 @@ class IntentService:
         try:
             response = await get_async_client().post(**request)
             response.raise_for_status()
-            return self._process_response(response.json(), content, params["categories"], user_id)
+            return self._process_response(response.json(), content)
         except Exception as e:
             return self._handle_request_error(e, content)
 
@@ -137,7 +122,7 @@ class IntentService:
         error_messages = {
             json.JSONDecodeError: f"JSON解析失败: {error}",
             httpx.TimeoutException: "API超时",
-            httpx.HTTPStatusError: f"HTTP错误: {error.response.status_code}",
+            httpx.HTTPStatusError: f"HTTP错误: {error.response.status_code}" if hasattr(error, 'response') else f"HTTP错误: {error}",
             httpx.RequestError: f"请求失败: {error}"
         }
         
@@ -149,7 +134,7 @@ class IntentService:
         return self._default_result(content)
     
     def _process_response(
-        self, result: Dict, content: str, categories: List[str], user_id: str
+        self, result: Dict, content: str
     ) -> Dict[str, Any]:
         """处理 API 响应"""
         reply = result['choices'][0]['message']['content'].strip()
@@ -158,7 +143,7 @@ class IntentService:
         usage = result.get('usage', {})
         if usage:
             token_monitor.record(
-                user_id=user_id, model=self.model,
+                user_id="", model=self.model,  # user_id 在意图识别时不重要
                 prompt_tokens=usage.get('prompt_tokens', 0),
                 completion_tokens=usage.get('completion_tokens', 0),
                 request_type="intent"
@@ -169,27 +154,16 @@ class IntentService:
         parsed = json.loads(json_str)
 
         intent = parsed.get("intent", "TYPE_CHITCHAT")
-        confidence = float(parsed.get("confidence", 0.5))
-        category = parsed.get("category", "")
-        suggestions = parsed.get("suggestions", [])
-
-        # 验证分类有效性
-        if category and category not in categories:
-            category, confidence = "", min(confidence, 0.6)
-        valid_suggestions = [s for s in suggestions if s in categories][:3]
+        query = parsed.get("query", content)
 
         intent_result = {
             "intent": intent,
-            "query": parsed.get("query", content),
-            "category": category,
-            "confidence": confidence,
-            "suggestions": valid_suggestions,
-            "need_clarify": confidence < 0.7 and len(valid_suggestions) > 1
+            "query": query,
+            "category": parsed.get("category")
         }
 
         # 日志输出
-        clarify = " [需澄清]" if intent_result["need_clarify"] else ""
-        log_msg = f"[意图识别] 知识库查询{clarify}: 分类={category}, 置信度={confidence:.2f}" if intent == "TYPE_KNOWLEDGE_BASE" else f"[意图识别] 普通对话: 置信度={confidence:.2f}"
+        log_msg = f"[意图识别] 知识库查询" if intent == "TYPE_KNOWLEDGE_BASE" else f"[意图识别] 普通对话"
         logger.info(log_msg)
 
         return intent_result
@@ -217,11 +191,7 @@ class IntentService:
         """返回默认的意图识别结果"""
         return {
             "intent": "TYPE_CHITCHAT",
-            "query": content,
-            "category": "",
-            "confidence": 0.0,
-            "suggestions": [],
-            "need_clarify": False
+            "query": content
         }
     
     def _build_category_descriptions(self, categories: List[str], kb_list: Dict) -> str:
@@ -264,12 +234,9 @@ class IntentService:
 {{
   "intent": "TYPE_KNOWLEDGE_BASE 或 TYPE_CHITCHAT",
   "query": "如果需要查知识库，重写为消除代词的独立查询句；否则保持原样",
-  "category": "最可能的知识库分类（仅TYPE_KNOWLEDGE_BASE时有效）",
-  "confidence": 0.85,
-  "suggestions": ["备选分类1", "备选分类2"]
+  "category": "如果用户问题明确指向某个知识库分类，请提取该分类名，否则为 null"
 }}
 
 ## 判断要点
 1. 公司文档、规章制度、技术资料 → TYPE_KNOWLEDGE_BASE
-2. 日常遭遇、购物消费、就医经历、实时新闻、天气等 → TYPE_CHITCHAT
-3. confidence 反映你对判断的确信程度（0.0-1.0）。"""
+2. 日常遭遇、购物消费、就医经历、实时新闻、天气等 → TYPE_CHITCHAT"""

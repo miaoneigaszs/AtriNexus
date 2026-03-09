@@ -25,6 +25,9 @@ try:
 except ImportError:
     Document = None
 
+import jieba
+from rank_bm25 import BM25Okapi
+
 from src.services.ai.embedding_service import EmbeddingService
 from src.utils.async_utils import run_sync
 from data.config import config
@@ -46,6 +49,10 @@ class RAGEngine:
             )
             os.makedirs(db_path, exist_ok=True)
             self.client = chromadb.PersistentClient(path=db_path)
+            
+        # BM25 Sparse 检索需要的语料库及分词后索引（内存缓寸，启动时自动从 Chroma 重建）
+        # 结构: user_id -> {"corpus": [list of strings], "bm25": BM25Okapi object, "ids": [list of ids]}
+        self._bm25_store = {}
 
         # 初始化共享 Embedding 服务（使用独立的 embedding 配置）
         self._embedding_service = EmbeddingService()
@@ -109,6 +116,34 @@ class RAGEngine:
         except Exception as e:
             logger.error(f"获取知识库集合失败: {e}")
             return None
+
+    def _init_or_update_bm25(self, user_id: str, collection=None):
+        """初始化或更新用户的 BM25 索引"""
+        if collection is None:
+            collection = self._get_kb_collection(user_id)
+        if not collection:
+            return
+            
+        try:
+            # 取出所有文档
+            all_data = collection.get(include=["documents"])
+            docs = all_data.get("documents", [])
+            ids = all_data.get("ids", [])
+            
+            if not docs:
+                self._bm25_store[user_id] = None
+                return
+                
+            tokenized_corpus = [list(jieba.cut(doc)) for doc in docs]
+            bm25 = BM25Okapi(tokenized_corpus)
+            self._bm25_store[user_id] = {
+                "corpus": docs,
+                "ids": ids,
+                "bm25": bm25
+            }
+            logger.debug(f"BM25 索引初始化/更新完成: 用户 {user_id}, {len(docs)} 个 Chunk")
+        except Exception as e:
+            logger.error(f"初始化 BM25 失败: {e}")
 
     # ---------- 文档解析阶段 ----------
 
@@ -520,6 +555,8 @@ class RAGEngine:
                 logger.debug(f"批次 {i//smart_batch_size + 1}/{(total_chunks-1)//smart_batch_size + 1} 写入完成")
             
             logger.info(f"文档入库成功: {file_name}, Hash={doc_hash}, 共切分 {total_chunks} 块, 批大小={smart_batch_size}")
+            # 更新 BM25 索引
+            self._init_or_update_bm25(user_id, collection)
             try:
                 os.remove(file_path)
             except:
@@ -557,56 +594,6 @@ class RAGEngine:
         if collection.count() == 0:
             return []
 
-        # 快速模式：只取 top_k 条，跳过海选和重排
-        if skip_rerank:
-            query_args = {
-                "query_texts": [query],
-                "n_results": top_k
-            }
-            
-            # 构建复合过滤条件
-            where_clause = {}
-            if category_filter:
-                where_clause["category"] = category_filter
-            if h1_filter:
-                where_clause["H1"] = h1_filter
-            if h2_filter:
-                where_clause["H2"] = h2_filter
-            if where_clause:
-                query_args["where"] = where_clause
-            
-            try:
-                results = collection.query(**query_args)
-                if not results or not results['documents'] or not results['documents'][0]:
-                    return []
-                
-                docs = results['documents'][0]
-                metas = results['metadatas'][0] if results.get('metadatas') else [{}] * len(docs)
-                distances = results['distances'][0] if results.get('distances') else [0] * len(docs)
-                
-                ret = []
-                for i in range(len(docs)):
-                    dist = distances[i] if i < len(distances) else 0
-                    sim_score = 1.0 / (1.0 + dist)
-                    ret.append({
-                        "content": docs[i],
-                        "metadata": metas[i],
-                        "score": sim_score
-                    })
-                logger.debug(f"[快速检索] 查询='{query[:20]}...' 返回 {len(ret)} 条，跳过重排")
-                return ret
-                
-            except Exception as e:
-                logger.error(f"快速检索失败: {e}")
-                return []
-
-        # 1. 第一阶段：向量大范围海选 (召回)
-        candidate_count = min(max(top_k * 5, 15), collection.count())
-        query_args = {
-            "query_texts": [query],
-            "n_results": candidate_count
-        }
-
         # 构建复合过滤条件
         where_clause = {}
         if category_filter:
@@ -616,48 +603,171 @@ class RAGEngine:
         if h2_filter:
             where_clause["H2"] = h2_filter
 
+        # 确定检索数量：快速模式只取 top_k，海选模式多取一些
+        fetch_k = top_k if skip_rerank else min(max(top_k * 5, 15), collection.count())
+        
+        query_args = {
+            "query_texts": [query],
+            "n_results": fetch_k
+        }
         if where_clause:
             query_args["where"] = where_clause
 
         try:
-            results = collection.query(**query_args)
-            if not results or not results['documents'] or not results['documents'][0]:
+            fetch_k_dense = fetch_k
+            fetch_k_sparse = fetch_k
+
+            # === 并行双路召回 (Dense + Sparse) ===
+            import concurrent.futures
+
+            dense_results_raw = {}
+            sparse_results_raw = {}
+            
+            # 使用 ThreadPoolExecutor 并行发起 Dense(Chroma) 和 Sparse(BM25) 查询
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                def run_dense():
+                    return collection.query(**query_args)
+
+                def run_sparse():
+                    if user_id not in self._bm25_store:
+                        # 如未初始化，先初始化
+                        self._init_or_update_bm25(user_id, collection)
+                    
+                    bm25_data = self._bm25_store.get(user_id)
+                    if not bm25_data:
+                        return []
+                        
+                    tokenized_query = list(jieba.cut(query))
+                    scores = bm25_data["bm25"].get_scores(tokenized_query)
+                    
+                    # 按照分数降序排列，取前 fetch_k_sparse 名
+                    top_n_idx = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:fetch_k_sparse]
+                    
+                    sparse_res = []
+                    for idx in top_n_idx:
+                        if scores[idx] > 0: # 过滤掉得分为0的
+                            sparse_res.append((bm25_data["ids"][idx], scores[idx]))
+                    return sparse_res
+
+                future_dense = executor.submit(run_dense)
+                future_sparse = executor.submit(run_sparse)
+                
+                # 获取结果
+                try:
+                    dense_results_raw = future_dense.result(timeout=10)
+                except Exception as e:
+                    logger.error(f"Dense 向量查询失败: {e}")
+                    
+                try:
+                    sparse_results_raw = future_sparse.result(timeout=10)
+                except Exception as e:
+                    logger.error(f"Sparse BM25查询失败: {e}")
+
+            # === 解析与融合 (RRF) ===
+            rrf_k = 60 # RRF 算法的平滑常数
+            rrf_scores = defaultdict(float)
+            
+            # 记录 id -> object (由于我们需要返回带 metadata 的结果，所以要把查到的 doc 和 meta 全部映射起来)
+            doc_meta_map = {}
+
+            # 处理 Dense 榜单，注入到 RRF
+            if dense_results_raw and dense_results_raw.get('documents') and dense_results_raw['documents'][0]:
+                docs = dense_results_raw['documents'][0]
+                ids = dense_results_raw['ids'][0]
+                metas = dense_results_raw['metadatas'][0] if dense_results_raw.get('metadatas') else [{}] * len(docs)
+                distances = dense_results_raw['distances'][0] if dense_results_raw.get('distances') else [0] * len(docs)
+                
+                for rank, (doc_id, doc, meta, dist) in enumerate(zip(ids, docs, metas, distances)):
+                    # Dense RRF Score
+                    rrf_scores[doc_id] += 1.0 / (rrf_k + rank + 1)
+                    
+                    # 记录实体
+                    if doc_id not in doc_meta_map:
+                        doc_meta_map[doc_id] = {"content": doc, "metadata": meta, "dense_dist": dist}
+
+            # 处理 Sparse 榜单，注入到 RRF
+            if sparse_results_raw:
+                # Sparse 是 [(id, score), ...]
+                # 为了拿到 docs 和 metadata，如果 doc_id 不在 map 里，我们需要去 Chroma 反查一次
+                missing_ids = [doc_id for doc_id, _ in sparse_results_raw if doc_id not in doc_meta_map]
+                if missing_ids:
+                    missing_data = collection.get(ids=missing_ids, include=["documents", "metadatas"])
+                    if missing_data and missing_data.get("ids"):
+                        m_ids = missing_data["ids"]
+                        m_docs = missing_data["documents"]
+                        m_metas = missing_data["metadatas"]
+                        for i in range(len(m_ids)):
+                            doc_meta_map[m_ids[i]] = {"content": m_docs[i], "metadata": m_metas[i]}
+
+                for rank, (doc_id, bm25_score) in enumerate(sparse_results_raw):
+                    if doc_id in doc_meta_map:
+                        # Sparse RRF Score
+                        rrf_scores[doc_id] += 1.0 / (rrf_k + rank + 1)
+            
+            # 依据 RRF 得分排序，截取前 fetch_k 个用于后续重排
+            sorted_rrf_ids = sorted(rrf_scores.keys(), key=lambda k: rrf_scores[k], reverse=True)[:fetch_k]
+            
+            # 组装为最终混合海选列表，同时进行[层级上下文增强]
+            fused_docs = []
+            fused_metas = []
+            fused_original_distances = []
+            
+            for doc_id in sorted_rrf_ids:
+                item = doc_meta_map[doc_id]
+                original_text = item["content"]
+                meta = item["metadata"]
+                dist = item.get("dense_dist", 0.5) # BM25找回的默认给一个居中的欧式距离
+                
+                # --- 层级上下文增强 ---
+                h1 = meta.get("H1", "")
+                h2 = meta.get("H2", "")
+                h3 = meta.get("H3", "")
+                
+                # 拼接目录树前缀，让大模型在打分(Rerank)和推理时感知结构
+                path_parts = [p for p in [h1, h2, h3] if p]
+                if path_parts:
+                    path_str = " > ".join(path_parts)
+                    enriched_text = f"[所属章节: {path_str}]\n{original_text}"
+                else:
+                    enriched_text = original_text
+                    
+                fused_docs.append(enriched_text)
+                fused_metas.append(meta)
+                fused_original_distances.append(dist)
+
+            if not fused_docs:
                 return []
 
-            docs = results['documents'][0]
-            metas = results['metadatas'][0] if results.get('metadatas') else [{}] * len(docs)
-            distances = results['distances'][0] if results.get('distances') else [0] * len(docs)
+            if skip_rerank:
+                logger.debug(f"[快速混合检索] 查询='{query[:20]}...' 返回 {len(fused_docs)} 条，跳过重排")
+            else:
+                logger.info(f"RAG海选(BM25+Dense融合): '{query[:20]}...' 获取候选 {len(fused_docs)} 块。开始调用大模型二次重排。")
 
-            logger.info(f"RAG海选: '{query[:20]}...' 获取候选 {len(docs)} 块。开始调用大模型二次重排。")
+                # 2. 第二阶段：重排模型精确打分 (Reranking)
+                if self.reranker and len(fused_docs) > 1:
+                    rerank_results = self.reranker.rerank(query=query, texts=fused_docs, top_n=top_k)
+                    if rerank_results:
+                        final_ret = []
+                        for rank_info in rerank_results:
+                            idx = rank_info["index"]
+                            score = rank_info["relevance_score"]
+                            final_ret.append({
+                                "content": fused_docs[idx],
+                                "metadata": fused_metas[idx],
+                                "score": score
+                            })
+                        logger.info(f"Reranker 重排完成，提取最终 {len(final_ret)} 个高分片段。")
+                        return final_ret
+                    else:
+                        logger.warning("重排接口未返回数据，降级为默认RRF排序")
 
-            # 2. 第二阶段：重排模型精确打分 (Reranking)
-            if self.reranker and len(docs) > 1:
-                rerank_results = self.reranker.rerank(query=query, texts=docs, top_n=top_k)
-                if rerank_results:
-                    final_ret = []
-                    for rank_info in rerank_results:
-                        idx = rank_info["index"]
-                        score = rank_info["relevance_score"]
-                        final_ret.append({
-                            "content": docs[idx],
-                            "metadata": metas[idx],
-                            "score": score
-                        })
-                    logger.info(f"Reranker 重排完成，提取最终 {len(final_ret)} 个高分片段。")
-                    return final_ret
-                else:
-                    logger.warning("重排接口未返回数据，降级为默认向量排序")
-
-            # 降级：使用向量相似度分数
+            # 降级或直接返回：使用融合分数排列
             ret = []
-            for i in range(min(top_k, len(docs))):
-                # 将距离转换为相似度分数 (0-1)
-                dist = distances[i] if i < len(distances) else 0
-                sim_score = 1.0 / (1.0 + dist)
+            for i in range(min(top_k, len(fused_docs))):
                 ret.append({
-                    "content": docs[i],
-                    "metadata": metas[i],
-                    "score": sim_score
+                    "content": fused_docs[i],
+                    "metadata": fused_metas[i],
+                    "score": rrf_scores[sorted_rrf_ids[i]] * 100 # 将 RRF 放大便于展示
                 })
             return ret
 
@@ -767,6 +877,8 @@ class RAGEngine:
 
         try:
             collection.delete(where={"file_name": file_name})
+            # 文档被删除后同步刷新 BM25 索引
+            self._init_or_update_bm25(user_id, collection)
             return True
         except Exception as e:
             logger.error(f"删除文档碎片失败: {e}")

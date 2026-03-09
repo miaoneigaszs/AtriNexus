@@ -665,9 +665,11 @@ class MemoryManager:
                 {"role": "user", "content": json.dumps(context, ensure_ascii=False)}
             ]
             summary = self.llm_service.chat(summary_messages)
-            if summary:
+            if summary and not summary.strip().lower().startswith("error"):
                 self.add_to_vector_memory(user_id, avatar_name, summary)
                 logger.info(f"[VectorMemory] 对话摘要已写入，user={user_id}: {summary[:50]}...")
+            else:
+                logger.error(f"[VectorMemory] LLM 生成对话摘要失败或返回错误内容: {summary}")
         except Exception as e:
             logger.error(f"[VectorMemory] 生成对话摘要失败: {e}")
 
@@ -700,14 +702,21 @@ class MemoryManager:
                 )}
             ]
             new_core = self.llm_service.chat(messages)
-            if new_core:
-                self.save_core_memory(user_id, avatar_name, new_core)
-                stable = self._extract_zone(new_core, _ZONE_STABLE)
-                recent = self._extract_zone(new_core, _ZONE_RECENT)
-                logger.info(
-                    f"[CoreMemory] 核心记忆已更新 "
-                    f"稳定区={len(stable)}字 近期区={len(recent)}字"
-                )
+            
+            # 强化校验：确保不是错误信息，并且必须包含双区结构，才覆盖写入数据库
+            if new_core and not new_core.strip().lower().startswith("error"):
+                if _ZONE_STABLE in new_core and _ZONE_RECENT in new_core:
+                    self.save_core_memory(user_id, avatar_name, new_core)
+                    stable = self._extract_zone(new_core, _ZONE_STABLE)
+                    recent = self._extract_zone(new_core, _ZONE_RECENT)
+                    logger.info(
+                        f"[CoreMemory] 核心记忆已更新 "
+                        f"稳定区={len(stable)}字 近期区={len(recent)}字"
+                    )
+                else:
+                    logger.error(f"[CoreMemory] LLM 返回的内容缺少双区标记({_ZONE_STABLE}/{_ZONE_RECENT})，拒绝覆盖: {new_core[:100]}...")
+            else:
+                logger.error(f"[CoreMemory] LLM 调用失败或为空，拒绝覆盖核心记忆: {new_core}")
         except Exception as e:
             logger.error(f"[CoreMemory] 更新核心记忆失败: {e}", exc_info=True)
 

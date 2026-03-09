@@ -237,40 +237,23 @@ class LLMService:
 
     def _build_messages(self, user_id: str, message: str, system_prompt: str,
                         core_memory: Optional[str] = None, kb_context: Optional[str] = None) -> Dict[str, Any]:
-        """构建消息列表和请求参数（不再自动注入时间，改为工具调用）"""
-        # 路径：data/prompts/base.md（与 handlers.py 保持一致）
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-        try:
-            with open(os.path.join(project_root, "data", "prompts", "base.md"), "r", encoding="utf-8") as f:
-                base_content = f.read()
-        except Exception as e:
-            logger.error(f"基础Prompt文件读取失败: {str(e)}")
-            base_content = ""
-
-        try:
-            with open(os.path.join(project_root, "src", "base", "worldview.md"), "r", encoding="utf-8") as f:
-                worldview_content = f.read()
-        except FileNotFoundError as e:
-            logger.error(f"世界观文件缺失: {e}")
-            worldview_content = ""
-        except Exception as e:
-            logger.error(f"加载世界观时出现异常: {e}")
-            worldview_content = ""
-
-        if not worldview_content and not core_memory:
-            character_prompt = f"{base_content}\n\n你所扮演的角色介绍如下：\n{system_prompt}"
-        elif worldview_content and not core_memory:
-            character_prompt = f"{base_content}\n\n你所饰演的角色所处世界的世界观为：\n{worldview_content}\n\n你所扮演的角色介绍如下：\n{system_prompt}"
-        elif not worldview_content and core_memory:
-            character_prompt = f"{base_content}\n\n你所饰演角色所具备的核心记忆为：\n{core_memory}\n\n你所扮演的角色介绍如下：\n{system_prompt}"
-        else:
-            character_prompt = f"{base_content}\n\n你所饰演的角色所处世界的世界观为：\n{worldview_content}你所饰演角色所具备的核心记忆为：\n{core_memory}\n\n你所扮演的角色介绍如下：\n{system_prompt}"
-
+        """构建消息列表和请求参数（结构化拼接上下文，强化角色设定）"""
+        
+        # 采用块状结构拼接提示词，解决之前因直接连接带来的“语境断裂”和角色污染问题
+        prompt_parts = []
+        
+        # 1. 强制写入核心人设（由用户配置提供）
+        if system_prompt:
+            prompt_parts.append(f"【角色设定】\n{system_prompt}")
+            
+        # 2. 注入核心记忆
+        if core_memory:
+            prompt_parts.append(f"【核心记忆】\n{core_memory}")
+            
+        # 3. 注入 RAG 知识库检索内容，并加入强制指令，防止脱离角色
         if kb_context:
-            character_prompt = f"{kb_context}\n\n{character_prompt}"
-        final_prompt = character_prompt
-
+            prompt_parts.append(f"【参考资料或记忆】\n{kb_context}\n必须结合上述参考资料，并严格保持你的【角色设定】来回答用户的问题。如果参考资料无相关性，请忽略资料，自然回复即可。")
+        
         chat_history = self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
         
         messages = [
