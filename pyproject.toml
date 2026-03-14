@@ -5,5 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "vulture>=2.14",
+    "langchain>=1.2.10",
+    "langchain-openai>=1.1.11",
+    "openai>=2.26.0",
 ]

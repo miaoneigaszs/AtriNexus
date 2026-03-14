@@ -69,10 +69,14 @@ class GroupChatConfigItem:
 
 @dataclass
 class UserSettings:
-    listen_list: List[str]
+    listen_list: List[str] = None  # 默认值，避免未加载时报错
     group_chat_config: List[GroupChatConfigItem] = None
     
     def __post_init__(self):
+        if self.listen_list is None:
+            self.listen_list = []
+        if self.group_chat_config is None:
+            self.group_chat_config = []
         if self.group_chat_config is None:
             self.group_chat_config = []
 
@@ -697,6 +701,33 @@ class Config:
                             max_size_mb=20,
                             allowed_types=['.pdf', '.docx', '.doc', '.txt', '.md']
                         )
+                    )
+
+                # 用户设置（使用安全的默认值）
+                try:
+                    user_data = categories.get('user_settings', {}).get('settings', {})
+                    group_chat_config_data = user_data.get('group_chat_config', {}).get('value', [])
+                    listen_list_data = user_data.get('listen_list', {}).get('value', [])
+                    
+                    # 解析群聊配置
+                    group_chat_configs = []
+                    for item in group_chat_config_data if group_chat_config_data else []:
+                        if isinstance(item, dict):
+                            group_chat_configs.append(GroupChatConfigItem(
+                                chat_id=item.get('chat_id', ''),
+                                avatar_name=item.get('avatar_name', 'ATRI'),
+                                triggers=item.get('triggers', [])
+                            ))
+                    
+                    self.user = UserSettings(
+                        listen_list=listen_list_data if listen_list_data else [],
+                        group_chat_config=group_chat_configs
+                    )
+                except Exception as e:
+                    logger.warning(f"加载用户设置失败，使用默认值: {e}")
+                    self.user = UserSettings(
+                        listen_list=[],
+                        group_chat_config=[]
                     )
 
                 logger.info("配置加载完成")

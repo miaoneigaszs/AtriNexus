@@ -25,9 +25,9 @@ class ImageHandler:
         """
         self.client = wecom_client
 
-    def process_image(self, user_id: str, media_id: str) -> Optional[str]:
+    async def process_image(self, user_id: str, media_id: str) -> Optional[str]:
         """
-        处理图片消息
+        处理图片消息（异步版本）
 
         Args:
             user_id: 用户ID
@@ -42,15 +42,15 @@ class ImageHandler:
             self.client.send_text(user_id, "抱歉，图片下载失败了，请重新发送试试 😊")
             return None
 
-        # 识别图片内容
-        image_description = self._recognize_image(image_data)
+        # 识别图片内容（异步）
+        image_description = await self._recognize_image(image_data)
         logger.info(f"图片描述完成: {image_description[:50]}...")
 
         return image_description
 
-    def _recognize_image(self, image_data: bytes) -> str:
+    async def _recognize_image(self, image_data: bytes) -> str:
         """
-        调用 VL 模型识别图片内容
+        调用 VL 模型识别图片内容（异步版本）
 
         Args:
             image_data: 图片二进制数据
@@ -74,5 +74,5 @@ class ImageHandler:
             temperature=getattr(vl_config, 'temperature', 0.3)
         )
 
-        description = service.describe(image_data)
+        description = await service.describe(image_data)
         return description

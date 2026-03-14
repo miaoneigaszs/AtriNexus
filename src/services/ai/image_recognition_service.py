@@ -7,7 +7,7 @@
 - 接收 bytes，无需落盘保存文件
 - 自动检测图片 MIME 类型（JPEG / PNG / GIF / WebP），不再硬编码 image/jpeg
 - 超过 500KB 时自动压缩到 1024x1024（压缩后固定为 JPEG）
-- 使用共享 HTTP 连接池，避免重复建联
+- 使用共享 HTTP 连接池，异步调用，不阻塞事件循环
 """
 
 import base64
@@ -15,7 +15,7 @@ import logging
 from io import BytesIO
 from typing import Optional
 
-from src.utils.http_pool import get_sync_client, build_headers
+from src.utils.http_pool import get_async_client, build_headers
 
 logger = logging.getLogger('wecom')
 
@@ -49,11 +49,11 @@ def _detect_mime(data: bytes) -> str:
 
 class ImageRecognitionService:
     """
-    VL 模型图片识别服务。
-    
+    VL 模型图片识别服务（异步版本）。
+
     典型调用方式（在 handlers.py 中）：
         image_data: bytes = wecom_client.download_image(media_id)
-        description = image_service.describe(image_data)
+        description = await image_service.describe(image_data)
     """
 
     def __init__(self, api_key: str, base_url: str, model: str, temperature: float = 0.3):
@@ -66,9 +66,9 @@ class ImageRecognitionService:
         if not model:
             logger.warning("[ImageRecognition] 未配置 VL 模型（model 为空）")
 
-    def describe(self, image_data: bytes, prompt: Optional[str] = None) -> str:
+    async def describe(self, image_data: bytes, prompt: Optional[str] = None) -> str:
         """
-        识别图片内容，返回文字描述。
+        识别图片内容，返回文字描述（异步版本）。
 
         Args:
             image_data: 图片二进制数据
@@ -121,11 +121,11 @@ class ImageRecognitionService:
             "temperature": self.temperature
         }
 
-        # 5. 发送请求
+        # 5. 发送请求（异步）
         try:
-            client = get_sync_client()
+            client = get_async_client()
             headers = build_headers(self.api_key)
-            response = client.post(
+            response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
                 json=payload,
