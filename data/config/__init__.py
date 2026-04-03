@@ -217,7 +217,7 @@ class CompanionModeSettings:
 
 @dataclass
 class Config:
-    def __init__(self):
+    def __init__(self, auto_migrate: bool = False):
         self.user: UserSettings
         self.llm: LLMSettings
         self.media: MediaSettings
@@ -231,6 +231,7 @@ class Config:
         self.kb: KnowledgeBaseSettings
         self.companion_mode: CompanionModeSettings
         self.version: str = "1.0.0"  # 配置文件版本
+        self.auto_migrate = auto_migrate
         self.load_config()
 
     @property
@@ -449,9 +450,12 @@ class Config:
             logger.error(f"检查配置更新失败: {str(e)}")
             raise
 
-    def load_config(self) -> None:
+    def load_config(self, auto_migrate: bool | None = None) -> None:
         # 加载配置文件
         try:
+            if auto_migrate is None:
+                auto_migrate = self.auto_migrate
+
             # 如果配置不存在，从模板创建
             if not os.path.exists(self.config_path):
                 if os.path.exists(self.config_template_path):
@@ -462,8 +466,9 @@ class Config:
                 else:
                     raise FileNotFoundError(f"配置和模板文件都不存在")
 
-            # 检查配置是否需要更新
-            self._check_and_update_config()
+            # 配置迁移会写入磁盘，只在显式启用时执行
+            if auto_migrate:
+                self._check_and_update_config()
 
             # 读取配置文件
             with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -764,7 +769,7 @@ class Config:
             return False
 
 # 创建全局配置实例
-config = Config()
+config = Config(auto_migrate=os.getenv("ATRINEXUS_AUTO_MIGRATE_CONFIG", "").lower() in {"1", "true", "yes", "on"})
 
 # 为了兼容性保留的旧变量（将在未来版本中移除）
 LISTEN_LIST = config.user.listen_list
