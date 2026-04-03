@@ -1,5 +1,7 @@
 # AtriNexus
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 AtriNexus is a WeCom-based personal AI assistant for persistent conversation, memory, retrieval-augmented responses, and lightweight workspace actions.
 
 It is designed for a real long-running personal usage scenario rather than a generic chatbot demo. The current runtime path is:
