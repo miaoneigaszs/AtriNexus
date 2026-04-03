@@ -89,10 +89,10 @@ class MessageHandler:
         return backend
 
     def _resolve_agent_backend(self) -> str:
-        backend = os.getenv("AGENT_BACKEND", "legacy").strip().lower() or "legacy"
+        backend = os.getenv("AGENT_BACKEND", "langchain").strip().lower() or "langchain"
         if backend not in {"legacy", "langchain"}:
-            logger.warning(f"AGENT_BACKEND={backend} 非法，改用 legacy")
-            return "legacy"
+            logger.warning(f"AGENT_BACKEND={backend} 非法，改用 langchain")
+            return "langchain"
         return backend
 
     def _init_vector_store(self) -> QdrantVectorStore:
