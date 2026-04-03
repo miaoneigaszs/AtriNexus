@@ -14,12 +14,12 @@
             "title": "企业微信应用配置",
             "settings": {
                 "corp_id": {
-                    "value": "wwa98d5cceb767bda1",
+                    "value": "",
                     "type": "string",
                     "description": "你的企业ID"
                 },
                 "agent_id": {
-                    "value": "1000002",
+                    "value": "",
                     "type": "string",
                     "description": "你的自建应用AgentId"
                 },
@@ -30,12 +30,12 @@
                     "is_secret": true
                 },
                 "token": {
-                    "value": "nMJfZ4ARU",
+                    "value": "",
                     "type": "string",
                     "description": "你在应用API接收消息处设置的Token"
                 },
                 "encoding_aes_key": {
-                    "value": "pxZPMbvKFThouKpfl3sJxGKpYfUGOZMAsEsegJvUrAN",
+                    "value": "",
                     "type": "string",
                     "description": "你在应用API接收消息处设置的EncodingAESKey"
                 }
