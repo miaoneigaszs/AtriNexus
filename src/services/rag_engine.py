@@ -102,11 +102,20 @@ class RAGEngine:
             return 6
         return self.batch_size  # 默认 8
 
+    def _build_collection_name(self, user_id: str) -> str:
+        """构建稳定且满足 Chroma 约束的集合名。"""
+        normalized_user_id = re.sub(r'[^a-zA-Z0-9_-]+', '_', user_id).strip('_').lower()
+        if not normalized_user_id:
+            normalized_user_id = hashlib.md5(user_id.encode('utf-8')).hexdigest()[:12]
+        if len(normalized_user_id) > 48:
+            normalized_user_id = normalized_user_id[:48]
+        return f"kb_{normalized_user_id}"
+
     def _get_kb_collection(self, user_id: str):
         """获取专属知识库 Collection，按用户隔离"""
         if not self.embedding_fn:
             return None
-        collection_name = f"kb_{user_id}".replace("-", "_")
+        collection_name = self._build_collection_name(user_id)
         try:
             return self.client.get_or_create_collection(
                 name=collection_name,
@@ -114,7 +123,7 @@ class RAGEngine:
                 metadata={"description": "User Knowledge Base"}
             )
         except Exception as e:
-            logger.error(f"获取知识库集合失败: {e}")
+            logger.error(f"获取知识库集合失败: user_id={user_id}, collection={collection_name}, error={e}")
             return None
 
     def _init_or_update_bm25(self, user_id: str, collection=None):
@@ -966,4 +975,3 @@ class RAGEngine:
     async def delete_document_async(self, user_id: str, file_name: str) -> bool:
         """异步删除文档"""
         return await run_sync(self.delete_document, user_id, file_name)
-

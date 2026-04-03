@@ -25,6 +25,7 @@ from src.services.tools.time_tool import TimeTool
 from src.services.tools.search_tool import SearchTool
 
 logger = logging.getLogger('main')
+USER_VISIBLE_LLM_ERROR = "抱歉，我暂时无法处理你的消息，请稍后再试。"
 
 # 不支持工具调用的模型列表
 MODELS_WITHOUT_TOOL_SUPPORT = [
@@ -464,7 +465,8 @@ class LLMService:
             kb_context: 知识库检索上下文（可选，RAG 时注入）
         """
         if not message.strip():
-            return "Error: Empty message received"
+            logger.warning("收到空消息，跳过 LLM 请求")
+            return USER_VISIBLE_LLM_ERROR
 
         if previous_context and user_id not in self.chat_contexts:
             logger.info(f"程序启动初始化：为用户 {user_id} 加载历史上下文，共 {len(previous_context)} 条消息")
@@ -492,7 +494,7 @@ class LLMService:
                 return filtered_content or ""
             except Exception as e:
                 error_str = str(e)
-                last_error = f"Error: {error_str}"
+                last_error = error_str
                 
                 # 判断是否为超时错误
                 if "timeout" in error_str.lower() or "timed out" in error_str.lower():
@@ -521,7 +523,7 @@ class LLMService:
             logger.error(f"所有模型 {models_tried} 均失败: {last_error}")
         else:
             logger.error(f"所有重试尝试均失败: {last_error}")
-        return last_error
+        return USER_VISIBLE_LLM_ERROR
 
     def chat(self, messages: list, **kwargs) -> str:
         """
@@ -549,7 +551,7 @@ class LLMService:
             if not self._validate_response(response.model_dump()):
                 error_msg = f"错误的API响应结构: {json.dumps(response.model_dump(), default=str)}"
                 logger.error(error_msg)
-                return f"Error: {error_msg}"
+                return USER_VISIBLE_LLM_ERROR
 
             raw_content = response.choices[0].message.content
             # 清理和过滤响应内容
@@ -560,5 +562,4 @@ class LLMService:
 
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
-            return f"Error: {str(e)}"
-
+            return USER_VISIBLE_LLM_ERROR
