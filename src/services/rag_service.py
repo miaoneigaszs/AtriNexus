@@ -161,13 +161,19 @@ class LegacyRAGService(BaseRAGService):
 class SdkRAGService(BaseRAGService):
     """面向 `atrinexus-rag-sdk` 的适配层。"""
 
-    def __init__(self, sdk_root: Optional[str] = None, sdk: Any = None):
+    def __init__(
+        self,
+        sdk_root: Optional[str] = None,
+        sdk: Any = None,
+        fallback_service: Optional[BaseRAGService] = None,
+    ):
         self._sdk_root = Path(
             sdk_root
             or os.getenv("ATRINEXUS_RAG_SDK_ROOT", "")
             or str(Path(__file__).resolve().parents[3] / "rag")
         )
         self._sdk = sdk
+        self._fallback_service = fallback_service
 
     def _ensure_sdk(self) -> Any:
         if self._sdk is not None:
@@ -238,9 +244,13 @@ class SdkRAGService(BaseRAGService):
         }
 
     def list_documents(self, user_id: str) -> Dict[str, List[str]]:
+        if self._fallback_service is not None:
+            return self._fallback_service.list_documents(user_id)
         raise NotImplementedError("SDK 目前没有等价的文档列表接口，接入时需要补 namespace 元数据查询。")
 
     def get_document_outline(self, user_id: str, file_name: Optional[str] = None) -> Dict[str, Any]:
+        if self._fallback_service is not None:
+            return self._fallback_service.get_document_outline(user_id, file_name)
         raise NotImplementedError("SDK 目前没有等价的大纲接口，接入时需要基于检索元数据补齐。")
 
     def delete_document(self, user_id: str, file_name: str) -> bool:

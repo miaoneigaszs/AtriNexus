@@ -13,9 +13,10 @@ from chromadb.config import Settings
 from src.services.ai.llm_service import LLMService
 from src.services.memory_manager import MemoryManager
 from src.services.rag_engine import RAGEngine
-from src.services.rag_service import LegacyRAGService
+from src.services.rag_service import LegacyRAGService, SdkRAGService
 from src.services.session_service import SessionService
 from src.services.intent_service import IntentService
+from src.services.vector_store import ChromaVectorStore, QdrantVectorStore
 from src.services.database import Session, ChatMessage
 from src.utils.async_utils import run_sync
 from src.wecom.client import WeComClient
@@ -40,6 +41,8 @@ class MessageHandler:
         self.client = wecom_client
         
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        self.vector_backend = os.getenv("VECTOR_BACKEND", "chroma").strip().lower() or "chroma"
+        self.rag_backend = os.getenv("RAG_BACKEND", "legacy").strip().lower() or "legacy"
 
         # ========== 初始化核心服务 ==========
         # LLM 服务
@@ -54,18 +57,13 @@ class MessageHandler:
             fallback_models=getattr(config.llm, 'fallback_models', [])
         )
 
-        # ChromaDB
-        vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
-        os.makedirs(vectordb_path, exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(
-            path=vectordb_path,
-            settings=Settings(anonymized_telemetry=False)
-        )
+        self.chroma_client = None
+        self.vector_store = self._init_vector_store_backend()
 
         # 其他服务
-        self.memory = MemoryManager(llm_service=self.llm_service, chroma_client=self.chroma_client)
-        self.rag_engine = RAGEngine(chroma_client=self.chroma_client)
-        self.rag = LegacyRAGService(self.rag_engine)
+        self.memory = self._init_memory_manager()
+        self.rag_engine = self._init_legacy_rag_engine()
+        self.rag = self._init_rag_service()
         self.session_service = SessionService(kb_session_timeout=5)
         self.intent_service = IntentService(rag_engine=self.rag)
 
@@ -75,7 +73,63 @@ class MessageHandler:
         self.context_builder = ContextBuilder(self.memory, self.session_service, self.root_dir)
         self.rag_processor = RAGProcessor(self.rag, self.intent_service, self.session_service)
 
-        logger.info("MessageHandler 初始化完成")
+        logger.info(f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, rag_backend={self.rag_backend}")
+
+    def _init_vector_store_backend(self):
+        if self.vector_backend == "qdrant":
+            try:
+                qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
+                qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
+                qdrant_path = os.getenv(
+                    "ATRINEXUS_QDRANT_PATH",
+                    os.path.join(self.root_dir, "data", "vectordb_qdrant"),
+                )
+                if qdrant_url:
+                    logger.info(f"初始化 Qdrant 向量存储: url={qdrant_url}")
+                    return QdrantVectorStore(
+                        url=qdrant_url,
+                        api_key=qdrant_api_key,
+                        embedding_function=None,
+                    )
+                os.makedirs(qdrant_path, exist_ok=True)
+                logger.info(f"初始化 Qdrant 向量存储: path={qdrant_path}")
+                return QdrantVectorStore(
+                    path=qdrant_path,
+                    embedding_function=None,
+                )
+            except Exception as e:
+                logger.error(f"Qdrant 初始化失败，回退到 Chroma: {e}")
+                self.vector_backend = "chroma"
+
+        vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
+        os.makedirs(vectordb_path, exist_ok=True)
+        self.chroma_client = chromadb.PersistentClient(
+            path=vectordb_path,
+            settings=Settings(anonymized_telemetry=False)
+        )
+        logger.info(f"初始化 Chroma 向量存储: path={vectordb_path}")
+        return ChromaVectorStore(client=self.chroma_client)
+
+    def _init_memory_manager(self) -> MemoryManager:
+        if self.vector_backend == "qdrant":
+            return MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
+        return MemoryManager(llm_service=self.llm_service, chroma_client=self.chroma_client)
+
+    def _init_legacy_rag_engine(self) -> RAGEngine:
+        if self.vector_backend == "qdrant":
+            return RAGEngine(vector_store=self.vector_store)
+        return RAGEngine(chroma_client=self.chroma_client)
+
+    def _init_rag_service(self):
+        legacy_rag = LegacyRAGService(self.rag_engine)
+        if self.rag_backend == "sdk":
+            try:
+                logger.info("初始化 SDK RAG 服务")
+                return SdkRAGService(fallback_service=legacy_rag)
+            except Exception as e:
+                logger.error(f"SDK RAG 初始化失败，回退到 legacy: {e}")
+                self.rag_backend = "legacy"
+        return legacy_rag
 
     # ========== 消息处理入口 ==========
 
