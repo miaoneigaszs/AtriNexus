@@ -105,7 +105,7 @@ class MessageHandler:
             content: 消息内容
             msg_id: 消息ID
         """
-        logger.info(f"开始处理消息: user={user_id}, content={content[:50]}")
+        logger.info(f"开始处理消息: user={user_id}, content_len={len(content)}")
 
         # 1. 去重检查
         if DedupMiddleware.is_duplicate_message(msg_id):
