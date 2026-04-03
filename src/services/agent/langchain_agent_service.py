@@ -106,6 +106,12 @@ class LangChainAgentService:
             "命令执行默认在项目根目录内进行，返回结果时请简洁总结关键输出。\n"
             "修改文件时可以直接使用 write_file 或 replace_in_file，不需要先做 diff 预览。"
         )
+        prompt_parts.append(
+            "【执行类回复风格】\n"
+            "当你在执行命令、读取文件、搜索代码或修改文件时，必须使用直接、简洁、结果导向的表达。\n"
+            "不要使用“主人”等称呼，不要撒娇，不要附加人格化感叹，不要添加与结果无关的修饰句。\n"
+            "优先回答这几项：做了什么、结果是什么、是否成功；必要时再补一行关键细节。"
+        )
         return "\n\n".join(prompt_parts)
 
     def _build_messages(
@@ -148,3 +154,9 @@ class LangChainAgentService:
 
     def discard_pending_change(self, change_id: str) -> str:
         return self.tool_catalog.runtime.discard_pending_change(change_id)
+
+    def confirm_pending_command(self, confirm_id: str) -> str:
+        return self.tool_catalog.runtime.confirm_pending_command(confirm_id)
+
+    def discard_pending_command(self, confirm_id: str) -> str:
+        return self.tool_catalog.runtime.discard_pending_command(confirm_id)

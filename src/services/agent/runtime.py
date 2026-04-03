@@ -28,6 +28,7 @@ class WorkspaceRuntime:
     def __init__(self, workspace_root: str) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self._pending_changes: Dict[str, Dict[str, str]] = {}
+        self._pending_commands: Dict[str, Dict[str, str]] = {}
 
     def run_command(self, command: str, timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT) -> str:
         command = command.strip()
@@ -37,6 +38,35 @@ class WorkspaceRuntime:
         if self._is_blocked_command(command):
             return "命令被拒绝：包含高风险或破坏性操作"
 
+        if self._requires_confirmation(command):
+            confirm_id = self._store_pending_command(command, timeout_seconds)
+            return (
+                f"这是高风险命令，暂不直接执行。\n"
+                f"确认 ID: {confirm_id}\n"
+                f"命令: {command}\n\n"
+                f"如需继续，请回复：确认执行 {confirm_id}\n"
+                f"如需取消，请回复：取消执行 {confirm_id}"
+            )
+
+        return self._execute_command(command, timeout_seconds)
+
+    def confirm_pending_command(self, confirm_id: str) -> str:
+        pending = self._pending_commands.get(confirm_id)
+        if not pending:
+            return f"未找到待确认命令: {confirm_id}"
+
+        command = pending["command"]
+        timeout_seconds = int(pending["timeout_seconds"])
+        del self._pending_commands[confirm_id]
+        return self._execute_command(command, timeout_seconds)
+
+    def discard_pending_command(self, confirm_id: str) -> str:
+        if confirm_id not in self._pending_commands:
+            return f"未找到待取消命令: {confirm_id}"
+        del self._pending_commands[confirm_id]
+        return f"已取消待执行命令: {confirm_id}"
+
+    def _execute_command(self, command: str, timeout_seconds: int) -> str:
         timeout = max(1, min(int(timeout_seconds), 120))
         try:
             completed = subprocess.run(
@@ -248,12 +278,6 @@ class WorkspaceRuntime:
     def _is_blocked_command(self, command: str) -> bool:
         normalized = " ".join(command.lower().split())
         blocked_patterns = (
-            "rm -rf",
-            "rm -fr",
-            "del /s",
-            "del /q",
-            "rd /s",
-            "rmdir /s",
             "shutdown",
             "reboot",
             "halt",
@@ -263,6 +287,35 @@ class WorkspaceRuntime:
             ":(){:|:&};:",
         )
         return any(pattern in normalized for pattern in blocked_patterns)
+
+    def _requires_confirmation(self, command: str) -> bool:
+        normalized = " ".join(command.lower().split())
+        confirm_patterns = (
+            "rm -rf",
+            "rm -fr",
+            "rm -f",
+            "rm -r",
+            "del /s",
+            "del /q",
+            "rd /s",
+            "rmdir /s",
+            "move ",
+            "mv ",
+            "ren ",
+            "rename ",
+            "git clean",
+            "git reset --hard",
+            "git checkout --",
+        )
+        return any(pattern in normalized for pattern in confirm_patterns)
+
+    def _store_pending_command(self, command: str, timeout_seconds: int) -> str:
+        confirm_id = str(uuid.uuid4())[:8]
+        self._pending_commands[confirm_id] = {
+            "command": command,
+            "timeout_seconds": str(timeout_seconds),
+        }
+        return confirm_id
 
     def _store_pending_change(self, target: Path, old_text: str, new_text: str) -> str:
         change_id = str(uuid.uuid4())[:8]
