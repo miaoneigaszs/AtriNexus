@@ -84,6 +84,8 @@ class RAGEngine:
                         path=db_path,
                         embedding_function=self.embedding_fn,
                     )
+            elif hasattr(self.vector_store, "set_embedding_function"):
+                self.vector_store.set_embedding_function(self.embedding_fn)
         else:
             logger.warning("未配置 API Key，RAG 引擎不可用")
             self.embedding_fn = None

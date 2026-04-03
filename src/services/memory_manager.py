@@ -91,6 +91,8 @@ class MemoryManager:
         try:
             # 使用共享的 Embedding 服务
             if self._embedding_service.is_available():
+                if self._vector_store and hasattr(self._vector_store, "set_embedding_function"):
+                    self._vector_store.set_embedding_function(self._embedding_service.embedding_function)
                 if not self._vector_store:
                     if self._chroma_client is not None:
                         self._vector_store = ChromaVectorStore(

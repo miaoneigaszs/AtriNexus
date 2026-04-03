@@ -31,6 +31,9 @@ class QdrantVectorStore(VectorStore):
         self._embedding_function = embedding_function
         self._collection_prefix = collection_prefix
 
+    def set_embedding_function(self, embedding_function: Any) -> None:
+        self._embedding_function = embedding_function
+
     def get_or_create_collection(
         self,
         name: str,
