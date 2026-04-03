@@ -20,18 +20,9 @@ from openai import OpenAI
 import emoji
 from src.services.ai.model_manager import ModelManager
 from src.services.token_monitor import token_monitor
-from src.services.tools import ToolRegistry
-from src.services.tools.time_tool import TimeTool
-from src.services.tools.search_tool import SearchTool
 
 logger = logging.getLogger('main')
 USER_VISIBLE_LLM_ERROR = "抱歉，我暂时无法处理你的消息，请稍后再试。"
-
-# 不支持工具调用的模型列表
-MODELS_WITHOUT_TOOL_SUPPORT = [
-    'deepseek-reasoner',
-    'deepseek-r1',
-]
 
 
 class LLMService:
@@ -94,12 +85,6 @@ class LLMService:
         self.ollama_models = self.model_manager.get_ollama_models()
         self.available_models = self.model_manager.get_available_models()
 
-        # 初始化工具注册表
-        self.tool_registry = ToolRegistry()
-        self.tool_registry.register(TimeTool())
-        # 搜索工具按需注册（启动时检查配置，运行时通过 _build_messages 动态判断）
-        self._search_api_key: Optional[str] = None  # 缓存，_build_messages 中更新
-
     def _manage_context(self, user_id: str, message: str, role: str = "user"):
         """
         上下文管理器（支持动态记忆窗口）
@@ -119,12 +104,6 @@ class LLMService:
             # 优先保留最近的对话组
             self.chat_contexts[user_id] = self.chat_contexts[user_id][-self.config["max_groups"]*2:]
     
-    # 工具定义与执行逻辑已迁移至 src/services/tools/
-    # TimeTool  → src/services/tools/time_tool.py
-    # SearchTool → src/services/tools/search_tool.py
-    # 工具注册由 self.tool_registry (ToolRegistry) 统一管理
-
-
     def _sanitize_response(self, raw_text: str) -> str:
         """
         响应安全处理器
@@ -288,19 +267,6 @@ class LLMService:
         }
         is_ollama = 'localhost:11434' in str(self.client.base_url)
         
-        # 从 ToolRegistry 获取工具 schemas
-        # 搜索工具：按需动态注册/更新
-        from data.config import config
-        search_cfg = config.network_search
-        if search_cfg.search_enabled and search_cfg.api_key:
-            if not self.tool_registry.has("web_search") or self._search_api_key != search_cfg.api_key:
-                self.tool_registry.register(SearchTool(api_key=search_cfg.api_key))
-                self._search_api_key = search_cfg.api_key
-        elif self.tool_registry.has("web_search"):
-            self.tool_registry.unregister("web_search")
-        
-        tools = self.tool_registry.get_schemas()
-        
         # Token 分解信息
         token_breakdown = {
             "system_prompt_tokens": system_prompt_tokens,
@@ -314,16 +280,14 @@ class LLMService:
             "messages": messages,
             "ollama_message": ollama_message,
             "is_ollama": is_ollama,
-            "tools": tools,
             "token_breakdown": token_breakdown,
         }
 
     def _send_single_request(self, current_model: str, built: Dict, user_id: str = "unknown") -> str:
-        """执行单次 API 请求，支持工具调用，成功返回 raw_content，失败抛出异常"""
+        """执行单次 API 请求，成功返回 raw_content，失败抛出异常。"""
         messages = built["messages"]
         ollama_message = built["ollama_message"]
         is_ollama = built["is_ollama"]
-        tools = built.get("tools", [])
 
         if is_ollama:
             from src.utils.version import get_current_version, get_version_identifier
@@ -363,8 +327,6 @@ class LLMService:
             messages=messages,
             temperature=self.config["temperature"],
             max_tokens=self.config["max_token"],
-            tools=tools if tools else None,
-            tool_choice="auto" if tools else None
         )
         
         if not self._validate_response(response.model_dump()):
@@ -385,58 +347,7 @@ class LLMService:
                 **token_breakdown
             )
         
-        # 检查是否有工具调用
-        if message.tool_calls:
-            # 通过 ToolRegistry 统一分发工具调用，新增工具无需修改此处
-            tool_results = []
-            for tool_call in message.tool_calls:
-                fn_name = tool_call.function.name
-                fn_args = tool_call.function.arguments or "{}"
-                tool_result = self.tool_registry.execute(fn_name, fn_args)
-                logger.info(f"[Tool Call] 执行 {fn_name}: 结果长度={len(tool_result)}")
-                tool_results.append({
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": fn_name,
-                    "content": tool_result
-                })
-            
-            if tool_results:
-                # 将工具结果添加到消息列表，再次请求 LLM
-                messages.append(message.model_dump())
-                for result in tool_results:
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": result["tool_call_id"],
-                        "content": result["content"]
-                    })
-                
-                # 再次调用 API 获取最终回复
-                final_response = self.client.chat.completions.create(
-                    model=current_model,
-                    messages=messages,
-                    temperature=self.config["temperature"],
-                    max_tokens=self.config["max_token"]
-                )
-                
-                # 记录第二次请求的 token 使用
-                final_usage = getattr(final_response, 'usage', None)
-                if final_usage:
-                    token_breakdown = built.get("token_breakdown", {})
-                    token_monitor.record(
-                        user_id=user_id,
-                        model=current_model,
-                        prompt_tokens=final_usage.prompt_tokens,
-                        completion_tokens=final_usage.completion_tokens,
-                        request_type="chat_tool",
-                        **token_breakdown
-                    )
-                
-                raw_content = final_response.choices[0].message.content
-            else:
-                raw_content = message.content
-        else:
-            raw_content = message.content
+        raw_content = message.content
         
         if not raw_content:
             reasoning = getattr(message, 'reasoning_content', None)
@@ -503,15 +414,6 @@ class LLMService:
                     logger.warning(f"模型 {current_model} API请求失败 (尝试 {attempt+1}/{max_retries}): {error_str}")
                 if self.config["auto_model_switch"] and attempt < max_retries - 1:
                     next_model = self.model_manager.get_next_model(current_model)
-                    # 检查工具是否启用
-                    tools_enabled = built.get("tools", [])
-                    # 跳过不支持工具调用的模型（当工具启用时）
-                    while next_model and next_model not in models_tried:
-                        if tools_enabled and any(m in next_model.lower() for m in MODELS_WITHOUT_TOOL_SUPPORT):
-                            logger.info(f"跳过不支持工具调用的模型: {next_model}")
-                            next_model = self.model_manager.get_next_model(next_model)
-                        else:
-                            break
                     if next_model and next_model not in models_tried:
                         logger.info(f"自动切换到模型: {next_model}")
                         current_model = next_model
