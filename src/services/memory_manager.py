@@ -14,8 +14,18 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 
-from src.services.database import Session, MemorySnapshot, ConversationCounter
+from src.services.database import Session
 from src.services.ai.embedding_service import EmbeddingService
+from src.services.memory_legacy_store import (
+    append_short_memory_entry,
+    build_context_from_short_memory,
+    increment_memory_counter,
+    load_core_memory,
+    load_short_memory,
+    reset_memory_counter,
+    save_core_memory as persist_core_memory,
+    save_short_memory as persist_short_memory,
+)
 from src.services.vector_store import QdrantVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
@@ -149,54 +159,23 @@ class MemoryManager:
 
     def get_short_memory(self, user_id: str, avatar_name: str) -> list:
         """从 SQLite 加载短期记忆"""
-        session = Session()
-        try:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='short'
-            ).first()
-            if snapshot and snapshot.content:
-                return json.loads(snapshot.content)
-            return []
-        except Exception as e:
-            logger.error(f"加载短期记忆失败: {e}")
-            return []
-        finally:
-            session.close()
+        return load_short_memory(user_id, avatar_name)
 
     def save_short_memory(self, user_id: str, avatar_name: str, memory: list):
         """保存短期记忆到 SQLite"""
-        session = Session()
-        try:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='short'
-            ).first()
-            if snapshot:
-                snapshot.content = json.dumps(memory, ensure_ascii=False)
-                snapshot.updated_at = datetime.now()
-            else:
-                snapshot = MemorySnapshot(
-                    user_id=user_id, avatar_name=avatar_name,
-                    memory_type='short', content=json.dumps(memory, ensure_ascii=False)
-                )
-                session.add(snapshot)
-            session.commit()
-            
-            # 更新 Prometheus 指标
-            if PROMETHEUS_AVAILABLE and Metrics.memory_short_entries:
-                Metrics.memory_short_entries.labels(
-                    user_id=user_id, avatar_name=avatar_name
-                ).set(len(memory))
-            
-            if PROMETHEUS_AVAILABLE and Metrics.memory_operations_total:
-                Metrics.memory_operations_total.labels(
-                    operation='save', memory_type='short'
-                ).inc()
-                
-        except Exception as e:
-            logger.error(f"保存短期记忆失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        ok = persist_short_memory(user_id, avatar_name, memory)
+        if not ok:
+            return
+
+        if PROMETHEUS_AVAILABLE and Metrics.memory_short_entries:
+            Metrics.memory_short_entries.labels(
+                user_id=user_id, avatar_name=avatar_name
+            ).set(len(memory))
+
+        if PROMETHEUS_AVAILABLE and Metrics.memory_operations_total:
+            Metrics.memory_operations_total.labels(
+                operation='save', memory_type='short'
+            ).inc()
 
     # ---------- 中期记忆（向量检索）----------
 
@@ -425,20 +404,7 @@ class MemoryManager:
 
     def get_core_memory(self, user_id: str, avatar_name: str) -> str:
         """从 SQLite 加载核心记忆"""
-        session = Session()
-        try:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='core'
-            ).first()
-            if snapshot and snapshot.content:
-                data = json.loads(snapshot.content)
-                return data.get('content', '') if isinstance(data, dict) else str(data)
-            return ''
-        except Exception as e:
-            logger.error(f"加载核心记忆失败: {e}")
-            return ''
-        finally:
-            session.close()
+        return load_core_memory(user_id, avatar_name)
 
     def save_core_memory(self, user_id: str, avatar_name: str, content: str):
         """保存核心记忆到 SQLite"""
@@ -448,31 +414,7 @@ class MemoryManager:
                 "[CoreMemory] 保存的核心记忆缺少双区标记，格式可能不正确："
                 f"{content[:80]}..."
             )
-
-        session = Session()
-        try:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='core'
-            ).first()
-            data = json.dumps({
-                'content': content,
-                'updated_at': datetime.now().isoformat()
-            }, ensure_ascii=False)
-            if snapshot:
-                snapshot.content = data
-                snapshot.updated_at = datetime.now()
-            else:
-                snapshot = MemorySnapshot(
-                    user_id=user_id, avatar_name=avatar_name,
-                    memory_type='core', content=data
-                )
-                session.add(snapshot)
-            session.commit()
-        except Exception as e:
-            logger.error(f"保存核心记忆失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        persist_core_memory(user_id, avatar_name, content)
 
     def _extract_zone(self, content: str, zone_name: str) -> str:
         """
@@ -499,102 +441,28 @@ class MemoryManager:
     #   count        -> 核心记忆触发计数（每15轮重置）
     #   vector_count -> 向量记忆触发计数（每10轮重置）
 
-    def _get_or_create_counter(self, session, user_id: str, avatar_name: str):
-        """获取或创建计数器记录，兼容旧数据库缺少 vector_count 列的情况"""
-        counter = session.query(ConversationCounter).filter_by(
-            user_id=user_id, avatar_name=avatar_name
-        ).first()
-        if not counter:
-            counter = ConversationCounter(
-                user_id=user_id,
-                avatar_name=avatar_name,
-                count=0,
-                vector_count=0
-            )
-            session.add(counter)
-            session.flush()
-        # 兼容旧数据库：若 vector_count 列不存在，动态添加
-        if not hasattr(counter, 'vector_count') or counter.vector_count is None:
-            try:
-                from sqlalchemy import text
-                session.execute(text(
-                    "ALTER TABLE conversation_counters ADD COLUMN vector_count INTEGER DEFAULT 0"
-                ))
-                session.commit()
-                counter.vector_count = 0
-            except Exception:
-                counter.vector_count = 0
-        return counter
-
     def _increment_core_count(self, user_id: str, avatar_name: str) -> int:
         """增加核心记忆计数并返回新值（每15轮触发）"""
-        session = Session()
-        try:
-            counter = self._get_or_create_counter(session, user_id, avatar_name)
-            counter.count += 1
-            session.commit()
-            return counter.count
-        except Exception as e:
-            logger.error(f"更新核心记忆计数失败: {e}")
-            session.rollback()
-            return 0
-        finally:
-            session.close()
+        return increment_memory_counter(user_id, avatar_name, "count")
 
     def _reset_core_count(self, user_id: str, avatar_name: str):
         """重置核心记忆计数"""
-        session = Session()
-        try:
-            counter = self._get_or_create_counter(session, user_id, avatar_name)
-            counter.count = 0
-            session.commit()
-        except Exception as e:
-            logger.error(f"重置核心记忆计数失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        reset_memory_counter(user_id, avatar_name, "count")
 
     def _increment_vector_count(self, user_id: str, avatar_name: str) -> int:
         """增加向量记忆计数并返回新值（每10轮触发）"""
-        session = Session()
-        try:
-            counter = self._get_or_create_counter(session, user_id, avatar_name)
-            counter.vector_count += 1
-            session.commit()
-            return counter.vector_count
-        except Exception as e:
-            logger.error(f"更新向量记忆计数失败: {e}")
-            session.rollback()
-            return 0
-        finally:
-            session.close()
+        return increment_memory_counter(user_id, avatar_name, "vector_count")
 
     def _reset_vector_count(self, user_id: str, avatar_name: str):
         """重置向量记忆计数"""
-        session = Session()
-        try:
-            counter = self._get_or_create_counter(session, user_id, avatar_name)
-            counter.vector_count = 0
-            session.commit()
-        except Exception as e:
-            logger.error(f"重置向量记忆计数失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        reset_memory_counter(user_id, avatar_name, "vector_count")
 
 
     # ---------- 上下文构建（三层融合）----------
 
     def build_context_from_memory(self, short_memory: list) -> list:
         """将短期记忆转换为 LLM 上下文格式"""
-        context = []
-        max_groups = config.behavior.context.max_groups
-        for conv in short_memory[-max_groups:]:
-            if 'user' in conv:
-                context.append({"role": "user", "content": conv["user"]})
-            if 'bot' in conv:
-                context.append({"role": "assistant", "content": conv["bot"]})
-        return context
+        return build_context_from_short_memory(short_memory)
 
     def build_full_context(self, user_id: str, avatar_name: str,
                            current_message: str) -> dict:
@@ -639,28 +507,12 @@ class MemoryManager:
             bot_reply: 机器人回复
         """
         # 1. 更新短期记忆
+        append_short_memory_entry(user_id, avatar_name, user_msg, bot_reply)
         short_memory = self.get_short_memory(user_id, avatar_name)
-        short_memory.append({
-            "user": user_msg,
-            "bot": bot_reply,
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        })
-        # 只保留最近的对话轮次
-        max_memory = config.behavior.context.max_groups * 2
-        if len(short_memory) > max_memory:
-            short_memory = short_memory[-max_memory:]
-        self.save_short_memory(user_id, avatar_name, short_memory)
 
         # 2. 检查是否需要更新核心记忆 + 写入向量库
         self._update_memories_if_needed(user_id, avatar_name)
 
-    def _update_memories_if_needed(self, user_id: str, avatar_name: str):
-        """
-        每10轮对话触发：
-          A. 把旧「近期信息区」归档到向量库（滚动降级）
-          B. 把本轮对话摘要写入向量库
-          C. LLM 按双区格式重写核心记忆
-        """
     def _update_memories_if_needed(self, user_id: str, avatar_name: str):
         """
         两套独立触发链（互不干扰，计数器分离）：
