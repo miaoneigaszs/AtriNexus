@@ -14,6 +14,7 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+from data.config import config
 from src.services.rag_engine import RAGEngine
 
 
@@ -173,6 +174,60 @@ class SdkRAGService(BaseRAGService):
         self._sdk = sdk
         self._fallback_service = fallback_service
 
+    @staticmethod
+    def _build_sdk_config(RAGConfig: Any) -> Any:
+        base_config = RAGConfig.from_env()
+
+        embed_cfg = getattr(config, "embedding", None)
+        llm_cfg = getattr(config, "llm", None)
+
+        embed_api_key = getattr(embed_cfg, "api_key", "") or getattr(llm_cfg, "api_key", "")
+        embed_base_url = getattr(embed_cfg, "base_url", "") or "https://api.siliconflow.cn/v1"
+        embed_model = getattr(embed_cfg, "model", "") or "BAAI/bge-m3"
+        reranker_model = getattr(embed_cfg, "reranker_model", "") or "BAAI/bge-reranker-v2-m3"
+
+        base_config.embedding.provider = "proxy"
+        base_config.embedding.proxy_api_key = embed_api_key
+        base_config.embedding.proxy_base_url = embed_base_url
+        base_config.embedding.proxy_model = embed_model
+
+        if embed_model == "BAAI/bge-m3":
+            base_config.embedding.dimension = 1024
+
+        base_config.reranker.api_key = embed_api_key
+        base_config.reranker.base_url = embed_base_url
+        base_config.reranker.model = reranker_model
+
+        qdrant_url = (
+            os.getenv("ATRINEXUS_SDK_QDRANT_URL", "").strip()
+            or os.getenv("ATRINEXUS_QDRANT_URL", "").strip()
+        )
+        qdrant_api_key = (
+            os.getenv("ATRINEXUS_SDK_QDRANT_API_KEY", "").strip()
+            or os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip()
+        )
+        qdrant_path = os.getenv("ATRINEXUS_SDK_QDRANT_PATH", "").strip()
+        if qdrant_url:
+            base_config.qdrant.mode = "cloud"
+            base_config.qdrant.url = qdrant_url
+            base_config.qdrant.api_key = qdrant_api_key
+        else:
+            if not qdrant_path:
+                root_dir = Path(__file__).resolve().parents[2]
+                qdrant_path = str(root_dir / "data" / "rag_sdk_qdrant")
+            base_config.qdrant.mode = "local"
+            base_config.qdrant.path = qdrant_path
+
+        base_config.chunk.rag_mode = os.getenv("ATRINEXUS_RAG_MODE", "basic").strip() or "basic"
+        base_config.chunk.use_contextual_retrieval = (
+            os.getenv("ATRINEXUS_USE_CONTEXTUAL_RETRIEVAL", "").strip().lower() in {"1", "true", "yes", "on"}
+        )
+        base_config.chunk.context_model = (
+            os.getenv("ATRINEXUS_CONTEXT_MODEL", "").strip()
+            or getattr(llm_cfg, "model", "")
+        )
+        return base_config
+
     def _ensure_sdk(self) -> Any:
         if self._sdk is not None:
             return self._sdk
@@ -200,8 +255,7 @@ class SdkRAGService(BaseRAGService):
                     f"无法导入 RAG SDK，请检查安装状态或源码路径: {self._sdk_root}"
                 ) from retry_exc
 
-        base_config = RAGConfig.from_env()
-        base_config.chunk.use_contextual_retrieval = False
+        base_config = self._build_sdk_config(RAGConfig)
         self._sdk = KnowledgeSDK(base_config=base_config)
         self._sdk_document_source = DocumentSource
         self._sdk_index_options = IndexOptions
