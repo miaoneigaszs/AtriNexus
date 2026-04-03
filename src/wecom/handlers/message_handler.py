@@ -7,6 +7,7 @@ import logging
 import os
 
 from src.services.ai.llm_service import LLMService
+from src.services.agent import LangChainAgentService
 from src.services.memory_manager import MemoryManager
 from src.services.rag_engine import RAGEngine
 from src.services.rag_service import LegacyRAGService, SdkRAGService
@@ -39,6 +40,7 @@ class MessageHandler:
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         self.vector_backend = self._resolve_vector_backend()
         self.rag_backend = self._resolve_rag_backend()
+        self.agent_backend = self._resolve_agent_backend()
 
         # ========== 初始化核心服务 ==========
         # LLM 服务
@@ -58,6 +60,7 @@ class MessageHandler:
         # 其他服务
         self.memory = MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
         self.rag = self._init_rag_service()
+        self.reply_service = self._init_reply_service()
         self.session_service = SessionService(kb_session_timeout=5)
         self.intent_service = IntentService(rag_service=self.rag)
 
@@ -67,7 +70,10 @@ class MessageHandler:
         self.context_builder = ContextBuilder(self.memory, self.session_service, self.root_dir)
         self.rag_processor = RAGProcessor(self.rag, self.intent_service, self.session_service)
 
-        logger.info(f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, rag_backend={self.rag_backend}")
+        logger.info(
+            f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, "
+            f"rag_backend={self.rag_backend}, agent_backend={self.agent_backend}"
+        )
 
     def _resolve_vector_backend(self) -> str:
         backend = os.getenv("VECTOR_BACKEND", "qdrant").strip().lower() or "qdrant"
@@ -80,6 +86,13 @@ class MessageHandler:
         if backend not in {"sdk", "legacy"}:
             logger.warning(f"RAG_BACKEND={backend} 非法，改用 sdk")
             return "sdk"
+        return backend
+
+    def _resolve_agent_backend(self) -> str:
+        backend = os.getenv("AGENT_BACKEND", "legacy").strip().lower() or "legacy"
+        if backend not in {"legacy", "langchain"}:
+            logger.warning(f"AGENT_BACKEND={backend} 非法，改用 legacy")
+            return "legacy"
         return backend
 
     def _init_vector_store(self) -> QdrantVectorStore:
@@ -111,6 +124,22 @@ class MessageHandler:
                 logger.error(f"SDK RAG 初始化失败，回退到 legacy: {e}")
                 self.rag_backend = "legacy"
         return legacy_rag
+
+    def _init_reply_service(self):
+        if self.agent_backend == "langchain":
+            try:
+                logger.info("初始化 LangChain Agent 回复服务")
+                return LangChainAgentService(
+                    api_key=config.llm.api_key,
+                    base_url=config.llm.base_url,
+                    model=config.llm.model,
+                    temperature=config.llm.temperature,
+                    max_tokens=config.llm.max_tokens,
+                )
+            except Exception as e:
+                logger.error(f"LangChain Agent 初始化失败，回退到 legacy: {e}")
+                self.agent_backend = "legacy"
+        return self.llm_service
 
     # ========== 消息处理入口 ==========
 
@@ -194,7 +223,7 @@ class MessageHandler:
         # 6. 调用 LLM 生成回复
         try:
             reply = await run_sync(
-                self.llm_service.get_response,
+                self.reply_service.get_response,
                 message=content,
                 user_id=user_id,
                 system_prompt=system_prompt,
