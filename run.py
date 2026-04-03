@@ -23,6 +23,7 @@ sys.path.append(root_dir)
 src_path = os.path.join(root_dir, 'src')
 sys.path.append(src_path)
 
+
 def main():
     """启动 AtriNexus-WeCom 服务"""
     print("=" * 50)
@@ -53,6 +54,7 @@ def main():
     print(f"  回调URL: https://<你的域名>/api/wechat/callback")
     print(f"  健康检查: http://{host}:{port}/health")
     print()
+
     start_server(host=host, port=port)
 
 

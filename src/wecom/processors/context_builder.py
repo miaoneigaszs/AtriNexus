@@ -32,9 +32,9 @@ class ContextBuilder:
         self.root_dir = root_dir
         self.avatar_dir = config.behavior.context.avatar_dir
 
-    async def build_search_context(self, user_id: str, content: str) -> Dict[str, Any]:
+    def build_search_context(self, user_id: str, content: str) -> Dict[str, Any]:
         """
-        构建检索上下文（异步版本）
+        构建检索上下文
 
         Args:
             user_id: 用户ID
@@ -54,8 +54,8 @@ class ContextBuilder:
             self.session_service.update_session_mode(user_id, 'companion')
             logger.info(f"用户 {user_id} 切换至陪伴模式")
 
-        # 构建记忆上下文（异步，并行加载三层记忆）
-        mem_ctx = await self.memory.build_full_context(user_id, avatar_name, content)
+        # 构建记忆上下文
+        mem_ctx = self.memory.build_full_context(user_id, avatar_name, content)
 
         return {
             "state": state,
@@ -234,3 +234,4 @@ class ContextBuilder:
             logger.info(f"[RAG引用] LLM使用了知识片段: {sorted(used_indices)}")
 
         return cleaned_reply, sorted(used_indices)
+

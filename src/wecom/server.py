@@ -196,7 +196,7 @@ app.include_router(token_router)
 
 # ========== 启动函数 ==========
 
-def start_server(host: str = "0.0.0.0", port: int = 8080):
+def start_server(host: str = "0.0.0.0", port: int = 8000):
     """启动服务"""
     logger.info(f"AtriNexus-WeCom 服务启动中... http://{host}:{port}")
     

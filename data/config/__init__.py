@@ -69,14 +69,10 @@ class GroupChatConfigItem:
 
 @dataclass
 class UserSettings:
-    listen_list: List[str] = None  # 默认值，避免未加载时报错
+    listen_list: List[str]
     group_chat_config: List[GroupChatConfigItem] = None
     
     def __post_init__(self):
-        if self.listen_list is None:
-            self.listen_list = []
-        if self.group_chat_config is None:
-            self.group_chat_config = []
         if self.group_chat_config is None:
             self.group_chat_config = []
 
@@ -112,11 +108,6 @@ class AutoMessageSettings:
     max_hours: float
 
 @dataclass
-class MemoryDecaySettings:
-    daily_decay_rate: float
-    min_weight: float
-
-@dataclass
 class QuietTimeSettings:
     start: str
     end: str
@@ -150,7 +141,6 @@ class BehaviorSettings:
     context: ContextSettings
     schedule_settings: ScheduleSettings
     message_queue: MessageQueueSettings
-    memory_decay: MemoryDecaySettings
 
 @dataclass
 class AuthSettings:
@@ -162,7 +152,7 @@ class NetworkSearchSettings:
     weblens_enabled: bool
     api_key: str
     base_url: str
-    search_provider: str = 'tavily'
+    search_provider: str = 'kourichat'
 
 @dataclass
 class IntentRecognitionSettings:
@@ -235,7 +225,7 @@ class Config:
         self.auth: AuthSettings
         self.network_search: NetworkSearchSettings
         self.intent_recognition: IntentRecognitionSettings
-        self.embedding: EmbeddingSettings  
+        self.embedding: EmbeddingSettings  # 新增
         self.wecom: WeComSettings
         self.system_performance: SystemPerformanceSettings
         self.kb: KnowledgeBaseSettings
@@ -480,6 +470,32 @@ class Config:
                 config_data = json.load(f)
                 categories = config_data['categories']
 
+                # 用户设置（兼容旧版：user_settings 已从 config.json 移除）
+                user_data = categories.get('user_settings', {}).get('settings', {})
+                listen_list = user_data.get('listen_list', {}).get('value', [])
+                # 确保listen_list是列表类型
+                if not isinstance(listen_list, list):
+                    listen_list = [str(listen_list)] if listen_list else []
+                
+                # 群聊配置
+                group_chat_config_data = user_data.get('group_chat_config', {}).get('value', [])
+                group_chat_configs = []
+                if isinstance(group_chat_config_data, list):
+                    for config_item in group_chat_config_data:
+                        if isinstance(config_item, dict) and all(key in config_item for key in ['id', 'groupName', 'avatar', 'triggers']):
+                            group_chat_configs.append(GroupChatConfigItem(
+                                id=config_item['id'],
+                                group_name=config_item['groupName'],
+                                avatar=config_item['avatar'],
+                                triggers=config_item.get('triggers', []),
+                                enable_at_trigger=config_item.get('enableAtTrigger', True)  # 默认启用@触发
+                            ))
+                
+                self.user = UserSettings(
+                    listen_list=listen_list,
+                    group_chat_config=group_chat_configs
+                )
+
                 # LLM设置
                 llm_data = categories['llm_settings']['settings']
                 # fallback_models: 备用模型列表
@@ -516,7 +532,6 @@ class Config:
                 auto_message_countdown = auto_message_data.get('countdown', {})
                 quiet_time_data = behavior_data['quiet_time']
                 context_data = behavior_data['context']
-                memory_decay_data = behavior_data.get('memory_decay', {})
 
                 # 消息队列设置
                 message_queue_data = behavior_data.get('message_queue', {})
@@ -552,10 +567,6 @@ class Config:
                         min_hours=float(auto_message_countdown.get('min_hours', {}).get('value', 0)),
                         max_hours=float(auto_message_countdown.get('max_hours', {}).get('value', 0))
                     ),
-                    memory_decay=MemoryDecaySettings(
-                        daily_decay_rate=float(memory_decay_data.get('daily_decay_rate', {}).get('value', 0.98)), 
-                        min_weight=float(memory_decay_data.get('min_weight', {}).get('value', 0.5))
-                    ),
                     quiet_time=QuietTimeSettings(
                         start=quiet_time_data['start'].get('value', ''),
                         end=quiet_time_data['end'].get('value', '')
@@ -585,8 +596,8 @@ class Config:
                         search_enabled=network_search_data.get('search_enabled', {}).get('value', False),
                         weblens_enabled=network_search_data.get('weblens_enabled', {}).get('value', False),
                         api_key=network_search_data.get('api_key', {}).get('value', ''),
-                        base_url=network_search_data.get('base_url', {}).get('value', ''),
-                        search_provider=network_search_data.get('search_provider', {}).get('value', 'tavily')
+                        base_url=network_search_data.get('base_url', {}).get('value', 'https://api.kourichat.com/v1'),
+                        search_provider=network_search_data.get('search_provider', {}).get('value', 'kourichat')
                     )
                 except Exception as e:
                     logger.warning(f"加载网络搜索设置失败，使用默认值: {e}")
@@ -594,8 +605,8 @@ class Config:
                         search_enabled=False,
                         weblens_enabled=False,
                         api_key='',
-                        base_url='',
-                        search_provider='tavily'
+                        base_url='https://api.kourichat.com/v1',
+                        search_provider='kourichat'
                     )
 
                 # 意图识别设置（使用安全的默认值）
@@ -703,33 +714,6 @@ class Config:
                         )
                     )
 
-                # 用户设置（使用安全的默认值）
-                try:
-                    user_data = categories.get('user_settings', {}).get('settings', {})
-                    group_chat_config_data = user_data.get('group_chat_config', {}).get('value', [])
-                    listen_list_data = user_data.get('listen_list', {}).get('value', [])
-                    
-                    # 解析群聊配置
-                    group_chat_configs = []
-                    for item in group_chat_config_data if group_chat_config_data else []:
-                        if isinstance(item, dict):
-                            group_chat_configs.append(GroupChatConfigItem(
-                                chat_id=item.get('chat_id', ''),
-                                avatar_name=item.get('avatar_name', 'ATRI'),
-                                triggers=item.get('triggers', [])
-                            ))
-                    
-                    self.user = UserSettings(
-                        listen_list=listen_list_data if listen_list_data else [],
-                        group_chat_config=group_chat_configs
-                    )
-                except Exception as e:
-                    logger.warning(f"加载用户设置失败，使用默认值: {e}")
-                    self.user = UserSettings(
-                        listen_list=[],
-                        group_chat_config=[]
-                    )
-
                 logger.info("配置加载完成")
                 
                 # 验证关键 API Key 配置
@@ -801,8 +785,8 @@ QUIET_TIME_END = config.behavior.quiet_time.end
 
 # 网络搜索设置
 NETWORK_SEARCH_ENABLED = config.network_search.search_enabled
-NETWORK_SEARCH_MODEL = 'tavily-search'
+NETWORK_SEARCH_MODEL = 'kourichat-search'  # 固定使用AtriNexus模型
 WEBLENS_ENABLED = config.network_search.weblens_enabled
-WEBLENS_MODEL = 'tavily-extract'
+WEBLENS_MODEL = 'kourichat-weblens'  # 固定使用AtriNexus模型
 NETWORK_SEARCH_API_KEY = config.network_search.api_key
 NETWORK_SEARCH_BASE_URL = config.network_search.base_url

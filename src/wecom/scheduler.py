@@ -6,7 +6,6 @@
 import os
 import json
 import logging
-import asyncio
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -195,8 +194,7 @@ def scheduled_diary_generation():
     
     try:
         diary_service = get_diary_service()
-        # 使用 asyncio.run() 运行异步方法
-        result = asyncio.run(diary_service.generate_diaries_for_active_users(avatar_name="ATRI"))
+        result = diary_service.generate_diaries_for_active_users(avatar_name="ATRI")
         
         logger.info(f"[定时任务] 日记生成完成: success={result['success']}, skipped={result['skipped']}, failed={result['failed']}")
         
@@ -225,3 +223,4 @@ def init_scheduler():
     logger.info("[定时任务] 调度器已启动")
     
     return scheduler
+

@@ -23,11 +23,11 @@ TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 logger = logging.getLogger('wecom')
 
 # ========== 配置加载 ==========
-CORP_ID = config.wecom.corp_id # 企业ID
-AGENT_ID = config.wecom.agent_id # 应用ID
-SECRET = config.wecom.secret # 应用Secret
-TOKEN = config.wecom.token # 消息加解密 Token
-ENCODING_AES_KEY = config.wecom.encoding_aes_key # 消息加解密 EncodingAESKey
+CORP_ID = config.wecom.corp_id
+AGENT_ID = config.wecom.agent_id
+SECRET = config.wecom.secret
+TOKEN = config.wecom.token
+ENCODING_AES_KEY = config.wecom.encoding_aes_key
 
 # ========== 全局实例 ==========
 wecom_client = WeComClient(corp_id=CORP_ID, secret=SECRET, agent_id=AGENT_ID)

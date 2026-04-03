@@ -57,19 +57,15 @@ class RAGProcessor:
         intent_result = self.intent_service.recognize_intent(user_id, content, previous_context)
         intent = intent_result.get("intent", "TYPE_CHITCHAT")
         query = intent_result.get("query", content)
-        intent_cat = intent_result.get("category")
 
-        logger.info(f"[意图识别] intent={intent}, category={intent_cat}")
+        logger.info(f"[意图识别] intent={intent}")
 
         # 闲聊（包括需要网络搜索的内容，由 LLM 工具调用处理）
         if intent != "TYPE_KNOWLEDGE_BASE":
             return ([], "", False)
 
-        # 知识库检索（优先使用显式传入的 category_filter，否则使用意图识别的）
-        final_cat = category_filter if category_filter else intent_cat
-        kb_results = self.rag.retrieve_knowledge(
-            user_id, query, top_k=3,
-            category_filter=final_cat
-        )
+        # 知识库检索（不指定分类，检索所有内容）
+        kb_results = self.rag.retrieve_knowledge(user_id, query, top_k=3)
         
         return (kb_results, "", True)
+

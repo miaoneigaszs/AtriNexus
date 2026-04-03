@@ -179,7 +179,7 @@ async def api_diary_generate(request: Request):
             return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
         
         diary_service = get_diary_service()
-        diary = await diary_service.generate_diary(user_id, avatar_name, date_str, force_regenerate)
+        diary = diary_service.generate_diary(user_id, avatar_name, date_str, force_regenerate)
         
         if diary:
             return JSONResponse(content={

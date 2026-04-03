@@ -1,5 +1,5 @@
 """
-日记回溯服务（异步版本）
+日记回溯服务
 功能：
 - 每日自动生成助手日记（以助手第一人称视角）
 - 结合人设与核心记忆，生成第一人称日记
@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session as DBSession
 from src.services.database import Session, Diary, ChatMessage
 from src.services.ai.llm_service import LLMService
 from src.services.memory_manager import MemoryManager
-from src.utils.async_utils import run_sync
 from data.config import config
 
 logger = logging.getLogger('wecom')
@@ -237,7 +236,7 @@ class DiaryService:
         finally:
             session.close()
     
-    async def generate_diary(
+    def generate_diary(
         self, 
         user_id: str, 
         avatar_name: str, 
@@ -245,7 +244,7 @@ class DiaryService:
         force_regenerate: bool = False
     ) -> Optional[DiaryEntry]:
         """
-        生成指定日期的日记（异步版本）
+        生成指定日期的日记
         
         Args:
             user_id: 用户ID
@@ -273,10 +272,10 @@ class DiaryService:
             logger.info(f"无对话记录，跳过日记生成: user={user_id}, date={date_str}")
             return None
         
-        # 获取核心记忆（异步）
+        # 获取核心记忆
         core_memory = ""
         if self.memory_manager:
-            core_memory = await self.memory_manager.get_core_memory(user_id, avatar_name) or "暂无核心记忆"
+            core_memory = self.memory_manager.get_core_memory(user_id, avatar_name) or "暂无核心记忆"
         
         # 格式化对话记录
         conv_text = ""
@@ -292,14 +291,13 @@ class DiaryService:
             conversations=conv_text
         )
         
-        # 调用LLM生成日记（异步）
+        # 调用LLM生成日记
         if not self.llm_service:
             logger.error("LLM服务未初始化，无法生成日记")
             return None
         
         try:
-            diary_content = await run_sync(
-                self.llm_service.get_response,
+            diary_content = self.llm_service.get_response(
                 message="请根据上述对话记录，以AI助手的第一人称视角写一篇日记。",
                 user_id=f"diary_{user_id}",
                 system_prompt=prompt,
@@ -351,13 +349,13 @@ class DiaryService:
             logger.error(f"生成日记失败: {e}")
             return None
     
-    async def generate_diaries_for_active_users(
+    def generate_diaries_for_active_users(
         self, 
         date_str: str = None,
         avatar_name: str = "ATRI"
     ) -> Dict[str, Any]:
         """
-        为当天有对话的用户生成日记（异步版本）
+        为当天有对话的用户生成日记
         
         Args:
             date_str: 日期字符串 (YYYY-MM-DD)，默认为昨天
@@ -397,7 +395,7 @@ class DiaryService:
         
         for user_id in user_ids:
             try:
-                diary = await self.generate_diary(user_id, avatar_name, date_str)
+                diary = self.generate_diary(user_id, avatar_name, date_str)
                 if diary:
                     results["success"] += 1
                     results["details"].append({

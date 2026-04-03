@@ -252,8 +252,10 @@ class LLMService:
             
         # 3. 注入 RAG 知识库检索内容，并加入强制指令，防止脱离角色
         if kb_context:
-            prompt_parts.append(f"【参考资料或记忆】\n{kb_context}\n必须结合上述参考资料或记忆，并严格保持你的【角色设定】来回答用户的问题。如果参考资料或记忆无相关性，请忽略资料，自然回复即可。")
-        
+            prompt_parts.append(f"【参考资料】\n{kb_context}\n必须结合上述参考资料，并严格保持你的【角色设定】来回答用户的问题。如果参考资料无相关性，请忽略资料，自然回复即可。")
+            
+        final_prompt = "\n\n".join(prompt_parts)
+
         chat_history = self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
         
         messages = [
@@ -559,3 +561,4 @@ class LLMService:
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
             return f"Error: {str(e)}"
+

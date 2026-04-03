@@ -86,8 +86,8 @@ class MessageHandler:
             logger.info(f"跳过重复图片消息: {msg_id}")
             return
 
-        # 处理图片（异步）
-        image_description = await self.image_handler.process_image(user_id, media_id)
+        # 处理图片
+        image_description = self.image_handler.process_image(user_id, media_id)
         if not image_description:
             return
 
@@ -126,10 +126,13 @@ class MessageHandler:
 
     async def _execute_kb_search(self, user_id: str, content: str, msg_id: str,
                                   category_filter: str = None):
-        """执行知识库检索和回复生成（流程编排 - 纯异步版本）"""
+        """执行知识库检索和回复生成（流程编排）"""
 
-        # 1. 构建上下文（异步，内部使用 asyncio.gather 并行加载三层记忆）
-        ctx = await self.context_builder.build_search_context(user_id, content)
+        # 1. 构建上下文
+        ctx = await run_sync(
+            self.context_builder.build_search_context,
+            user_id, content
+        )
         avatar_name = ctx["avatar_name"]
         current_mode = ctx["current_mode"]
         previous_context = ctx["previous_context"]
@@ -151,7 +154,6 @@ class MessageHandler:
 
         # 5. 构建系统提示词
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
-        print(system_prompt)
         # 6. 调用 LLM 生成回复
         try:
             reply = await run_sync(
@@ -193,9 +195,9 @@ class MessageHandler:
 
         logger.info(f"消息已发送给用户，准备进行后台记忆更新: user={user_id}, reply_len={len(reply)}")
 
-        # 9. 更新记忆（异步）
+        # 9. 更新记忆
         try:
-            await self.memory.after_reply(user_id, avatar_name, content, reply)
+            await self.memory.after_reply_async(user_id, avatar_name, content, reply)
         except Exception as e:
             logger.error(f"更新记忆失败: {e}")
 
@@ -219,3 +221,4 @@ class MessageHandler:
             session.rollback()
         finally:
             session.close()
+

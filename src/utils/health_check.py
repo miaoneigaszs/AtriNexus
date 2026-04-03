@@ -264,7 +264,7 @@ async def check_embedding_api() -> HealthCheckResult:
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "BAAI/bge-m3",
+            "model": "BAAI/bge-large-zh-v1.5",
             "input": ["test"]
         }
         

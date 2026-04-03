@@ -966,3 +966,4 @@ class RAGEngine:
     async def delete_document_async(self, user_id: str, file_name: str) -> bool:
         """异步删除文档"""
         return await run_sync(self.delete_document, user_id, file_name)
+

@@ -158,8 +158,7 @@ class IntentService:
 
         intent_result = {
             "intent": intent,
-            "query": query,
-            "category": parsed.get("category")
+            "query": query
         }
 
         # 日志输出
@@ -233,10 +232,10 @@ class IntentService:
 ## 输出格式（严格JSON）
 {{
   "intent": "TYPE_KNOWLEDGE_BASE 或 TYPE_CHITCHAT",
-  "query": "如果需要查知识库，重写为消除代词的独立查询句；否则保持原样",
-  "category": "如果用户问题明确指向某个知识库分类，请提取该分类名，否则为 null"
+  "query": "如果需要查知识库，重写为消除代词的独立查询句；否则保持原样"
 }}
 
 ## 判断要点
 1. 公司文档、规章制度、技术资料 → TYPE_KNOWLEDGE_BASE
 2. 日常遭遇、购物消费、就医经历、实时新闻、天气等 → TYPE_CHITCHAT"""
+
