@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Callable
@@ -163,29 +164,33 @@ async def check_database() -> HealthCheckResult:
         )
 
 
-async def check_chromadb() -> HealthCheckResult:
-    """检查 ChromaDB 连接"""
+async def check_qdrant() -> HealthCheckResult:
+    """检查 Qdrant 连接"""
     start = time.time()
     try:
-        import chromadb
-        from chromadb.config import Settings
-        
-        db_path = "data/vectordb"
-        client = chromadb.PersistentClient(path=db_path, settings=Settings(anonymized_telemetry=False))
-        
-        # 尝试获取集合列表
-        collections = client.list_collections()
+        from qdrant_client import QdrantClient
+
+        qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
+        qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
+        qdrant_path = os.getenv("ATRINEXUS_QDRANT_PATH", "data/vectordb_qdrant")
+
+        if qdrant_url:
+            client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        else:
+            client = QdrantClient(path=qdrant_path)
+
+        collections = client.get_collections().collections
         
         latency = (time.time() - start) * 1000
         return HealthCheckResult(
-            "chromadb",
+            "qdrant",
             HealthStatus.HEALTHY,
             latency_ms=latency,
             details={"collections": len(collections)}
         )
     except Exception as e:
         return HealthCheckResult(
-            "chromadb",
+            "qdrant",
             HealthStatus.UNHEALTHY,
             latency_ms=(time.time() - start) * 1000,
             message=str(e)
@@ -339,7 +344,7 @@ async def check_memory() -> HealthCheckResult:
 def register_default_checks():
     """注册默认的健康检查"""
     health_checker.register("database", check_database)
-    health_checker.register("chromadb", check_chromadb)
+    health_checker.register("qdrant", check_qdrant)
     health_checker.register("llm_api", check_llm_api)
     health_checker.register("embedding_api", check_embedding_api)
     health_checker.register("memory", check_memory)
@@ -355,7 +360,7 @@ async def get_health_report() -> Dict[str, Any]:
             "timestamp": "2026-02-23T...",
             "checks": {
                 "database": {"status": "healthy", ...},
-                "chromadb": {"status": "healthy", ...},
+                "qdrant": {"status": "healthy", ...},
                 ...
             }
         }
