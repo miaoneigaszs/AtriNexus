@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
 from data.config import config
-from src.services.agent.langchain_tools import build_langchain_tools
+from src.services.agent.tool_catalog import ToolCatalog
 
 logger = logging.getLogger("wecom")
 
@@ -35,6 +36,7 @@ class LangChainAgentService:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.workspace_root = str(Path(__file__).resolve().parents[3])
 
     def get_response(
         self,
@@ -78,7 +80,8 @@ class LangChainAgentService:
 
         search_cfg = config.network_search
         search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
-        return build_langchain_tools(search_api_key=search_api_key)
+        catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
+        return catalog.build_tools()
 
     def _build_system_prompt(
         self,
