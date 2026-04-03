@@ -64,6 +64,7 @@ resume-1.0.0/**
 # 临时测试数据
 test_data/
 *.test.json
+test_db/
 
 # 临时文件和缓存
 *.tmp
