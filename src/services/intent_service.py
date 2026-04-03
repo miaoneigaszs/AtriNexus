@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 
 import httpx
 
+from src.services.rag_service import RAGService
 from src.utils.http_pool import get_sync_client, get_async_client
 from src.services.token_monitor import token_monitor
 from data.config import config
@@ -22,8 +23,8 @@ class IntentService:
 
     DEFAULT_INTENT_MODEL = "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
 
-    def __init__(self, rag_engine=None):
-        self.rag = rag_engine
+    def __init__(self, rag_service: Optional[RAGService] = None):
+        self.rag = rag_service
         self._init_config()
 
     def _init_config(self):

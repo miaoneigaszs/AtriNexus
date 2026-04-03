@@ -59,7 +59,7 @@ class MessageHandler:
         self.memory = MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
         self.rag = self._init_rag_service()
         self.session_service = SessionService(kb_session_timeout=5)
-        self.intent_service = IntentService(rag_engine=self.rag)
+        self.intent_service = IntentService(rag_service=self.rag)
 
         # ========== 初始化处理器（使用拆分后的组件）==========
         self.command_handler = CommandHandler(self.rag)
