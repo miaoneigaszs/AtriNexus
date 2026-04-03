@@ -193,10 +193,5 @@ src/autoupdate/cloud/*
 !README.md
 !Thanks.md
 !/项目技术文档.md
-!docs/
-!docs/PROJECT_REMEDIATION_PLAN.md
-!docs/ops/
-docs/ops/*
-!docs/ops/*.md
 !LICENSE
 !avatar.md
