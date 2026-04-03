@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Dict, List, Optional
 
 from src.services.vector_store.base import VectorCollection, VectorStore
@@ -82,9 +83,10 @@ class _QdrantCollection:
         for point_id, vector, document, payload in zip(ids, embeddings, documents, payloads):
             point_payload = dict(payload or {})
             point_payload["document"] = document
+            point_payload["_original_id"] = str(point_id)
             points.append(
                 PointStruct(
-                    id=point_id,
+                    id=self._to_point_id(point_id),
                     vector=vector,
                     payload=point_payload,
                 )
@@ -126,8 +128,9 @@ class _QdrantCollection:
             for point in points:
                 payload = dict(point.payload or {})
                 document = str(payload.pop("document", ""))
+                original_id = str(payload.pop("_original_id", point.id))
                 score = float(getattr(point, "score", 0.0) or 0.0)
-                ids.append(str(point.id))
+                ids.append(original_id)
                 documents.append(document)
                 metadatas.append(payload)
                 distances.append(1.0 - score)
@@ -157,7 +160,7 @@ class _QdrantCollection:
         if ids:
             results = self._client.retrieve(
                 collection_name=self._name,
-                ids=ids,
+                ids=[self._to_point_id(point_id) for point_id in ids],
                 with_payload=True,
             )
         else:
@@ -175,7 +178,7 @@ class _QdrantCollection:
 
         for point in results:
             payload = dict(point.payload or {})
-            out_ids.append(str(point.id))
+            out_ids.append(str(payload.pop("_original_id", point.id)))
             out_documents.append(str(payload.pop("document", "")))
             out_metadatas.append(payload)
 
@@ -200,7 +203,10 @@ class _QdrantCollection:
             return
 
         if ids:
-            self._client.delete(collection_name=self._name, points_selector=ids)
+            self._client.delete(
+                collection_name=self._name,
+                points_selector=[self._to_point_id(point_id) for point_id in ids],
+            )
             return
 
         query_filter = self._build_filter(where)
@@ -218,6 +224,13 @@ class _QdrantCollection:
     def _collection_exists(self) -> bool:
         collections = self._client.get_collections().collections
         return any(collection.name == self._name for collection in collections)
+
+    def _to_point_id(self, value: str) -> Any:
+        text = str(value)
+        try:
+            return int(text)
+        except ValueError:
+            return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self._name}:{text}"))
 
     def _ensure_collection(self, vector_size: int) -> None:
         if self._collection_exists():
