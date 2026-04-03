@@ -23,15 +23,21 @@ class SearchFilesInput(BaseModel):
     path: str = Field(default=".", description="搜索起始路径，相对 workspace 根目录")
 
 
-class PreviewWriteFileInput(BaseModel):
+class RunCommandInput(BaseModel):
+    command: str = Field(description="要执行的命令。默认在 workspace 根目录执行。")
+    timeout_seconds: int = Field(default=20, description="命令超时时间，单位秒，建议 5 到 20 秒")
+
+
+class WriteFileInput(BaseModel):
     path: str = Field(description="要写入的文件路径，相对 workspace 根目录")
     content: str = Field(description="写入后的完整文件内容")
 
 
-class PreviewEditFileInput(BaseModel):
+class ReplaceInFileInput(BaseModel):
     path: str = Field(description="要编辑的文件路径，相对 workspace 根目录")
-    find_text: str = Field(description="待替换的原始文本片段")
-    replace_text: str = Field(description="替换后的文本片段")
+    old_text: str = Field(description="待替换的原始文本片段")
+    new_text: str = Field(description="替换后的文本片段")
+    replace_all: bool = Field(default=False, description="是否替换全部匹配项，默认只替换 1 处")
 
 
 class ToolCatalog:
@@ -70,16 +76,22 @@ class ToolCatalog:
                 args_schema=SearchFilesInput,
             ),
             StructuredTool.from_function(
-                func=self.runtime.preview_write_file,
-                name="preview_write_file",
-                description="预览对 workspace 文件的完整写入变更，返回 diff，不会直接落盘。",
-                args_schema=PreviewWriteFileInput,
+                func=self.runtime.run_command,
+                name="run_command",
+                description="在 workspace 根目录执行命令并返回结果。命令有超时限制，明显危险命令会被拒绝。",
+                args_schema=RunCommandInput,
             ),
             StructuredTool.from_function(
-                func=self.runtime.preview_edit_file,
-                name="preview_edit_file",
-                description="预览对 workspace 文件的精确文本替换变更，返回 diff，不会直接落盘。",
-                args_schema=PreviewEditFileInput,
+                func=self.runtime.write_file,
+                name="write_file",
+                description="直接写入 workspace 内文件。若文件存在则覆盖写入。",
+                args_schema=WriteFileInput,
+            ),
+            StructuredTool.from_function(
+                func=self.runtime.replace_in_file,
+                name="replace_in_file",
+                description="在 workspace 文件中执行文本替换。默认只替换 1 处，可显式指定 replace_all=true。",
+                args_schema=ReplaceInFileInput,
             ),
         ]
 

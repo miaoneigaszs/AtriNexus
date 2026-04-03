@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import difflib
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List
 import uuid
 
 
 class WorkspaceRuntime:
-    """只读 workspace runtime。"""
+    """面向企微助手的轻量 workspace runtime。"""
 
     MAX_FILE_CHARS = 12000
     MAX_MATCHES = 50
+    MAX_OUTPUT_CHARS = 12000
+    DEFAULT_COMMAND_TIMEOUT = 20
     SKIP_DIRS = {
         ".git",
         ".venv",
@@ -25,6 +28,45 @@ class WorkspaceRuntime:
     def __init__(self, workspace_root: str) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self._pending_changes: Dict[str, Dict[str, str]] = {}
+
+    def run_command(self, command: str, timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT) -> str:
+        command = command.strip()
+        if not command:
+            return "缺少要执行的命令"
+
+        if self._is_blocked_command(command):
+            return "命令被拒绝：包含高风险或破坏性操作"
+
+        timeout = max(1, min(int(timeout_seconds), 120))
+        try:
+            completed = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(self.workspace_root),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return f"命令执行超时（>{timeout}s）: {command}"
+        except Exception as exc:
+            return f"命令执行失败: {exc}"
+
+        stdout = completed.stdout.strip()
+        stderr = completed.stderr.strip()
+        sections = [
+            f"命令: {command}",
+            f"退出码: {completed.returncode}",
+        ]
+        if stdout:
+            sections.append(f"标准输出:\n{self._truncate_text(stdout, self.MAX_OUTPUT_CHARS)}")
+        if stderr:
+            sections.append(f"标准错误:\n{self._truncate_text(stderr, self.MAX_OUTPUT_CHARS)}")
+        if not stdout and not stderr:
+            sections.append("命令执行完成，无输出")
+        return "\n\n".join(sections)
 
     def list_directory(self, path: str = ".") -> str:
         target = self._resolve_path(path)
@@ -83,6 +125,39 @@ class WorkspaceRuntime:
         if not matches:
             return f"未找到包含「{query}」的内容"
         return "\n".join(matches)
+
+    def write_file(self, path: str, content: str) -> str:
+        target = self._resolve_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        existed = target.exists()
+        if existed and not target.is_file():
+            return f"目标不是文件: {path}"
+
+        target.write_text(content, encoding="utf-8")
+        action = "覆盖写入" if existed else "新建写入"
+        return f"{action}完成: {self._to_relative(target)}"
+
+    def replace_in_file(self, path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+        if not old_text:
+            return "缺少待替换文本"
+
+        target = self._resolve_path(path)
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        text = target.read_text(encoding="utf-8", errors="ignore")
+        count = text.count(old_text)
+        if count == 0:
+            return "未找到待替换文本"
+        if count > 1 and not replace_all:
+            return f"待替换文本出现 {count} 次，请提供更精确的片段或显式设置 replace_all=true"
+
+        new_content = text.replace(old_text, new_text, -1 if replace_all else 1)
+        target.write_text(new_content, encoding="utf-8")
+        replaced = count if replace_all else 1
+        return f"替换完成: {self._to_relative(target)}，共替换 {replaced} 处"
 
     def preview_write_file(self, path: str, content: str) -> str:
         target = self._resolve_path(path)
@@ -164,6 +239,30 @@ class WorkspaceRuntime:
             dirnames[:] = [name for name in dirnames if name not in self.SKIP_DIRS]
             for filename in filenames:
                 yield Path(current_root) / filename
+
+    def _truncate_text(self, text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "\n\n[输出过长，已截断]"
+
+    def _is_blocked_command(self, command: str) -> bool:
+        normalized = " ".join(command.lower().split())
+        blocked_patterns = (
+            "rm -rf",
+            "rm -fr",
+            "del /s",
+            "del /q",
+            "rd /s",
+            "rmdir /s",
+            "shutdown",
+            "reboot",
+            "halt",
+            "poweroff",
+            "mkfs",
+            "format ",
+            ":(){:|:&};:",
+        )
+        return any(pattern in normalized for pattern in blocked_patterns)
 
     def _store_pending_change(self, target: Path, old_text: str, new_text: str) -> str:
         change_id = str(uuid.uuid4())[:8]

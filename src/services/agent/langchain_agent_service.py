@@ -100,6 +100,12 @@ class LangChainAgentService:
                 "必须结合上述参考资料，并严格保持你的【角色设定】来回答用户的问题。"
                 "如果参考资料无相关性，请忽略资料，自然回复即可。"
             )
+        prompt_parts.append(
+            "【工具使用原则】\n"
+            "当用户明确要求执行命令、查看目录、读取文件、搜索代码或修改文件时，优先调用对应工具。\n"
+            "命令执行默认在项目根目录内进行，返回结果时请简洁总结关键输出。\n"
+            "修改文件时可以直接使用 write_file 或 replace_in_file，不需要先做 diff 预览。"
+        )
         return "\n\n".join(prompt_parts)
 
     def _build_messages(
