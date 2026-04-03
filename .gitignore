@@ -33,6 +33,7 @@ logs/
 # ============ 用户特定配置 ============
 user_config.json
 local_config.json
+uv.lock
 
 # ============ 数据目录 ============
 # 用户数据库
@@ -145,6 +146,7 @@ cython_debug/
 .idea/
 *.iml
 
+docs/
 # Cursor
 .cursor/
 .cursorrules
