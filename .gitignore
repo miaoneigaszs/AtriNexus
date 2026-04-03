@@ -56,6 +56,7 @@ data/tasks.json
 # 备份文件
 .backup/
 *.bak
+backups/
 archive/
 resume-1.0.0
 resume-1.0.0/*
@@ -148,6 +149,7 @@ cython_debug/
 *.iml
 
 docs/
+docs/*
 # Cursor
 .cursor/
 .cursorrules
@@ -190,6 +192,11 @@ src/autoupdate/cloud/*
 # 但保留以下重要文档
 !README.md
 !Thanks.md
-!项目技术文档.md
+!/项目技术文档.md
+!docs/
+!docs/PROJECT_REMEDIATION_PLAN.md
+!docs/ops/
+docs/ops/*
+!docs/ops/*.md
 !LICENSE
 !avatar.md
