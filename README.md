@@ -1,357 +1,254 @@
 # AtriNexus
 
-<div align="center">
+AtriNexus is a WeCom-based personal AI assistant for persistent conversation, memory, retrieval-augmented responses, and lightweight workspace actions.
 
-**在虚拟与现实交织处，给予永恒的温柔羁绊**
+It is designed for a real long-running personal usage scenario rather than a generic chatbot demo. The current runtime path is:
 
-[![GitHub Stars](https://img.shields.io/github/stars/miaoneigaszs/AtriNexus?color=ff69b4&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/miaoneigaszs/AtriNexus?color=9c27b0&style=flat-square)](https://github.com/miaoneigaszs/AtriNexus/network/members)
-[![License](https://img.shields.io/github/license/miaoneigaszs/AtriNexus?color=03a9f4&style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.3.2-ff69b4?style=flat-square)](version.json)
+- WeCom as the chat entrypoint
+- FastAPI as the service layer
+- SQLite for conversation, memory, and diary data
+- Qdrant for vector memory storage
+- `atrinexus-rag-sdk` for RAG
+- LangChain for the lightweight agent reply/tool layer
 
-</div>
+## What It Does
 
----
+- WeCom conversation handling
+- Persistent short-term and core memory
+- Daily diary generation from conversation history
+- Knowledge-base upload and retrieval
+- Lightweight agent actions from chat
+- System health and Prometheus metrics
+- Web pages for memory, settings, and knowledge upload
 
-## 📖 项目简介
+## Current Capabilities
 
-AtriNexus 是一个基于企业微信的智能 AI 助手，集成了多模态对话能力。通过 DeepSeek、阿里云等大语言模型，实现了文本对话、图像识别、语音交互等功能。项目支持沉浸式角色扮演、持久记忆存储、定时任务等特性，为用户提供温暖而智能的陪伴体验。
+### 1. Personal assistant chat in WeCom
 
-### ✨ 核心特性
+The assistant is built around WeCom callback handling and long-running personal conversation.
 
-- 🤖 **多模态对话** - 支持文本、图像、语音多种交互方式
-- 💭 **智能记忆** - 持久化记忆存储，支持记忆衰减与权重管理
-- 🎭 **角色扮演** - 沉浸式角色扮演，支持自定义人设
-- 🔄 **意图识别** - 智能识别用户意图，精准响应
-- 📚 **知识库** - 支持文档上传与向量化检索
-- 🌐 **网络搜索** - 集成 Tavily 搜索，实时获取信息
-- ⏰ **定时任务** - 支持定时消息推送
-- 🎨 **WebUI 管理** - 可视化配置界面，易于管理
-- 👥 **多用户支持** - 完善的多用户与群聊支持
+It supports:
 
----
+- normal text conversation
+- image recognition integration
+- scheduled messages
+- memory-aware replies
+- knowledge-grounded replies
 
-## 📸 功能展示
+### 2. Memory system
 
-### 智能记忆管理
+The project keeps multiple memory layers:
 
-<div align="center">
-  <img src="docs/images/memory.png" width="600" alt="记忆管理">
-  <p><i>持久化记忆存储与智能管理</i></p>
-</div>
+- short-term memory
+- core memory
+- vector memory
+- diary generation from conversation history
 
-### 知识库系统
+Current storage split:
 
-<div align="center">
-  <img src="docs/images/kb-knowledge.png" width="600" alt="知识库">
-  <p><i>文档上传与向量化检索</i></p>
-</div>
+- SQLite stores conversation history, short-term memory, core memory, and diaries
+- Qdrant stores vector memory
 
-### WebUI 配置界面
+### 3. RAG with SDK-first design
 
-<div align="center">
-  <img src="docs/images/setting.png" width="600" alt="设置界面">
-  <p><i>可视化配置管理界面</i></p>
-</div>
+The default RAG path now uses `atrinexus-rag-sdk` instead of continuing to expand a custom in-project RAG stack.
 
-### 系统监控面板
+The project still keeps a legacy RAG implementation for fallback and compatibility, but the default path is:
 
-<div align="center">
-  <img src="docs/images/grafana.png" width="600" alt="Grafana监控">
-  <p><i>实时系统监控与性能分析</i></p>
-</div>
+- `SdkRAGService`
+- SDK-managed namespace per user
+- separate Qdrant-backed RAG storage
 
----
+### 4. Lightweight execution abilities
 
-## 🚀 快速开始
+The assistant can perform basic workspace actions from chat:
 
-### 📋 环境要求
+- run commands
+- read files
+- search files
+- write files
+- replace text in files
 
-- Python 3.10 或更高版本
-- 企业微信账号（管理员权限）
-- Windows/Linux/macOS
+This is intentionally lightweight. The goal is not to be a full AI IDE or a general-purpose autonomous agent platform.
 
-### 🔑 获取 API 密钥
+### 5. Operational visibility
 
-项目需要以下 API 密钥：
+The service exposes:
 
-| 服务 | 用途 | 获取地址 |
-|------|------|----------|
-| DeepSeek | 对话模型 | [DeepSeek](https://platform.deepseek.com/) |
-| 阿里云百炼 | 图像识别 | [阿里云百炼](https://bailian.console.aliyun.com/) |
-| 硅基流动 | 意图识别 & Embedding | [硅基流动](https://cloud.siliconflow.cn/) |
-| Tavily | 网络搜索 | [Tavily](https://tavily.com/) |
+- `/health`
+- `/health/simple`
+- `/metrics`
 
-### 📥 安装步骤
+It is designed to sit behind nginx and works with external monitoring such as Prometheus and Grafana.
 
-#### 方法一：快速部署
+## Architecture Overview
 
-```bash
-# 1. 克隆仓库
-git clone https://github.com/AtriNexus/AtriNexus.git
-cd AtriNexus
+### Service entry
 
-# 2. 运行启动脚本
-python run.py
+- `run.py`
+- `src/wecom/server.py`
+
+### Main runtime path
+
+- `src/wecom/handlers/message_handler.py`
+- `src/wecom/processors/context_builder.py`
+- `src/wecom/processors/rag_processor.py`
+- `src/services/agent/langchain_agent_service.py`
+
+### Memory and diary
+
+- `src/services/memory_manager.py`
+- `src/services/memory_legacy_store.py`
+- `src/services/diary_service.py`
+- `src/services/database.py`
+
+### RAG
+
+- `src/services/rag_service.py`
+- `src/services/rag_engine.py` (legacy/fallback path)
+- `src/services/rag_legacy_document.py`
+
+### Vector storage
+
+- `src/services/vector_store/qdrant.py`
+
+### AI services
+
+- `src/services/ai/llm_service.py`
+- `src/services/ai/embedding_service.py`
+- `src/services/ai/model_manager.py`
+
+## Tech Stack
+
+- Python 3.12
+- FastAPI
+- LangChain 1.x
+- SQLite
+- Qdrant
+- `atrinexus-rag-sdk`
+- WeCom / `wechatpy`
+- APScheduler
+- Prometheus client
+
+## Project Structure
+
+```text
+AtriNexus/
+├── run.py
+├── pyproject.toml
+├── requirements.txt
+├── src/
+│   ├── services/
+│   │   ├── agent/
+│   │   ├── ai/
+│   │   ├── vector_store/
+│   │   ├── database.py
+│   │   ├── diary_service.py
+│   │   ├── intent_service.py
+│   │   ├── llm_service.py
+│   │   ├── memory_manager.py
+│   │   ├── memory_legacy_store.py
+│   │   ├── rag_engine.py
+│   │   ├── rag_legacy_document.py
+│   │   ├── rag_service.py
+│   │   └── session_service.py
+│   ├── utils/
+│   └── wecom/
+├── data/
+│   ├── avatars/
+│   ├── config/
+│   ├── database/
+│   ├── prompts/
+│   └── tasks.json
+├── deployment/
+└── docs/
 ```
 
-#### 方法二：手动部署
+## Configuration
+
+The main runtime configuration lives in:
+
+- `data/config/config.json`
+
+The repository only keeps a sanitized template:
+
+- `data/config/config.json.template`
+
+The project expects WeCom, model, embedding, and other runtime settings to be configured there.
+
+## Running Locally
+
+### 1. Install dependencies
+
+Using `uv`:
 
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/AtriNexus/AtriNexus.git
-cd AtriNexus
-
-# 2. 升级 pip
-python -m pip install --upgrade pip
-
-# 3. 安装依赖
-pip install -r requirements.txt
-
-# 4. 配置文件（见下方说明）
-
-# 5. 启动程序
-python run.py
+uv sync
 ```
 
-### ⚙️ 配置说明
+Or with `pip`:
 
-1. **复制配置模板**
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 2. Prepare config
+
+Create your local runtime config from the template:
 
 ```bash
 cp data/config/config.json.template data/config/config.json
 ```
 
-2. **编辑配置文件**
+Then fill in your real settings.
 
-编辑 `data/config/config.json`，填入你的 API 密钥：
-
-```json
-{
-  "categories": {
-    "wecom_settings": {
-      "settings": {
-        "corp_id": { "value": "你的企业ID" },
-        "agent_id": { "value": "你的应用AgentId" },
-        "secret": { "value": "你的应用Secret" },
-        "token": { "value": "你的Token" },
-        "encoding_aes_key": { "value": "你的EncodingAESKey" }
-      }
-    },
-    "llm_settings": {
-      "settings": {
-        "api_key": { "value": "你的API密钥" },
-        "base_url": { "value": "https://api.deepseek.com/v1" },
-        "model": { "value": "deepseek-chat" }
-      }
-    }
-  }
-}
-```
-
-3. **使用 WebUI 配置（可选）**
+### 3. Start the service
 
 ```bash
-python run_config_web.py
-```
-
-### 🎯 启动服务
-
-```bash
-# 前台运行
 python run.py
-
-# 后台运行（Linux）
-nohup python run.py &
-
-# Windows 服务部署
-# 参考 deployment/ 目录下的配置文件
 ```
 
----
+### 4. Verify
 
-## 📁 项目结构
-
-```
-AtriNexus/
-├── run.py                      # 主程序入口
-├── pyproject.toml              # 项目配置(uv包管理)
-├── requirements.txt            # 依赖清单
-├── version.json                # 版本信息
-│
-├── src/                        # 源代码目录
-│   ├── base/                   # 基础配置和提示词
-│   │   ├── base.md             # 基础行为指南
-│   │   ├── memory.md           # 记忆摘要提示词
-│   │   ├── worldview.md        # 世界观设定
-│   │   └── group.md            # 群聊配置
-│   │
-│   ├── services/               # 核心服务层
-│   │   ├── ai/                 # AI服务
-│   │   │   ├── llm_service.py          # LLM对话服务
-│   │   │   ├── embedding_service.py    # Embedding服务
-│   │   │   ├── image_recognition_service.py  # 图片识别
-│   │   │   ├── model_manager.py        # 模型管理
-│   │   │   └── network_search_service.py # 网络搜索
-│   │   │
-│   │   ├── database.py         # 数据库模型
-│   │   ├── memory_manager.py   # 记忆管理器
-│   │   ├── rag_engine.py       # RAG检索引擎
-│   │   ├── intent_service.py   # 意图识别服务
-│   │   ├── session_service.py  # 会话管理
-│   │   ├── diary_service.py    # 日记生成服务
-│   │   └── token_monitor.py    # Token监测
-│   │
-│   ├── wecom/                  # 企业微信相关
-│   │   ├── server.py           # FastAPI服务入口(精简版)
-│   │   ├── deps.py             # 共享依赖和全局实例
-│   │   ├── scheduler.py        # 定时任务调度器
-│   │   ├── client.py           # 企微API客户端
-│   │   ├── handlers.py         # 消息处理器
-│   │   └── routers/            # API路由模块
-│   │       ├── callback.py     # 企微回调路由
-│   │       ├── knowledge.py    # 知识库路由
-│   │       ├── memory.py       # 记忆管理路由
-│   │       ├── config.py       # 系统配置路由
-│   │       ├── tasks.py        # 定时任务路由
-│   │       ├── diary.py        # 日记路由
-│   │       └── token.py        # Token监控路由
-│   │
-│   ├── utils/                  # 工具类
-│   │   ├── metrics.py          # Prometheus指标
-│   │   ├── health_check.py     # 健康检查
-│   │   ├── async_utils.py      # 异步工具
-│   │   ├── http_pool.py        # HTTP连接池
-│   │   └── version.py          # 版本管理
-│   │
-│   └── web/                    # Web界面
-│       └── templates/
-│           └── upload.html     # 知识库上传页面
-│
-├── data/                       # 数据目录
-│   ├── config/                 # 配置文件
-│   │   ├── config.json         # 主配置文件
-│   │   └── config.json.template # 配置模板
-│   │
-│   ├── avatars/                # 人设目录
-│   │   ├── ATRI/               # 人设示例
-│   │   │   └── avatar.md       # 人设提示词
-│   │   └── MONO/
-│   │
-│   ├── database/               # SQLite数据库
-│   │   └── chat_history.db     # 聊天记录+记忆
-│   │
-│   ├── vectordb/               # ChromaDB向量存储
-│   ├── mode/                   # 表情包资源(可选)
-│   └── tasks.json              # 定时任务配置
-│
-├── scripts/                    # 脚本工具
-│   ├── check_time.py           # 时间检查
-│   ├── describe_emojis.py      # 表情包描述生成
-│   └── test_single.py          # 单元测试
-│
-├── deployment/                 # 部署相关
-│   ├── atrinexus.service       # Systemd服务配置
-│   └── install.sh              # 安装脚本
-│
-|── README.md                   # 项目说明
+```bash
+curl http://127.0.0.1:8080/health/simple
+curl http://127.0.0.1:8080/health
 ```
 
----
+## Deployment Notes
 
-详细架构说明请参考：[项目技术文档.md](项目技术文档.md)
+The project is intended to run behind nginx with a public WeCom callback endpoint.
 
----
+Typical production layout includes:
 
+- systemd-managed `run.py`
+- nginx reverse proxy
+- `/health` and `/metrics` exposure
+- WeCom callback routing
 
+## Important Notes
 
-### 📝 配置文件管理
+- This repository contains both the current default runtime path and some legacy compatibility paths.
+- The default vector backend is Qdrant.
+- The default RAG backend is SDK-based.
+- The default reply/tool path is LangChain-based.
+- Legacy modules still exist where they are needed for fallback or compatibility, but they are no longer the primary direction.
 
-项目已通过 `.gitignore` 自动忽略以下敏感文件：
+## Who This Is For
 
-```gitignore
-data/config/config.json          # 主配置文件
-data/database/                   # 用户数据库
-data/vectordb/                   # 向量数据库
-data/knowledge/                  # 知识库文件
-logs/                            # 日志文件
-*.db, *.sqlite, *.sqlite3        # 数据库文件
-.env                             # 环境变量
-```
+AtriNexus is a better fit for:
 
+- personal AI assistant experiments
+- WeCom-based assistant deployment
+- long-running memory-centric assistant use
+- practical RAG + memory + tool integration
 
+It is not intended to be:
 
----
+- a generic agent platform
+- a polished SaaS product
+- a framework for every use case
 
-## 🛠️ 高级配置
+## License
 
-### 自定义人设
-
-人设文件位于 `data/avatars/` 目录：
-
-```
-data/avatars/ATRI/
-├── avatar.md      # 角色设定
-└── emojis/        # 表情包
-```
-
-### 群聊配置
-
-在 `config.json` 的 `user_settings.group_chat_config` 中配置不同群聊的专属设定。
-
-### 定时任务
-
-通过 WebUI 或配置文件设置定时消息推送。
-
----
-
-## 🤝 贡献指南
-
-我们欢迎所有形式的贡献！
-
-### 如何贡献
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
-
-### 贡献领域
-
-- 🐛 修复 Bug
-- ✨ 添加新功能
-- 📝 改进文档
-- 🎨 优化代码结构
-- 🌐 多语言支持
-
----
-
-## 📜 开源协议
-
-本项目采用 [MIT License](LICENSE) 开源协议。
-
-### 使用须知
-
-- ✅ 允许商业使用
-- ✅ 允许修改和分发
-- ⚠️ 需保留版权声明
-- ⚠️ 开发者不承担任何责任
-
-### 法律与伦理准则
-
-- 本项目仅供技术研究与学习交流
-- 禁止用于任何违法或违反道德的场景
-- 生成内容不代表开发者立场
-- 角色版权归属原始创作者
-- 使用者需对自身行为负全责
-- 未成年人应在监护下使用
-
-
-<div align="center">
-
-**Made with ❤️ by AtriNexus Team**
-
-[⬆ 返回顶部](#atriNexus)
-
-</div>
+MIT. See [LICENSE](LICENSE).
