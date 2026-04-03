@@ -27,7 +27,7 @@ import jieba
 from rank_bm25 import BM25Okapi
 
 from src.services.ai.embedding_service import EmbeddingService
-from src.services.vector_store import ChromaVectorStore, VectorCollection, VectorStore
+from src.services.vector_store import QdrantVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from data.config import config
 
@@ -37,18 +37,26 @@ logger = logging.getLogger('wecom')
 class RAGEngine:
     """知识库检索增强引擎"""
 
-    def __init__(self, chroma_client=None, vector_store: Optional[VectorStore] = None):
-        self.client = chroma_client
+    def __init__(self, vector_store: Optional[VectorStore] = None):
         self.vector_store = vector_store
-        if not self.client and not self.vector_store:
-            db_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                'data', 'vectordb'
+        if not self.vector_store:
+            qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
+            qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
+            qdrant_path = os.getenv(
+                "ATRINEXUS_QDRANT_PATH",
+                os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                    "data",
+                    "vectordb_qdrant",
+                ),
             )
-            os.makedirs(db_path, exist_ok=True)
-            self.vector_store = ChromaVectorStore(path=db_path)
+            if qdrant_url:
+                self.vector_store = QdrantVectorStore(url=qdrant_url, api_key=qdrant_api_key)
+            else:
+                os.makedirs(qdrant_path, exist_ok=True)
+                self.vector_store = QdrantVectorStore(path=qdrant_path)
             
-        # BM25 Sparse 检索需要的语料库及分词后索引（内存缓寸，启动时自动从 Chroma 重建）
+        # BM25 Sparse 检索需要的语料库及分词后索引（内存缓存，启动时自动从向量存储重建）
         # 结构: user_id -> {"corpus": [list of strings], "bm25": BM25Okapi object, "ids": [list of ids]}
         self._bm25_store = {}
 
@@ -69,22 +77,7 @@ class RAGEngine:
         if self._embedding_service.is_available():
             self.embedding_fn = self._embedding_service.embedding_function
             self.reranker = self._embedding_service.reranker
-            if self.vector_store is None:
-                if self.client is not None:
-                    self.vector_store = ChromaVectorStore(
-                        client=self.client,
-                        embedding_function=self.embedding_fn,
-                    )
-                else:
-                    db_path = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                        'data', 'vectordb'
-                    )
-                    self.vector_store = ChromaVectorStore(
-                        path=db_path,
-                        embedding_function=self.embedding_fn,
-                    )
-            elif hasattr(self.vector_store, "set_embedding_function"):
+            if hasattr(self.vector_store, "set_embedding_function"):
                 self.vector_store.set_embedding_function(self.embedding_fn)
         else:
             logger.warning("未配置 API Key，RAG 引擎不可用")
@@ -118,7 +111,7 @@ class RAGEngine:
         return self.batch_size  # 默认 8
 
     def _build_collection_name(self, user_id: str) -> str:
-        """构建稳定且满足 Chroma 约束的集合名。"""
+        """构建稳定的用户知识库集合名。"""
         normalized_user_id = re.sub(r'[^a-zA-Z0-9_-]+', '_', user_id).strip('_').lower()
         if not normalized_user_id:
             normalized_user_id = hashlib.md5(user_id.encode('utf-8')).hexdigest()[:12]
@@ -535,7 +528,7 @@ class RAGEngine:
         if not final_chunks:
             return False, "文件文本分割失败"
 
-        # 5. 准备写入 ChromaDB
+        # 5. 准备写入向量存储
         ids = []
         documents = []
         metadatas = []
@@ -646,7 +639,7 @@ class RAGEngine:
             dense_results_raw = {}
             sparse_results_raw = {}
             
-            # 使用 ThreadPoolExecutor 并行发起 Dense(Chroma) 和 Sparse(BM25) 查询
+            # 使用 ThreadPoolExecutor 并行发起 Dense 和 Sparse(BM25) 查询
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
                 def run_dense():
                     return collection.query(**query_args)
@@ -711,7 +704,7 @@ class RAGEngine:
             # 处理 Sparse 榜单，注入到 RRF
             if sparse_results_raw:
                 # Sparse 是 [(id, score), ...]
-                # 为了拿到 docs 和 metadata，如果 doc_id 不在 map 里，我们需要去 Chroma 反查一次
+                # 为了拿到 docs 和 metadata，如果 doc_id 不在 map 里，需要回查向量存储
                 missing_ids = [doc_id for doc_id, _ in sparse_results_raw if doc_id not in doc_meta_map]
                 if missing_ids:
                     missing_data = collection.get(ids=missing_ids, include=["documents", "metadatas"])
@@ -967,7 +960,7 @@ class RAGEngine:
         """
         异步检索知识库（不阻塞事件循环）
         
-        使用线程池执行 ChromaDB 同步操作，适用于高并发场景。
+        使用线程池执行同步检索操作，适用于高并发场景。
         """
         return await run_sync(
             self.retrieve_knowledge,
