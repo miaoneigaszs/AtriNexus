@@ -2,7 +2,7 @@
 记忆管理器模块
 三层记忆架构：
 - 短期记忆（最近 N 轮对话，SQLite JSON Blob）
-- 中期记忆（向量检索，ChromaDB）— 语义相关的历史对话摘要
+- 中期记忆（向量检索）— 语义相关的历史对话摘要
 - 核心记忆（LLM 自动摘要的永久关键信息，SQLite）
 """
 
@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from src.services.database import Session, MemorySnapshot, ConversationCounter
 from src.services.ai.embedding_service import EmbeddingService
-from src.services.vector_store import ChromaVectorStore, VectorCollection, VectorStore
+from src.services.vector_store import QdrantVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
 from data.config import config
@@ -34,22 +34,21 @@ class MemoryManager:
 
     架构：
     1. 短期记忆（SQLite）：最近 max_groups 轮对话原文
-    2. 中期记忆（ChromaDB）：对话摘要的向量检索，按语义相关度召回
+    2. 中期记忆（向量存储）：对话摘要的向量检索，按语义相关度召回
     3. 核心记忆（SQLite）：LLM 定期摘要的永久关键信息（用户身份、偏好等）
 
     上下文构建优先级：核心记忆 > 语义相关中期记忆 > 最近短期记忆
     """
 
-    def __init__(self, llm_service=None, chroma_client=None, vector_store: Optional[VectorStore] = None):
+    def __init__(self, llm_service=None, vector_store: Optional[VectorStore] = None):
         """
         初始化记忆管理器
 
         Args:
             llm_service: LLMService 实例（用于核心记忆摘要和对话摘要）
-            chroma_client: 可选外部传入的 ChromaDB 单例，若无则内部创建
+            vector_store: 可选外部传入的向量存储实例，若无则内部创建 Qdrant 实例
         """
         self.llm_service = llm_service
-        self._chroma_client = chroma_client
         self._vector_store = vector_store
 
         # 项目根目录
@@ -73,7 +72,7 @@ class MemoryManager:
         if api_key:
             self._embedding_service.configure(api_key=api_key, base_url=base_url)
 
-        # 初始化 ChromaDB 向量存储
+        # 初始化向量存储
         self._init_vector_store()
 
         # 时间衰减配置（可从配置文件读取）
@@ -87,48 +86,52 @@ class MemoryManager:
         logger.info("MemoryManager 初始化完成（三层记忆架构）")
 
     def _init_vector_store(self):
-        """初始化 ChromaDB 向量存储"""
+        """初始化向量存储"""
         try:
             # 使用共享的 Embedding 服务
             if self._embedding_service.is_available():
                 if self._vector_store and hasattr(self._vector_store, "set_embedding_function"):
                     self._vector_store.set_embedding_function(self._embedding_service.embedding_function)
                 if not self._vector_store:
-                    if self._chroma_client is not None:
-                        self._vector_store = ChromaVectorStore(
-                            client=self._chroma_client,
+                    qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
+                    qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
+                    qdrant_path = os.getenv(
+                        "ATRINEXUS_QDRANT_PATH",
+                        os.path.join(self.root_dir, "data", "vectordb_qdrant"),
+                    )
+                    if qdrant_url:
+                        self._vector_store = QdrantVectorStore(
+                            url=qdrant_url,
+                            api_key=qdrant_api_key,
                             embedding_function=self._embedding_service.embedding_function,
                         )
                     else:
-                        vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
-                        os.makedirs(vectordb_path, exist_ok=True)
-                        self._vector_store = ChromaVectorStore(
-                            path=vectordb_path,
+                        os.makedirs(qdrant_path, exist_ok=True)
+                        self._vector_store = QdrantVectorStore(
+                            path=qdrant_path,
                             embedding_function=self._embedding_service.embedding_function,
                         )
                 self._embedding_fn = self._embedding_service.embedding_function
                 self._vector_store_available = True
-                logger.info("ChromaDB 向量存储初始化成功")
+                logger.info("向量存储初始化成功")
             else:
                 logger.warning("Embedding 服务未配置，向量检索功能不可用")
                 self._embedding_fn = None
                 self._vector_store_available = False
 
         except ImportError:
-            logger.warning("chromadb 未安装，向量检索功能不可用。请运行: pip install chromadb")
-            self._chroma_client = None
+            logger.warning("向量存储依赖未安装，向量检索功能不可用。")
             self._vector_store = None
             self._embedding_fn = None
             self._vector_store_available = False
         except Exception as e:
-            logger.error(f"ChromaDB 初始化失败: {e}")
-            self._chroma_client = None
+            logger.error(f"向量存储初始化失败: {e}")
             self._vector_store = None
             self._embedding_fn = None
             self._vector_store_available = False
 
     def _get_collection(self, user_id: str, avatar_name: str) -> Optional[VectorCollection]:
-        """获取用户 + 人设隔离的 ChromaDB Collection"""
+        """获取用户 + 人设隔离的向量集合"""
         if not self._vector_store_available or not self._vector_store:
             return None
         # Collection 名称：字母数字下划线，3-63字符
@@ -139,7 +142,7 @@ class MemoryManager:
                 metadata={"user_id": user_id, "avatar_name": avatar_name}
             )
         except Exception as e:
-            logger.error(f"获取 ChromaDB Collection 失败: {e}")
+            logger.error(f"获取向量集合失败: {e}")
             return None
 
     # ---------- 短期记忆 ----------
@@ -195,7 +198,7 @@ class MemoryManager:
         finally:
             session.close()
 
-    # ---------- 中期记忆（ChromaDB 向量检索）----------
+    # ---------- 中期记忆（向量检索）----------
 
     def add_to_vector_memory(self, user_id: str, avatar_name: str, summary: str):
         """
@@ -732,7 +735,7 @@ class MemoryManager:
         """
         异步语义搜索相关记忆（不阻塞事件循环）
         
-        使用线程池执行 ChromaDB 同步操作，适用于高并发场景。
+        使用线程池执行同步向量检索，适用于高并发场景。
         """
         return await run_sync(
             self.search_relevant_memories,
