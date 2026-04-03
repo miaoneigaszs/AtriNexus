@@ -364,6 +364,32 @@ class MemoryManager:
             logger.error(f"获取向量记忆失败: {e}")
             return {'collection': None, 'memories': [], 'total': 0}
 
+    def get_vector_store_stats(self) -> List[dict]:
+        """返回向量存储中的记忆集合统计。"""
+        if not self._vector_store_available or not self._vector_store:
+            return []
+
+        client = getattr(self._vector_store, "_client", None)
+        if client is None or not hasattr(client, "get_collections"):
+            return []
+
+        try:
+            collections = client.get_collections().collections
+            stats: List[dict] = []
+            for collection in collections:
+                name = getattr(collection, "name", "")
+                if not str(name).startswith("mem_"):
+                    continue
+                qdrant_collection = self._vector_store.get_or_create_collection(name)
+                stats.append({
+                    "name": name,
+                    "count": qdrant_collection.count(),
+                })
+            return stats
+        except Exception as e:
+            logger.error(f"获取向量存储统计失败: {e}")
+            return []
+
     def delete_vector_memory(self, user_id: str, avatar_name: str, memory_id: str = None) -> bool:
         """
         删除向量记忆

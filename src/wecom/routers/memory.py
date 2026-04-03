@@ -202,13 +202,8 @@ async def api_memory_stats(user_id: str = None, avatar_name: str = None):
             
             stats["total_conversation_counters"] = session.query(ConversationCounter).count()
             
-            # 向量库统计
-            if message_handler.memory._vector_store_available and message_handler.memory._chroma_client:
-                collections = message_handler.memory._chroma_client.list_collections()
-                stats["vector_collections"] = [
-                    {"name": c.name, "count": c.count()} 
-                    for c in collections
-                ]
+            # 向量存储统计
+            stats["vector_collections"] = message_handler.memory.get_vector_store_stats()
             
             return JSONResponse(content={"success": True, "data": stats})
         finally:
