@@ -168,11 +168,8 @@ class SdkRAGService(BaseRAGService):
         sdk: Any = None,
         fallback_service: Optional[BaseRAGService] = None,
     ):
-        self._sdk_root = Path(
-            sdk_root
-            or os.getenv("ATRINEXUS_RAG_SDK_ROOT", "")
-            or str(Path(__file__).resolve().parents[3] / "rag")
-        )
+        raw_sdk_root = sdk_root or os.getenv("ATRINEXUS_RAG_SDK_ROOT", "")
+        self._sdk_root = Path(raw_sdk_root) if raw_sdk_root else None
         self._sdk = sdk
         self._fallback_service = fallback_service
 
@@ -180,18 +177,28 @@ class SdkRAGService(BaseRAGService):
         if self._sdk is not None:
             return self._sdk
 
-        sdk_root = str(self._sdk_root)
-        if sdk_root not in sys.path:
-            sys.path.insert(0, sdk_root)
-
         try:
             from rag import KnowledgeSDK
             from rag.config import RAGConfig
             from rag.models import DeleteOptions, DocumentSource, IndexOptions, RetrieveOptions
         except ImportError as exc:
-            raise RuntimeError(
-                f"无法导入 RAG SDK，请检查路径或安装状态: {self._sdk_root}"
-            ) from exc
+            if not self._sdk_root:
+                raise RuntimeError(
+                    "无法导入 RAG SDK，请先通过 GitHub 依赖安装，或设置 ATRINEXUS_RAG_SDK_ROOT 指向本地源码目录。"
+                ) from exc
+
+            sdk_root = str(self._sdk_root)
+            if sdk_root not in sys.path:
+                sys.path.insert(0, sdk_root)
+
+            try:
+                from rag import KnowledgeSDK
+                from rag.config import RAGConfig
+                from rag.models import DeleteOptions, DocumentSource, IndexOptions, RetrieveOptions
+            except ImportError as retry_exc:
+                raise RuntimeError(
+                    f"无法导入 RAG SDK，请检查安装状态或源码路径: {self._sdk_root}"
+                ) from retry_exc
 
         base_config = RAGConfig.from_env()
         base_config.chunk.use_contextual_retrieval = False

@@ -41,8 +41,8 @@ class MessageHandler:
         self.client = wecom_client
         
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        self.vector_backend = os.getenv("VECTOR_BACKEND", "chroma").strip().lower() or "chroma"
-        self.rag_backend = os.getenv("RAG_BACKEND", "legacy").strip().lower() or "legacy"
+        self.vector_backend = os.getenv("VECTOR_BACKEND", "qdrant").strip().lower() or "qdrant"
+        self.rag_backend = os.getenv("RAG_BACKEND", "sdk").strip().lower() or "sdk"
 
         # ========== 初始化核心服务 ==========
         # LLM 服务
