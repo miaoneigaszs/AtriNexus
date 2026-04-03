@@ -5,10 +5,6 @@ WeCom 消息处理器（重构版）
 
 import logging
 import os
-from typing import Optional
-
-import chromadb
-from chromadb.config import Settings
 
 from src.services.ai.llm_service import LLMService
 from src.services.memory_manager import MemoryManager
@@ -16,7 +12,7 @@ from src.services.rag_engine import RAGEngine
 from src.services.rag_service import LegacyRAGService, SdkRAGService
 from src.services.session_service import SessionService
 from src.services.intent_service import IntentService
-from src.services.vector_store import ChromaVectorStore, QdrantVectorStore
+from src.services.vector_store import QdrantVectorStore
 from src.services.database import Session, ChatMessage
 from src.utils.async_utils import run_sync
 from src.wecom.client import WeComClient
@@ -39,10 +35,10 @@ class MessageHandler:
     def __init__(self, wecom_client: WeComClient):
         """初始化消息处理器"""
         self.client = wecom_client
-        
+
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        self.vector_backend = os.getenv("VECTOR_BACKEND", "qdrant").strip().lower() or "qdrant"
-        self.rag_backend = os.getenv("RAG_BACKEND", "sdk").strip().lower() or "sdk"
+        self.vector_backend = self._resolve_vector_backend()
+        self.rag_backend = self._resolve_rag_backend()
 
         # ========== 初始化核心服务 ==========
         # LLM 服务
@@ -57,12 +53,10 @@ class MessageHandler:
             fallback_models=getattr(config.llm, 'fallback_models', [])
         )
 
-        self.chroma_client = None
-        self.vector_store = self._init_vector_store_backend()
+        self.vector_store = self._init_vector_store()
 
         # 其他服务
-        self.memory = self._init_memory_manager()
-        self.rag_engine = self._init_legacy_rag_engine()
+        self.memory = MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
         self.rag = self._init_rag_service()
         self.session_service = SessionService(kb_session_timeout=5)
         self.intent_service = IntentService(rag_engine=self.rag)
@@ -75,53 +69,40 @@ class MessageHandler:
 
         logger.info(f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, rag_backend={self.rag_backend}")
 
-    def _init_vector_store_backend(self):
-        if self.vector_backend == "qdrant":
-            try:
-                qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
-                qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
-                qdrant_path = os.getenv(
-                    "ATRINEXUS_QDRANT_PATH",
-                    os.path.join(self.root_dir, "data", "vectordb_qdrant"),
-                )
-                if qdrant_url:
-                    logger.info(f"初始化 Qdrant 向量存储: url={qdrant_url}")
-                    return QdrantVectorStore(
-                        url=qdrant_url,
-                        api_key=qdrant_api_key,
-                        embedding_function=None,
-                    )
-                os.makedirs(qdrant_path, exist_ok=True)
-                logger.info(f"初始化 Qdrant 向量存储: path={qdrant_path}")
-                return QdrantVectorStore(
-                    path=qdrant_path,
-                    embedding_function=None,
-                )
-            except Exception as e:
-                logger.error(f"Qdrant 初始化失败，回退到 Chroma: {e}")
-                self.vector_backend = "chroma"
+    def _resolve_vector_backend(self) -> str:
+        backend = os.getenv("VECTOR_BACKEND", "qdrant").strip().lower() or "qdrant"
+        if backend != "qdrant":
+            logger.warning(f"VECTOR_BACKEND={backend} 已不再作为主路径支持，改用 qdrant")
+        return "qdrant"
 
-        vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
-        os.makedirs(vectordb_path, exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(
-            path=vectordb_path,
-            settings=Settings(anonymized_telemetry=False)
+    def _resolve_rag_backend(self) -> str:
+        backend = os.getenv("RAG_BACKEND", "sdk").strip().lower() or "sdk"
+        if backend not in {"sdk", "legacy"}:
+            logger.warning(f"RAG_BACKEND={backend} 非法，改用 sdk")
+            return "sdk"
+        return backend
+
+    def _init_vector_store(self) -> QdrantVectorStore:
+        qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
+        qdrant_api_key = os.getenv("ATRINEXUS_QDRANT_API_KEY", "").strip() or None
+        qdrant_path = os.getenv(
+            "ATRINEXUS_QDRANT_PATH",
+            os.path.join(self.root_dir, "data", "vectordb_qdrant"),
         )
-        logger.info(f"初始化 Chroma 向量存储: path={vectordb_path}")
-        return ChromaVectorStore(client=self.chroma_client)
 
-    def _init_memory_manager(self) -> MemoryManager:
-        if self.vector_backend == "qdrant":
-            return MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
-        return MemoryManager(llm_service=self.llm_service, chroma_client=self.chroma_client)
+        if qdrant_url:
+            logger.info(f"初始化 Qdrant 向量存储: url={qdrant_url}")
+            return QdrantVectorStore(url=qdrant_url, api_key=qdrant_api_key, embedding_function=None)
 
-    def _init_legacy_rag_engine(self) -> RAGEngine:
-        if self.vector_backend == "qdrant":
-            return RAGEngine(vector_store=self.vector_store)
-        return RAGEngine(chroma_client=self.chroma_client)
+        os.makedirs(qdrant_path, exist_ok=True)
+        logger.info(f"初始化 Qdrant 向量存储: path={qdrant_path}")
+        return QdrantVectorStore(path=qdrant_path, embedding_function=None)
+
+    def _build_legacy_rag_service(self) -> LegacyRAGService:
+        return LegacyRAGService(RAGEngine(vector_store=self.vector_store))
 
     def _init_rag_service(self):
-        legacy_rag = LegacyRAGService(self.rag_engine)
+        legacy_rag = self._build_legacy_rag_service()
         if self.rag_backend == "sdk":
             try:
                 logger.info("初始化 SDK RAG 服务")
