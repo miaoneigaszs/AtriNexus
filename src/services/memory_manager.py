@@ -16,6 +16,7 @@ from typing import List, Optional
 
 from src.services.database import Session, MemorySnapshot, ConversationCounter
 from src.services.ai.embedding_service import EmbeddingService
+from src.services.vector_store import ChromaVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
 from data.config import config
@@ -39,7 +40,7 @@ class MemoryManager:
     上下文构建优先级：核心记忆 > 语义相关中期记忆 > 最近短期记忆
     """
 
-    def __init__(self, llm_service=None, chroma_client=None):
+    def __init__(self, llm_service=None, chroma_client=None, vector_store: Optional[VectorStore] = None):
         """
         初始化记忆管理器
 
@@ -49,6 +50,7 @@ class MemoryManager:
         """
         self.llm_service = llm_service
         self._chroma_client = chroma_client
+        self._vector_store = vector_store
 
         # 项目根目录
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -87,21 +89,21 @@ class MemoryManager:
     def _init_vector_store(self):
         """初始化 ChromaDB 向量存储"""
         try:
-            import chromadb
-            from chromadb.config import Settings
-
-            # 如果外部没有传，才新起一个 client
-            if not self._chroma_client:
-                vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
-                os.makedirs(vectordb_path, exist_ok=True)
-
-                self._chroma_client = chromadb.PersistentClient(
-                    path=vectordb_path,
-                    settings=Settings(anonymized_telemetry=False)
-                )
-
             # 使用共享的 Embedding 服务
             if self._embedding_service.is_available():
+                if not self._vector_store:
+                    if self._chroma_client is not None:
+                        self._vector_store = ChromaVectorStore(
+                            client=self._chroma_client,
+                            embedding_function=self._embedding_service.embedding_function,
+                        )
+                    else:
+                        vectordb_path = os.path.join(self.root_dir, 'data', 'vectordb')
+                        os.makedirs(vectordb_path, exist_ok=True)
+                        self._vector_store = ChromaVectorStore(
+                            path=vectordb_path,
+                            embedding_function=self._embedding_service.embedding_function,
+                        )
                 self._embedding_fn = self._embedding_service.embedding_function
                 self._vector_store_available = True
                 logger.info("ChromaDB 向量存储初始化成功")
@@ -113,24 +115,25 @@ class MemoryManager:
         except ImportError:
             logger.warning("chromadb 未安装，向量检索功能不可用。请运行: pip install chromadb")
             self._chroma_client = None
+            self._vector_store = None
             self._embedding_fn = None
             self._vector_store_available = False
         except Exception as e:
             logger.error(f"ChromaDB 初始化失败: {e}")
             self._chroma_client = None
+            self._vector_store = None
             self._embedding_fn = None
             self._vector_store_available = False
 
-    def _get_collection(self, user_id: str, avatar_name: str):
+    def _get_collection(self, user_id: str, avatar_name: str) -> Optional[VectorCollection]:
         """获取用户 + 人设隔离的 ChromaDB Collection"""
-        if not self._vector_store_available:
+        if not self._vector_store_available or not self._vector_store:
             return None
         # Collection 名称：字母数字下划线，3-63字符
         safe_name = f"mem_{hashlib.md5(f'{user_id}_{avatar_name}'.encode()).hexdigest()[:16]}"
         try:
-            return self._chroma_client.get_or_create_collection(
+            return self._vector_store.get_or_create_collection(
                 name=safe_name,
-                embedding_function=self._embedding_fn,
                 metadata={"user_id": user_id, "avatar_name": avatar_name}
             )
         except Exception as e:
@@ -379,7 +382,7 @@ class MemoryManager:
                 logger.info(f"向量记忆已删除: user={user_id}, id={memory_id}")
             else:
                 # 清空全部（删除整个 collection）
-                self._chroma_client.delete_collection(collection.name)
+                self._vector_store.delete_collection(collection.name)
                 logger.info(f"向量记忆已清空: user={user_id}, avatar={avatar_name}")
 
             return True

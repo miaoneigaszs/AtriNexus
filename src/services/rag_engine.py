@@ -14,8 +14,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from collections import defaultdict
 
-import chromadb
-
 try:
     import fitz  # PyMuPDF
 except ImportError:
@@ -29,6 +27,7 @@ import jieba
 from rank_bm25 import BM25Okapi
 
 from src.services.ai.embedding_service import EmbeddingService
+from src.services.vector_store import ChromaVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from data.config import config
 
@@ -38,17 +37,16 @@ logger = logging.getLogger('wecom')
 class RAGEngine:
     """知识库检索增强引擎"""
 
-    def __init__(self, chroma_client=None):
-        # 初始化持久化 ChromaDB Client
-        if chroma_client:
-            self.client = chroma_client
-        else:
+    def __init__(self, chroma_client=None, vector_store: Optional[VectorStore] = None):
+        self.client = chroma_client
+        self.vector_store = vector_store
+        if not self.client and not self.vector_store:
             db_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
                 'data', 'vectordb'
             )
             os.makedirs(db_path, exist_ok=True)
-            self.client = chromadb.PersistentClient(path=db_path)
+            self.vector_store = ChromaVectorStore(path=db_path)
             
         # BM25 Sparse 检索需要的语料库及分词后索引（内存缓寸，启动时自动从 Chroma 重建）
         # 结构: user_id -> {"corpus": [list of strings], "bm25": BM25Okapi object, "ids": [list of ids]}
@@ -71,6 +69,21 @@ class RAGEngine:
         if self._embedding_service.is_available():
             self.embedding_fn = self._embedding_service.embedding_function
             self.reranker = self._embedding_service.reranker
+            if self.vector_store is None:
+                if self.client is not None:
+                    self.vector_store = ChromaVectorStore(
+                        client=self.client,
+                        embedding_function=self.embedding_fn,
+                    )
+                else:
+                    db_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        'data', 'vectordb'
+                    )
+                    self.vector_store = ChromaVectorStore(
+                        path=db_path,
+                        embedding_function=self.embedding_fn,
+                    )
         else:
             logger.warning("未配置 API Key，RAG 引擎不可用")
             self.embedding_fn = None
@@ -111,15 +124,14 @@ class RAGEngine:
             normalized_user_id = normalized_user_id[:48]
         return f"kb_{normalized_user_id}"
 
-    def _get_kb_collection(self, user_id: str):
+    def _get_kb_collection(self, user_id: str) -> Optional[VectorCollection]:
         """获取专属知识库 Collection，按用户隔离"""
-        if not self.embedding_fn:
+        if not self.embedding_fn or not self.vector_store:
             return None
         collection_name = self._build_collection_name(user_id)
         try:
-            return self.client.get_or_create_collection(
+            return self.vector_store.get_or_create_collection(
                 name=collection_name,
-                embedding_function=self.embedding_fn,
                 metadata={"description": "User Knowledge Base"}
             )
         except Exception as e:
