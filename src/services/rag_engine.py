@@ -9,26 +9,16 @@ import re
 import json
 import logging
 import hashlib
-import asyncio
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from collections import defaultdict
-
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
-try:
-    from docx import Document
-except ImportError:
-    Document = None
 
 import jieba
 from rank_bm25 import BM25Okapi
 
 from src.services.ai.embedding_service import EmbeddingService
+from src.services.rag_legacy_document import parse_document, recursive_character_split, split_markdown
 from src.services.vector_store import QdrantVectorStore, VectorCollection, VectorStore
-from src.utils.async_utils import run_sync
 from data.config import config
 
 logger = logging.getLogger('wecom')
@@ -161,330 +151,6 @@ class RAGEngine:
         except Exception as e:
             logger.error(f"初始化 BM25 失败: {e}")
 
-    # ---------- 文档解析阶段 ----------
-
-    def parse_document(self, file_path: str) -> str:
-        """根据后缀名智能提取文档文本"""
-        if not os.path.exists(file_path):
-            return ""
-
-        ext = os.path.splitext(file_path)[1].lower()
-
-        try:
-            if ext == '.pdf':
-                return self._parse_pdf(file_path)
-            elif ext in ['.docx', '.doc']:
-                return self._parse_docx(file_path)
-            elif ext in ['.txt', '.md', '.csv', '.json']:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            else:
-                logger.warning(f"暂未支持的文件格式解析: {ext}")
-                return ""
-        except Exception as e:
-            logger.error(f"解析文档 {file_path} 失败: {e}")
-            return ""
-
-    def _parse_pdf(self, file_path: str) -> str:
-        """
-        解析 PDF 文档，支持目录结构识别
-
-        策略：
-        1. 获取 PDF 书签目录 (TOC)
-        2. 使用 get_text("dict") 获取带坐标的文本块
-        3. 将书签转换为 Markdown 标题，插入到对应位置
-        4. 如果没有书签，尝试通过字体大小/样式识别标题
-        """
-        if not fitz:
-            logger.error("未安装 PyMuPDF，无法解析 PDF")
-            return ""
-
-        try:
-            doc = fitz.open(file_path)
-            toc = doc.get_toc()  # [[level, title, page_num], ...]
-
-            # 如果没有书签，尝试通过字体大小识别标题
-            if not toc:
-                final_text = self._extract_pdf_headers_by_font(doc, file_path)
-                doc.close()
-                logger.debug(f"PDF解析完成(字体识别): {file_path}, 总页数={len(doc)}")
-                return final_text
-
-            # 构建 书签 -> 页面内容的映射
-            bookmark_pages = {}  # page_num -> [(level, title)]
-            for item in toc:
-                level, title, page_num = item[0], item[1], item[2]
-                if page_num not in bookmark_pages:
-                    bookmark_pages[page_num] = []
-                bookmark_pages[page_num].append((level, title))
-
-            result_lines = []
-            total_pages = len(doc)
-
-            for page_idx, page in enumerate(doc):
-                page_num = page_idx + 1  # PDF 页码从1开始
-
-                # 如果该页有书签，在页面开头插入 Markdown 标题
-                if page_num in bookmark_pages:
-                    for level, title in bookmark_pages[page_num]:
-                        # 转换为 Markdown 标题（限制层级 1-6）
-                        md_level = min(max(level, 1), 6)
-                        result_lines.append(f"{'#' * md_level} {title}")
-                        result_lines.append("")  # 空行分隔
-
-                # 获取页面文本
-                page_text = page.get_text().strip()
-                if page_text:
-                    result_lines.append(page_text)
-                result_lines.append("")  # 页面间空行分隔
-
-            doc.close()
-            final_text = "\n".join(result_lines)
-
-            logger.debug(f"PDF解析完成: {file_path}, 书签数={len(toc)}, 总页数={total_pages}")
-            return final_text
-
-        except Exception as e:
-            logger.error(f"PDF解析异常: {file_path}, 错误: {e}")
-            return ""
-
-    def _extract_pdf_headers_by_font(self, doc, file_path: str) -> str:
-        """
-        当 PDF 没有书签时，尝试通过字体大小识别标题
-        使用 get_text("dict") 获取带坐标和字体信息的文本块
-        """
-        try:
-            result_lines = []
-            
-            for page in doc:
-                # 获取带格式的文本块
-                text_dict = page.get_text("dict")
-                if not text_dict or "blocks" not in text_dict:
-                    continue
-                
-                # 收集所有文本块及其字体大小
-                text_blocks = []
-                for block in text_dict["blocks"]:
-                    if block.get("type") != 0:  # 跳过图片块
-                        continue
-                    
-                    for line in block.get("lines", []):
-                        for span in line.get("spans", []):
-                            text = span.get("text", "").strip()
-                            if not text:
-                                continue
-                            font_size = span.get("size", 12)
-                            is_bold = "bold" in span.get("font", "").lower()
-                            text_blocks.append({
-                                "text": text,
-                                "size": font_size,
-                                "bold": is_bold,
-                                "y": span.get("bbox", [0, 0, 0, 0])[1]  # Y坐标
-                            })
-                
-                if not text_blocks:
-                    continue
-                
-                # 计算平均字体大小，识别标题（字体较大或加粗）
-                avg_size = sum(b["size"] for b in text_blocks) / len(text_blocks)
-                
-                # 按 Y 坐标排序，保持阅读顺序
-                text_blocks.sort(key=lambda x: x["y"])
-                
-                for block in text_blocks:
-                    text = block["text"]
-                    size = block["size"]
-                    
-                    # 判断是否为标题：字体显著大于平均值 或 加粗且较大
-                    if size > avg_size * 1.3 or (block["bold"] and size > avg_size * 1.1):
-                        # 根据字体大小确定标题层级
-                        if size > avg_size * 2:
-                            result_lines.append(f"# {text}")
-                        elif size > avg_size * 1.6:
-                            result_lines.append(f"## {text}")
-                        elif size > avg_size * 1.3:
-                            result_lines.append(f"### {text}")
-                        else:
-                            result_lines.append(f"#### {text}")
-                    else:
-                        result_lines.append(text)
-                
-                result_lines.append("")  # 页面分隔
-            
-            return "\n".join(result_lines)
-            
-        except Exception as e:
-            logger.warning(f"PDF字体标题识别失败: {e}")
-            return ""
-
-    def _parse_docx(self, file_path: str) -> str:
-        """
-        解析 Word 文档，支持标题样式识别
-        
-        策略：
-        1. 检测段落样式名（Heading 1-6）
-        2. 转换为 Markdown 标题格式
-        3. 复用 split_markdown 进行结构化切块
-        """
-        if not Document:
-            logger.error("未安装 python-docx，无法解析 Word")
-            return ""
-        
-        try:
-            doc = Document(file_path)
-            result_lines = []
-            
-            for para in doc.paragraphs:
-                text = para.text.strip()
-                if not text:
-                    continue
-                
-                # 检测标题样式
-                style_name = para.style.name if para.style else ""
-                
-                # 匹配 Heading 1-6 或 标题 1-6
-                if style_name.startswith("Heading ") or style_name.startswith("标题 "):
-                    try:
-                        # 提取标题级别
-                        level_str = style_name.split()[-1]
-                        level = int(level_str)
-                        level = min(max(level, 1), 6)  # 限制 1-6
-                        result_lines.append(f"{'#' * level} {text}")
-                    except (ValueError, IndexError):
-                        result_lines.append(text)
-                elif style_name.lower() in ["title", "标题"]:
-                    # 文档主标题
-                    result_lines.append(f"# {text}")
-                else:
-                    # 普通段落
-                    result_lines.append(text)
-            
-            final_text = "\n".join(result_lines)
-            logger.debug(f"DOCX解析完成: {file_path}, 段落数={len(doc.paragraphs)}")
-            return final_text
-            
-        except Exception as e:
-            logger.error(f"DOCX解析异常: {file_path}, 错误: {e}")
-            return ""
-
-    # ---------- 智能切块阶段 (Chunking) ----------
-
-    def recursive_character_split(self, text: str, chunk_size: int = 600, overlap: int = 100) -> List[str]:
-        """
-        递归分层切块法：优先按照段落(\n\n)切分子句，再按换行(\n)，最后按句号切分。
-        保留完整的句子上下文结构。
-        """
-        separators = ["\n\n", "\n", "。", "！", "？", ".", " "]
-        return self._do_split(text, separators, chunk_size, overlap)
-
-    def _do_split(self, text: str, separators: List[str], chunk_size: int, overlap: int) -> List[str]:
-        # base case
-        if len(text) <= chunk_size:
-            return [text] if text.strip() else []
-
-        separator = separators[0]
-        # 寻找当前适用的最佳分隔符
-        for sep in separators:
-            if sep == "":
-                separator = sep
-                break
-            if sep in text:
-                separator = sep
-                break
-
-        # 尝试拆分
-        if separator:
-            splits = text.split(separator)
-        else:
-            splits = list(text)  # 退化成单字符
-
-        chunks = []
-        current_chunk = []
-        current_length = 0
-
-        for s in splits:
-            s_len = len(s) + (len(separator) if separator else 0)
-            if current_length + s_len > chunk_size and current_chunk:
-                # 合并现有的部分作为一个块
-                chunk_str = separator.join(current_chunk)
-                if chunk_str.strip():
-                    chunks.append(chunk_str)
-
-                # 处理重叠
-                overlap_chars = 0
-                keep_pieces = []
-                for p in reversed(current_chunk):
-                    if overlap_chars + len(p) <= overlap:
-                        keep_pieces.insert(0, p)
-                        overlap_chars += len(p) + (len(separator) if separator else 0)
-                    else:
-                        break
-                current_chunk = keep_pieces
-                current_length = overlap_chars
-
-            current_chunk.append(s)
-            current_length += s_len
-
-        if current_chunk:
-            chunk_str = separator.join(current_chunk)
-            if chunk_str.strip():
-                chunks.append(chunk_str)
-
-        # 如果切出来的块依然太大，递归使用下一级分隔符
-        final_chunks = []
-        next_seps = separators[1:] if len(separators) > 1 else [""]
-        for c in chunks:
-            if len(c) > chunk_size and next_seps:
-                final_chunks.extend(self._do_split(c, next_seps, chunk_size, overlap))
-            else:
-                final_chunks.append(c)
-
-        return final_chunks
-
-    def split_markdown(self, text: str) -> List[Dict[str, Any]]:
-        """
-        将 Markdown 文本按标题层级拆分，带上 Header 元数据。
-        非 Markdown 文本视为一个整体大块。
-        """
-        lines = text.split('\n')
-        chunks = []
-        current_headers = {}
-        current_content = []
-
-        header_regex = re.compile(r'^(#{1,6})\s+(.*)')
-
-        for line in lines:
-            match = header_regex.match(line)
-            if match:
-                # 遇到新标题，先保存上一个块的内容
-                if current_content:
-                    content_str = '\n'.join(current_content).strip()
-                    if content_str:
-                        chunks.append({"content": content_str, "headers": dict(current_headers)})
-                    current_content = []
-
-                level = len(match.group(1))
-                header_text = match.group(2).strip()
-
-                # 清理同级或更低级别的旧标题
-                keys_to_remove = [k for k in current_headers.keys() if int(k.replace('H', '')) >= level]
-                for k in keys_to_remove:
-                    del current_headers[k]
-
-                current_headers[f'H{level}'] = header_text
-            else:
-                current_content.append(line)
-
-        # 最后一个块
-        if current_content:
-            content_str = '\n'.join(current_content).strip()
-            if content_str:
-                chunks.append({"content": content_str, "headers": dict(current_headers)})
-
-        return chunks
-
-    # ---------- 核心接口：入库与检索 ----------
-
     def add_document(self, user_id: str, file_name: str, file_path: str, category: str = "默认分类") -> tuple[bool, str]:
         """
         完整的一键入库闭环流：读取文件 -> 解析格式 -> MD5防重校验 -> 结构化拆分 -> 递归切块 -> 入库
@@ -494,7 +160,7 @@ class RAGEngine:
             return False, "向量库初始化失败"
 
         # 1. 提取文本
-        text = self.parse_document(file_path)
+        text = parse_document(file_path)
         if not text.strip():
             return False, "解析出的文本为空，暂不支持纯图片或损坏的文件"
 
@@ -513,12 +179,12 @@ class RAGEngine:
             logger.warning(f"防重校验异常，继续入库: {e}")
 
         # 3. 结构化拆分 -> 基础层级感知
-        structured_sections = self.split_markdown(text)
+        structured_sections = split_markdown(text)
 
         # 4. 对每个结构块进行带 Overlap 的智能切片
         final_chunks = []
         for section in structured_sections:
-            sub_chunks = self.recursive_character_split(section["content"], chunk_size=self.chunk_size, overlap=self.chunk_overlap)
+            sub_chunks = recursive_character_split(section["content"], chunk_size=self.chunk_size, overlap=self.chunk_overlap)
             for sub in sub_chunks:
                 final_chunks.append({
                     "content": sub,
@@ -945,40 +611,3 @@ class RAGEngine:
             output_lines.append("")
 
         return "\n".join(output_lines)
-
-    # ========== 异步方法（性能优化）==========
-
-    async def retrieve_knowledge_async(
-        self, 
-        user_id: str, 
-        query: str, 
-        top_k: int = 3,
-        category_filter: Optional[str] = None,
-        h1_filter: Optional[str] = None,
-        h2_filter: Optional[str] = None
-    ) -> List[Dict]:
-        """
-        异步检索知识库（不阻塞事件循环）
-        
-        使用线程池执行同步检索操作，适用于高并发场景。
-        """
-        return await run_sync(
-            self.retrieve_knowledge,
-            user_id, query, top_k, category_filter, h1_filter, h2_filter
-        )
-
-    async def get_knowledge_list_async(self, user_id: str) -> Dict[str, List[str]]:
-        """异步获取知识库列表"""
-        return await run_sync(self.get_knowledge_list, user_id)
-
-    async def get_document_outline_async(
-        self, 
-        user_id: str, 
-        file_name: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """异步获取文档大纲"""
-        return await run_sync(self.get_document_outline, user_id, file_name)
-
-    async def delete_document_async(self, user_id: str, file_name: str) -> bool:
-        """异步删除文档"""
-        return await run_sync(self.delete_document, user_id, file_name)
