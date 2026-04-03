@@ -82,8 +82,6 @@ class LLMService:
         
         # 使用 ModelManager 管理模型（传入用户配置的备用模型列表）
         self.model_manager = ModelManager(self.client, model, fallback_models=fallback_models or [])
-        self.ollama_models = self.model_manager.get_ollama_models()
-        self.available_models = self.model_manager.get_available_models()
 
     def _manage_context(self, user_id: str, message: str, role: str = "user"):
         """
@@ -193,11 +191,6 @@ class LLMService:
                             reasoning = message.get("reasoning_content")
                             if reasoning and isinstance(reasoning, str):
                                 return True
-                            # 格式1c: 工具调用 - content为空但有tool_calls
-                            tool_calls = message.get("tool_calls")
-                            if tool_calls and isinstance(tool_calls, list):
-                                return True
-
                         # 格式2: choices[0].content
                         content = first_choice.get("content")
                         if content and isinstance(content, str):
