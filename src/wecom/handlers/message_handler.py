@@ -13,6 +13,7 @@ from chromadb.config import Settings
 from src.services.ai.llm_service import LLMService
 from src.services.memory_manager import MemoryManager
 from src.services.rag_engine import RAGEngine
+from src.services.rag_service import LegacyRAGService
 from src.services.session_service import SessionService
 from src.services.intent_service import IntentService
 from src.services.database import Session, ChatMessage
@@ -63,7 +64,8 @@ class MessageHandler:
 
         # 其他服务
         self.memory = MemoryManager(llm_service=self.llm_service, chroma_client=self.chroma_client)
-        self.rag = RAGEngine(chroma_client=self.chroma_client)
+        self.rag_engine = RAGEngine(chroma_client=self.chroma_client)
+        self.rag = LegacyRAGService(self.rag_engine)
         self.session_service = SessionService(kb_session_timeout=5)
         self.intent_service = IntentService(rag_engine=self.rag)
 

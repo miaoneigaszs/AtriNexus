@@ -6,7 +6,7 @@
 import logging
 from typing import Optional
 
-from src.services.rag_engine import RAGEngine
+from src.services.rag_service import RAGService
 
 logger = logging.getLogger('wecom')
 
@@ -14,14 +14,14 @@ logger = logging.getLogger('wecom')
 class CommandHandler:
     """知识库管理命令处理器"""
 
-    def __init__(self, rag_engine: RAGEngine):
+    def __init__(self, rag_service: RAGService):
         """
         初始化命令处理器
 
         Args:
-            rag_engine: RAG 引擎实例
+            rag_service: RAG 服务实例
         """
-        self.rag = rag_engine
+        self.rag = rag_service
 
     def is_command(self, content: str) -> bool:
         """
@@ -72,7 +72,7 @@ class CommandHandler:
 
     def _handle_kb_list(self, user_id: str) -> str:
         """处理: 知识库列表"""
-        kb_list = self.rag.get_knowledge_list(user_id)
+        kb_list = self.rag.list_documents(user_id)
 
         if not kb_list:
             return "您的知识库当前是空的哦~"

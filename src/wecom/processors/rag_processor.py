@@ -6,7 +6,7 @@ RAG 处理器
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 
-from src.services.rag_engine import RAGEngine
+from src.services.rag_service import RAGService
 from src.services.intent_service import IntentService
 from src.services.session_service import SessionService
 
@@ -16,16 +16,16 @@ logger = logging.getLogger('wecom')
 class RAGProcessor:
     """RAG 检索处理器"""
 
-    def __init__(self, rag_engine: RAGEngine, intent_service: IntentService, session_service: SessionService):
+    def __init__(self, rag_service: RAGService, intent_service: IntentService, session_service: SessionService):
         """
         初始化 RAG 处理器
 
         Args:
-            rag_engine: RAG 引擎
+            rag_service: RAG 服务
             intent_service: 意图识别服务
             session_service: 会话服务
         """
-        self.rag = rag_engine
+        self.rag = rag_service
         self.intent_service = intent_service
         self.session_service = session_service
 
@@ -50,8 +50,13 @@ class RAGProcessor:
         """
         # 如果指定了分类过滤，直接检索
         if category_filter:
-            kb_results = self.rag.retrieve_knowledge(user_id, content, top_k=3, category_filter=category_filter)
-            return (kb_results, "", True)
+            retrieval = self.rag.retrieve(
+                user_id,
+                content,
+                top_k=3,
+                filter_conditions={"category": category_filter},
+            )
+            return (retrieval["results"], "", True)
 
         # 意图识别
         intent_result = self.intent_service.recognize_intent(user_id, content, previous_context)
@@ -65,7 +70,6 @@ class RAGProcessor:
             return ([], "", False)
 
         # 知识库检索（不指定分类，检索所有内容）
-        kb_results = self.rag.retrieve_knowledge(user_id, query, top_k=3)
-        
-        return (kb_results, "", True)
+        retrieval = self.rag.retrieve(user_id, query, top_k=3)
+        return (retrieval["results"], "", True)
 

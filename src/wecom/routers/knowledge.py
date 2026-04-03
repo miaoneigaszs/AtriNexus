@@ -78,7 +78,12 @@ async def api_kb_upload(
         logger.info(f"开始入库: {file.filename}, size={file_size}B, user_id={user_id}, category={category}")
         
         # 调用 RAG 引擎入库
-        success, msg = message_handler.rag.add_document(user_id=user_id, file_name=file.filename, file_path=temp_file_path, category=category)
+        success, msg = message_handler.rag.index_document(
+            user_id=user_id,
+            file_name=file.filename,
+            file_path=temp_file_path,
+            category=category,
+        )
         
         elapsed = time.time() - start_time
         if success:
@@ -107,7 +112,7 @@ async def api_kb_list(user_id: str):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
         
     try:
-        kb_data = message_handler.rag.get_knowledge_list(user_id)
+        kb_data = message_handler.rag.list_documents(user_id)
         return JSONResponse(content={"success": True, "data": kb_data})
     except Exception as e:
         logger.error(f"获取知识库列表异常: {e}", exc_info=True)
@@ -168,7 +173,8 @@ async def api_kb_search(user_id: str, query: str, top_k: int = 10):
     
     try:
         # 使用 RAG 引擎的检索功能
-        results = message_handler.rag.retrieve_knowledge(user_id, query, top_k=top_k)
+        retrieval = message_handler.rag.retrieve(user_id, query, top_k=top_k)
+        results = retrieval["results"]
         
         # 格式化返回结果
         chunks = []

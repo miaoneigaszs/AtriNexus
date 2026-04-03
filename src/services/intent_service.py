@@ -63,7 +63,7 @@ class IntentService:
     ) -> Optional[Dict]:
         """准备意图识别参数，返回 None 表示跳过识别"""
         # 获取知识库分类
-        kb_list = self.rag.get_knowledge_list(user_id) if self.rag else {}
+        kb_list = self.rag.list_documents(user_id) if self.rag else {}
         if categories is None:
             categories = list(kb_list.keys()) if kb_list else []
 
@@ -238,4 +238,3 @@ class IntentService:
 ## 判断要点
 1. 公司文档、规章制度、技术资料 → TYPE_KNOWLEDGE_BASE
 2. 日常遭遇、购物消费、就医经历、实时新闻、天气等 → TYPE_CHITCHAT"""
-
