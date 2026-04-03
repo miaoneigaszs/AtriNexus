@@ -23,6 +23,17 @@ class SearchFilesInput(BaseModel):
     path: str = Field(default=".", description="搜索起始路径，相对 workspace 根目录")
 
 
+class PreviewWriteFileInput(BaseModel):
+    path: str = Field(description="要写入的文件路径，相对 workspace 根目录")
+    content: str = Field(description="写入后的完整文件内容")
+
+
+class PreviewEditFileInput(BaseModel):
+    path: str = Field(description="要编辑的文件路径，相对 workspace 根目录")
+    find_text: str = Field(description="待替换的原始文本片段")
+    replace_text: str = Field(description="替换后的文本片段")
+
+
 class ToolCatalog:
     def __init__(self, workspace_root: str, search_api_key: Optional[str] = None) -> None:
         self.runtime = WorkspaceRuntime(workspace_root)
@@ -57,6 +68,18 @@ class ToolCatalog:
                 name="search_files",
                 description="在 workspace 内按关键词搜索文件内容。",
                 args_schema=SearchFilesInput,
+            ),
+            StructuredTool.from_function(
+                func=self.runtime.preview_write_file,
+                name="preview_write_file",
+                description="预览对 workspace 文件的完整写入变更，返回 diff，不会直接落盘。",
+                args_schema=PreviewWriteFileInput,
+            ),
+            StructuredTool.from_function(
+                func=self.runtime.preview_edit_file,
+                name="preview_edit_file",
+                description="预览对 workspace 文件的精确文本替换变更，返回 diff，不会直接落盘。",
+                args_schema=PreviewEditFileInput,
             ),
         ]
 
