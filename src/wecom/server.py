@@ -183,6 +183,7 @@ from src.wecom.routers import (
     tasks_router,
     diary_router,
     token_router,
+    agent_router,
 )
 
 app.include_router(callback_router)
@@ -192,6 +193,7 @@ app.include_router(config_router)
 app.include_router(tasks_router)
 app.include_router(diary_router)
 app.include_router(token_router)
+app.include_router(agent_router)
 
 
 # ========== 启动函数 ==========

@@ -10,6 +10,7 @@ from src.wecom.routers.config import router as config_router
 from src.wecom.routers.tasks import router as tasks_router
 from src.wecom.routers.diary import router as diary_router
 from src.wecom.routers.token import router as token_router
+from src.wecom.routers.agent import router as agent_router
 
 __all__ = [
     'callback_router',
@@ -19,4 +20,5 @@ __all__ = [
     'tasks_router',
     'diary_router',
     'token_router',
+    'agent_router',
 ]

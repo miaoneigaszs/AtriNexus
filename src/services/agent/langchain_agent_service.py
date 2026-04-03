@@ -37,6 +37,9 @@ class LangChainAgentService:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.workspace_root = str(Path(__file__).resolve().parents[3])
+        search_cfg = config.network_search
+        search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
+        self.tool_catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
 
     def get_response(
         self,
@@ -77,11 +80,7 @@ class LangChainAgentService:
     def _build_tools(self):
         if self._model_lacks_tool_support():
             return []
-
-        search_cfg = config.network_search
-        search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
-        catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
-        return catalog.build_tools()
+        return self.tool_catalog.build_tools()
 
     def _build_system_prompt(
         self,
@@ -134,3 +133,12 @@ class LangChainAgentService:
     def _model_lacks_tool_support(self) -> bool:
         model_name = self.model.lower()
         return any(item in model_name for item in MODELS_WITHOUT_TOOL_SUPPORT)
+
+    def list_pending_changes(self) -> str:
+        return self.tool_catalog.runtime.list_pending_changes()
+
+    def apply_pending_change(self, change_id: str) -> str:
+        return self.tool_catalog.runtime.apply_pending_change(change_id)
+
+    def discard_pending_change(self, change_id: str) -> str:
+        return self.tool_catalog.runtime.discard_pending_change(change_id)
