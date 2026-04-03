@@ -176,17 +176,33 @@ async def check_qdrant() -> HealthCheckResult:
 
         if qdrant_url:
             client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
-        else:
-            client = QdrantClient(path=qdrant_path)
+            collections = client.get_collections().collections
+            latency = (time.time() - start) * 1000
+            return HealthCheckResult(
+                "qdrant",
+                HealthStatus.HEALTHY,
+                latency_ms=latency,
+                details={"collections": len(collections), "mode": "server"}
+            )
 
-        collections = client.get_collections().collections
-        
+        if not os.path.exists(qdrant_path):
+            return HealthCheckResult(
+                "qdrant",
+                HealthStatus.DEGRADED,
+                latency_ms=(time.time() - start) * 1000,
+                message=f"Local storage path not found: {qdrant_path}",
+                details={"mode": "local", "path": qdrant_path}
+            )
+
+        # 本地路径模式下，Qdrant 会对目录加锁。健康检查不再重复打开客户端，
+        # 只确认路径存在并可访问，避免把正常运行的单实例误报为 unhealthy。
         latency = (time.time() - start) * 1000
         return HealthCheckResult(
             "qdrant",
             HealthStatus.HEALTHY,
             latency_ms=latency,
-            details={"collections": len(collections)}
+            message="Local Qdrant storage path is available",
+            details={"mode": "local", "path": qdrant_path}
         )
     except Exception as e:
         return HealthCheckResult(
@@ -248,9 +264,11 @@ async def check_llm_api() -> HealthCheckResult:
 async def check_embedding_api() -> HealthCheckResult:
     """检查 Embedding API 连接"""
     start = time.time()
-    
-    api_key = config.llm.api_key
-    base_url = getattr(config.llm, 'base_url', 'https://api.siliconflow.cn/v1')
+
+    embedding_config = getattr(config, "embedding", None)
+    api_key = getattr(embedding_config, "api_key", "") or config.llm.api_key
+    base_url = getattr(embedding_config, "base_url", "https://api.siliconflow.cn/v1")
+    model = getattr(embedding_config, "model", "BAAI/bge-large-zh-v1.5")
     
     if not api_key:
         return HealthCheckResult(
@@ -269,7 +287,7 @@ async def check_embedding_api() -> HealthCheckResult:
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "BAAI/bge-large-zh-v1.5",
+            "model": model,
             "input": ["test"]
         }
         
@@ -281,14 +299,16 @@ async def check_embedding_api() -> HealthCheckResult:
             return HealthCheckResult(
                 "embedding_api",
                 HealthStatus.HEALTHY,
-                latency_ms=latency
+                latency_ms=latency,
+                details={"base_url": base_url, "model": model}
             )
         else:
             return HealthCheckResult(
                 "embedding_api",
                 HealthStatus.DEGRADED,
                 latency_ms=latency,
-                message=f"API returned status {response.status_code}"
+                message=f"API returned status {response.status_code}",
+                details={"base_url": base_url, "model": model}
             )
     except Exception as e:
         return HealthCheckResult(
