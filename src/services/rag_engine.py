@@ -1,7 +1,10 @@
 """
-知识库检索增强引擎 (RAG Engine)
-负责处理上传的 PDF、Word、TXT、MD 文件。
-实现：文本提取、高级递归切块 (Chunking)、向量化入库、元数据过滤搜索。
+知识库检索增强引擎 (RAG Engine)。
+
+说明：
+- 当前默认主路径已经切到 SDK RAG
+- 本文件主要保留 legacy 兼容实现
+- 新能力优先放到 SDK，不再继续把主项目堆成完整 RAG 内核
 """
 
 import os
