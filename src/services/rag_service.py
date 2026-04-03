@@ -8,6 +8,7 @@ RAG 服务边界。
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import defaultdict
 import os
 from pathlib import Path
 import sys
@@ -179,23 +180,50 @@ class SdkRAGService(BaseRAGService):
         if self._sdk is not None:
             return self._sdk
 
-        sdk_parent = str(self._sdk_root.parent)
-        if sdk_parent not in sys.path:
-            sys.path.insert(0, sdk_parent)
+        sdk_root = str(self._sdk_root)
+        if sdk_root not in sys.path:
+            sys.path.insert(0, sdk_root)
 
         try:
             from rag import KnowledgeSDK
-            from rag.models import DeleteOptions, IndexOptions, RetrieveOptions
+            from rag.config import RAGConfig
+            from rag.models import DeleteOptions, DocumentSource, IndexOptions, RetrieveOptions
         except ImportError as exc:
             raise RuntimeError(
                 f"无法导入 RAG SDK，请检查路径或安装状态: {self._sdk_root}"
             ) from exc
 
-        self._sdk = KnowledgeSDK()
+        base_config = RAGConfig.from_env()
+        base_config.chunk.use_contextual_retrieval = False
+        self._sdk = KnowledgeSDK(base_config=base_config)
+        self._sdk_document_source = DocumentSource
         self._sdk_index_options = IndexOptions
         self._sdk_retrieve_options = RetrieveOptions
         self._sdk_delete_options = DeleteOptions
         return self._sdk
+
+    def _get_engine(self, user_id: str) -> Any:
+        sdk = self._ensure_sdk()
+        return sdk._get_engine(namespace=user_id)
+
+    def _collect_payloads(self, user_id: str, file_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        engine = self._get_engine(user_id)
+        vector_store = engine.vector_store
+
+        if not hasattr(vector_store, "_scroll_all"):
+            raise RuntimeError("当前 SDK vector store 不支持 payload 扫描")
+
+        points = vector_store._scroll_all(None, with_payload=True)
+        payloads: List[Dict[str, Any]] = []
+        for point in points:
+            payload = dict(getattr(point, "payload", None) or {})
+            source_file = str(payload.get("source_file", "")).strip()
+            if not source_file:
+                continue
+            if file_name and source_file != file_name:
+                continue
+            payloads.append(payload)
+        return payloads
 
     def index_document(
         self,
@@ -206,12 +234,17 @@ class SdkRAGService(BaseRAGService):
         category: str = "默认分类",
     ) -> tuple[bool, str]:
         sdk = self._ensure_sdk()
+        source = self._sdk_document_source.from_bytes(
+            Path(file_path).read_bytes(),
+            source_name=file_name,
+            upload_origin="atrinexus",
+        )
         options = self._sdk_index_options(
             namespace=user_id,
             extra_meta={"category": category, "file_name": file_name},
             force_reindex=False,
         )
-        result = sdk.index(file_path, options=options)
+        result = sdk.index(source, options=options)
         if result.status:
             return True, f"文档《{file_name}》已完成 SDK 入库"
         return False, f"文档《{file_name}》SDK 入库失败"
@@ -244,14 +277,48 @@ class SdkRAGService(BaseRAGService):
         }
 
     def list_documents(self, user_id: str) -> Dict[str, List[str]]:
-        if self._fallback_service is not None:
-            return self._fallback_service.list_documents(user_id)
-        raise NotImplementedError("SDK 目前没有等价的文档列表接口，接入时需要补 namespace 元数据查询。")
+        documents_by_category: Dict[str, set[str]] = defaultdict(set)
+        for payload in self._collect_payloads(user_id):
+            category = str(payload.get("category", "默认分类") or "默认分类")
+            documents_by_category[category].add(str(payload["source_file"]))
+        return {
+            category: sorted(file_names)
+            for category, file_names in sorted(documents_by_category.items())
+        }
 
     def get_document_outline(self, user_id: str, file_name: Optional[str] = None) -> Dict[str, Any]:
-        if self._fallback_service is not None:
-            return self._fallback_service.get_document_outline(user_id, file_name)
-        raise NotImplementedError("SDK 目前没有等价的大纲接口，接入时需要基于检索元数据补齐。")
+        docs_structure: Dict[str, Dict[str, Any]] = defaultdict(
+            lambda: {"H1": set(), "H2": set(), "H3": set(), "category": "默认分类"}
+        )
+        categories: set[str] = set()
+
+        for payload in self._collect_payloads(user_id, file_name=file_name):
+            source_file = str(payload["source_file"])
+            category = str(payload.get("category", "默认分类") or "默认分类")
+            docs_structure[source_file]["category"] = category
+            categories.add(category)
+
+            heading_path = payload.get("heading_path") or []
+            if len(heading_path) > 0 and heading_path[0]:
+                docs_structure[source_file]["H1"].add(str(heading_path[0]))
+            if len(heading_path) > 1 and heading_path[1]:
+                docs_structure[source_file]["H2"].add(str(heading_path[1]))
+            if len(heading_path) > 2 and heading_path[2]:
+                docs_structure[source_file]["H3"].add(str(heading_path[2]))
+
+        documents = {
+            source_file: {
+                "H1": sorted(values["H1"]),
+                "H2": sorted(values["H2"]),
+                "H3": sorted(values["H3"]),
+                "category": values["category"],
+            }
+            for source_file, values in sorted(docs_structure.items())
+        }
+        return {
+            "documents": documents,
+            "categories": sorted(categories),
+        }
 
     def delete_document(self, user_id: str, file_name: str) -> bool:
         sdk = self._ensure_sdk()

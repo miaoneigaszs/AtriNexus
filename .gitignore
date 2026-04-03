@@ -71,6 +71,7 @@ test_db/
 *.tmp
 *.temp
 *.cache
+bm25_idf*
 .DS_Store
 Thumbs.db
 
