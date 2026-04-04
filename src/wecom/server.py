@@ -13,8 +13,7 @@ import os
 import time
 import sys
 import io
-from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from logging.handlers import TimedRotatingFileHandler
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -33,8 +32,31 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 log_dir = os.path.join(ROOT_DIR, "logs")
 os.makedirs(log_dir, exist_ok=True)
 
-# 获取日志文件路径（按日期）
-log_file = os.path.join(log_dir, f"bot_{datetime.now().strftime('%Y%m%d')}.log")
+def _build_daily_log_handler(log_directory: str) -> TimedRotatingFileHandler:
+    """创建按天滚动的日志处理器。
+
+    基础文件固定为 bot.log，跨天后自动轮转为 bot_YYYYMMDD.log。
+    这样服务持续运行时也会在午夜自动切换，不会继续写到前一天的文件。
+    """
+    base_log_file = os.path.join(log_directory, "bot.log")
+    handler = TimedRotatingFileHandler(
+        base_log_file,
+        when="midnight",
+        interval=1,
+        backupCount=30,
+        encoding="utf-8",
+    )
+    handler.suffix = "%Y%m%d"
+
+    def _rename_rotated_file(default_name: str) -> str:
+        directory, filename = os.path.split(default_name)
+        base_name, date_suffix = filename.rsplit(".", 1)
+        if base_name == "bot":
+            return os.path.join(directory, f"bot_{date_suffix}.log")
+        return default_name
+
+    handler.namer = _rename_rotated_file
+    return handler
 
 # 配置根日志器
 logging.basicConfig(
@@ -42,12 +64,7 @@ logging.basicConfig(
     format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        RotatingFileHandler(
-            log_file,
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5,
-            encoding='utf-8'
-        )
+        _build_daily_log_handler(log_dir),
     ]
 )
 logger = logging.getLogger('wecom')
