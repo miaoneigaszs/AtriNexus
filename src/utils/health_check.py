@@ -213,6 +213,51 @@ async def check_qdrant() -> HealthCheckResult:
         )
 
 
+async def check_sdk_qdrant() -> HealthCheckResult:
+    """检查 SDK RAG 使用的 Qdrant 服务连接。"""
+    start = time.time()
+
+    sdk_qdrant_url = os.getenv("ATRINEXUS_SDK_QDRANT_URL", "").strip()
+    sdk_qdrant_api_key = os.getenv("ATRINEXUS_SDK_QDRANT_API_KEY", "").strip() or None
+
+    if not sdk_qdrant_url:
+        return HealthCheckResult(
+            "sdk_qdrant",
+            HealthStatus.DEGRADED,
+            latency_ms=(time.time() - start) * 1000,
+            message="ATRINEXUS_SDK_QDRANT_URL not configured",
+        )
+
+    try:
+        from qdrant_client import QdrantClient
+
+        client = QdrantClient(
+            url=sdk_qdrant_url,
+            api_key=sdk_qdrant_api_key,
+            check_compatibility=False,
+        )
+        collections = client.get_collections().collections
+        latency = (time.time() - start) * 1000
+        return HealthCheckResult(
+            "sdk_qdrant",
+            HealthStatus.HEALTHY,
+            latency_ms=latency,
+            details={
+                "mode": "server",
+                "url": sdk_qdrant_url,
+                "collections": len(collections),
+            },
+        )
+    except Exception as e:
+        return HealthCheckResult(
+            "sdk_qdrant",
+            HealthStatus.UNHEALTHY,
+            latency_ms=(time.time() - start) * 1000,
+            message=str(e),
+            details={"url": sdk_qdrant_url},
+        )
+
+
 async def check_llm_api() -> HealthCheckResult:
     """检查 LLM API 连接"""
     start = time.time()
@@ -365,6 +410,7 @@ def register_default_checks():
     """注册默认的健康检查"""
     health_checker.register("database", check_database)
     health_checker.register("qdrant", check_qdrant)
+    health_checker.register("sdk_qdrant", check_sdk_qdrant)
     health_checker.register("llm_api", check_llm_api)
     health_checker.register("embedding_api", check_embedding_api)
     health_checker.register("memory", check_memory)
