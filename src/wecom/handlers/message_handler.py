@@ -234,7 +234,11 @@ class MessageHandler:
         kb_context = ""
         if kb_results:
             logger.info(f"==>[RAG Trace] 已将 {len(kb_results)} 个知识切片注入 Prompt 上下文。")
-            kb_context = self.context_builder.build_kb_context(kb_results)
+            try:
+                kb_context = self.context_builder.build_kb_context(kb_results)
+            except Exception:
+                logger.exception("[RAG Trace] 构建知识库上下文失败")
+                raise
 
         # 4. 构建记忆上下文
         core_memory = self.context_builder.build_merged_memory_context(ctx["mem_ctx"])

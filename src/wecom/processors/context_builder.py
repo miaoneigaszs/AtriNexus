@@ -18,6 +18,22 @@ logger = logging.getLogger('wecom')
 class ContextBuilder:
     """上下文构建器"""
 
+    @staticmethod
+    def _normalize_kb_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
+        """兼容 legacy 与 SDK 两种检索结果结构。"""
+        metadata = dict(result.get("metadata") or {})
+        if metadata:
+            return metadata
+
+        heading_path = result.get("heading_path") or []
+        normalized = {
+            "file_name": result.get("source_file", "") or result.get("file_name", ""),
+            "category": result.get("category", ""),
+        }
+        for idx, title in enumerate(heading_path[:3], start=1):
+            normalized[f"H{idx}"] = title
+        return normalized
+
     def __init__(self, memory_manager: MemoryManager, session_service: SessionService, root_dir: str):
         """
         初始化上下文构建器
@@ -126,8 +142,7 @@ class ContextBuilder:
 
         for i, res in enumerate(kb_results):
             ref_num = i + 1
-            meta = res['metadata']
-            score = res.get('score', 0)
+            meta = self._normalize_kb_metadata(res)
 
             kb_context += f"[{ref_num}] "
             kb_context += f"来源：《{meta.get('file_name', '未知文件')}》"
@@ -171,7 +186,7 @@ class ContextBuilder:
 
         references = []
         for res in kb_results:
-            meta = res.get('metadata', {})
+            meta = self._normalize_kb_metadata(res)
             file_name = meta.get('file_name', '')
             h1 = meta.get('H1', '')
             if file_name:
