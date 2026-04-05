@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from src.utils.async_utils import run_sync
 from src.wecom.scheduler import (
     load_tasks_file, save_tasks_file, reload_scheduled_tasks
 )
@@ -19,7 +20,7 @@ router = APIRouter(tags=["定时任务"])
 async def api_tasks_list():
     """获取所有定时任务"""
     try:
-        tasks = load_tasks_file()
+        tasks = await run_sync(load_tasks_file)
         return JSONResponse(content={"success": True, "data": tasks})
     except Exception as e:
         logger.error(f"[Tasks API] 获取任务列表失败: {e}", exc_info=True)
@@ -40,7 +41,7 @@ async def api_tasks_create(request: Request):
         if not all([task_id, chat_id, content, schedule_time]):
             return JSONResponse(status_code=400, content={"success": False, "message": "task_id, chat_id, content, schedule_time 均为必填"})
         
-        tasks = load_tasks_file()
+        tasks = await run_sync(load_tasks_file)
         
         # 检查 ID 重复
         if any(t.get('task_id') == task_id for t in tasks):
@@ -56,8 +57,8 @@ async def api_tasks_create(request: Request):
         }
         tasks.append(new_task)
         
-        if save_tasks_file(tasks):
-            reload_scheduled_tasks()
+        if await run_sync(save_tasks_file, tasks):
+            await run_sync(reload_scheduled_tasks)
             logger.info(f"[Tasks API] 创建任务: {task_id}")
             return JSONResponse(content={"success": True, "message": "任务已创建", "data": new_task})
         else:
@@ -72,7 +73,7 @@ async def api_tasks_update(task_id: str, request: Request):
     """更新定时任务"""
     try:
         body = await request.json()
-        tasks = load_tasks_file()
+        tasks = await run_sync(load_tasks_file)
         
         found = False
         for i, t in enumerate(tasks):
@@ -92,8 +93,8 @@ async def api_tasks_update(task_id: str, request: Request):
         if not found:
             return JSONResponse(status_code=404, content={"success": False, "message": f"任务 '{task_id}' 不存在"})
         
-        if save_tasks_file(tasks):
-            reload_scheduled_tasks()
+        if await run_sync(save_tasks_file, tasks):
+            await run_sync(reload_scheduled_tasks)
             logger.info(f"[Tasks API] 更新任务: {task_id}")
             return JSONResponse(content={"success": True, "message": "任务已更新"})
         else:
@@ -107,15 +108,15 @@ async def api_tasks_update(task_id: str, request: Request):
 async def api_tasks_delete(task_id: str):
     """删除定时任务"""
     try:
-        tasks = load_tasks_file()
+        tasks = await run_sync(load_tasks_file)
         original_len = len(tasks)
         tasks = [t for t in tasks if t.get('task_id') != task_id]
         
         if len(tasks) == original_len:
             return JSONResponse(status_code=404, content={"success": False, "message": f"任务 '{task_id}' 不存在"})
         
-        if save_tasks_file(tasks):
-            reload_scheduled_tasks()
+        if await run_sync(save_tasks_file, tasks):
+            await run_sync(reload_scheduled_tasks)
             logger.info(f"[Tasks API] 删除任务: {task_id}")
             return JSONResponse(content={"success": True, "message": "任务已删除"})
         else:
@@ -129,7 +130,7 @@ async def api_tasks_delete(task_id: str):
 async def api_tasks_reload():
     """重新加载定时任务到调度器"""
     try:
-        reload_scheduled_tasks()
+        await run_sync(reload_scheduled_tasks)
         return JSONResponse(content={"success": True, "message": "定时任务已重新加载"})
     except Exception as e:
         logger.error(f"[Tasks API] 重新加载失败: {e}", exc_info=True)

@@ -9,6 +9,7 @@ import logging
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import JSONResponse, HTMLResponse
 
+from src.utils.async_utils import run_sync
 from src.wecom.deps import (
     ROOT_DIR, config, message_handler, logger,
     validate_user_id, sanitize_filename, load_template
@@ -87,13 +88,13 @@ async def api_kb_upload(
                 }
             )
             
-        with open(temp_file_path, "wb") as buffer:
-            buffer.write(content)
+        await run_sync(_write_temp_file, temp_file_path, content)
             
         logger.info(f"开始入库: {file.filename}, size={file_size}B, user_id={user_id}, category={category}")
         
         # 调用 RAG 引擎入库
-        success, msg = message_handler.rag.index_document(
+        success, msg = await run_sync(
+            message_handler.rag.index_document,
             user_id=user_id,
             file_name=file.filename,
             file_path=temp_file_path,
@@ -127,7 +128,7 @@ async def api_kb_list(user_id: str):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
         
     try:
-        kb_data = message_handler.rag.list_documents(user_id)
+        kb_data = await run_sync(message_handler.rag.list_documents, user_id)
         return JSONResponse(content={"success": True, "data": kb_data})
     except Exception as e:
         logger.error(f"获取知识库列表异常: {e}", exc_info=True)
@@ -141,7 +142,7 @@ async def api_kb_delete(user_id: str, file_name: str):
         return JSONResponse(status_code=400, content={"success": False, "message": "缺少必要参数"})
         
     try:
-        deleted = message_handler.rag.delete_document(user_id, file_name)
+        deleted = await run_sync(message_handler.rag.delete_document, user_id, file_name)
         if deleted:
             logger.info(f"成功从向量库删除文档: User={user_id}, File={file_name}")
             return JSONResponse(content={"success": True, "message": f"已成功删除《{file_name}》"})
@@ -165,7 +166,7 @@ async def api_kb_outline(user_id: str, file_name: str = None):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
 
     try:
-        outline = message_handler.rag.get_document_outline(user_id, file_name)
+        outline = await run_sync(message_handler.rag.get_document_outline, user_id, file_name)
         return JSONResponse(content={"success": True, "data": outline})
     except Exception as e:
         logger.error(f"获取文档大纲异常: {e}", exc_info=True)
@@ -188,7 +189,7 @@ async def api_kb_search(user_id: str, query: str, top_k: int = 10):
     
     try:
         # 使用 RAG 引擎的检索功能
-        retrieval = message_handler.rag.retrieve(user_id, query, top_k=top_k)
+        retrieval = await run_sync(message_handler.rag.retrieve, user_id, query, top_k)
         results = retrieval["results"]
         
         # 格式化返回结果
@@ -212,3 +213,8 @@ async def api_kb_search(user_id: str, query: str, top_k: int = 10):
     except Exception as e:
         logger.error(f"知识库检索异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"检索失败: {str(e)}"})
+
+
+def _write_temp_file(path: str, content: bytes) -> None:
+    with open(path, "wb") as buffer:
+        buffer.write(content)

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from src.utils.async_utils import run_sync
 from src.wecom.deps import logger, validate_user_id, get_diary_service
 
 router = APIRouter(tags=["日记"])
@@ -32,7 +33,7 @@ async def api_diary_get(user_id: str, avatar_name: str = "ATRI", date: str = Non
         if not date:
             date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         
-        diary = diary_service.get_diary(user_id, avatar_name, date)
+        diary = await run_sync(diary_service.get_diary, user_id, avatar_name, date)
         
         if diary:
             return JSONResponse(content={
@@ -88,7 +89,14 @@ async def api_diary_list(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         
-        diaries = diary_service.get_diaries_by_range(user_id, avatar_name, start_date, end_date, limit)
+        diaries = await run_sync(
+            diary_service.get_diaries_by_range,
+            user_id,
+            avatar_name,
+            start_date,
+            end_date,
+            limit,
+        )
         
         return JSONResponse(content={
             "success": True,
@@ -139,7 +147,7 @@ async def api_diary_dates(user_id: str, avatar_name: str = "ATRI", year: int = N
         if not month:
             month = now.month
         
-        dates = diary_service.get_diary_dates_by_month(user_id, avatar_name, year, month)
+        dates = await run_sync(diary_service.get_diary_dates_by_month, user_id, avatar_name, year, month)
         
         return JSONResponse(content={
             "success": True,
@@ -179,7 +187,7 @@ async def api_diary_generate(request: Request):
             return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
         
         diary_service = get_diary_service()
-        diary = diary_service.generate_diary(user_id, avatar_name, date_str, force_regenerate)
+        diary = await run_sync(diary_service.generate_diary, user_id, avatar_name, date_str, force_regenerate)
         
         if diary:
             return JSONResponse(content={
@@ -214,7 +222,7 @@ async def api_diary_delete(user_id: str, avatar_name: str = "ATRI", date: str = 
     
     try:
         diary_service = get_diary_service()
-        deleted = diary_service.delete_diary(user_id, avatar_name, date)
+        deleted = await run_sync(diary_service.delete_diary, user_id, avatar_name, date)
         
         if deleted:
             return JSONResponse(content={"success": True, "message": f"已删除 {date} 的日记"})
@@ -230,7 +238,7 @@ async def api_diary_stats(user_id: str = None):
     """获取日记统计信息"""
     try:
         diary_service = get_diary_service()
-        stats = diary_service.get_stats(user_id)
+        stats = await run_sync(diary_service.get_stats, user_id)
         
         return JSONResponse(content={"success": True, "data": stats})
     except Exception as e:

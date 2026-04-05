@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 
 from src.services.database import Session, MemorySnapshot, ConversationCounter
+from src.utils.async_utils import run_sync
 from src.wecom.deps import (
     message_handler, logger, validate_user_id, load_template
 )
@@ -37,7 +38,7 @@ async def api_memory_short(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        short_memory = message_handler.memory.get_short_memory(user_id, avatar_name)
+        short_memory = await run_sync(message_handler.memory.get_short_memory, user_id, avatar_name)
         return JSONResponse(content={
             "success": True, 
             "data": {
@@ -66,7 +67,7 @@ async def api_memory_core(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        core_memory = message_handler.memory.get_core_memory(user_id, avatar_name)
+        core_memory = await run_sync(message_handler.memory.get_core_memory, user_id, avatar_name)
         return JSONResponse(content={
             "success": True,
             "data": {
@@ -97,7 +98,7 @@ async def api_memory_vector(user_id: str, avatar_name: str = "default", limit: i
     
     try:
         # 使用公共方法获取向量记忆
-        result = message_handler.memory.get_vector_memories(user_id, avatar_name, limit)
+        result = await run_sync(message_handler.memory.get_vector_memories, user_id, avatar_name, limit)
         
         if not result['collection']:
             return JSONResponse(content={
@@ -146,8 +147,12 @@ async def api_memory_search(user_id: str, query: str, avatar_name: str = "defaul
         return JSONResponse(status_code=400, content={"success": False, "message": "搜索关键词不能为空"})
     
     try:
-        results = message_handler.memory.search_relevant_memories(
-            user_id, avatar_name, query, top_k=top_k
+        results = await run_sync(
+            message_handler.memory.search_relevant_memories,
+            user_id,
+            avatar_name,
+            query,
+            top_k,
         )
         
         return JSONResponse(content={
@@ -175,36 +180,8 @@ async def api_memory_stats(user_id: str = None, avatar_name: str = None):
         avatar_name: 可选，指定人设
     """
     try:
-        with Session() as session:
-            stats = {
-                "total_short_memories": 0,
-                "total_core_memories": 0,
-                "total_conversation_counters": 0,
-                "vector_collections": []
-            }
-            
-            # SQLite 统计
-            if user_id:
-                stats["total_short_memories"] = session.query(MemorySnapshot).filter_by(
-                    user_id=user_id, avatar_name=avatar_name or "default", memory_type='short'
-                ).count()
-                stats["total_core_memories"] = session.query(MemorySnapshot).filter_by(
-                    user_id=user_id, avatar_name=avatar_name or "default", memory_type='core'
-                ).count()
-            else:
-                stats["total_short_memories"] = session.query(MemorySnapshot).filter_by(
-                    memory_type='short'
-                ).count()
-                stats["total_core_memories"] = session.query(MemorySnapshot).filter_by(
-                    memory_type='core'
-                ).count()
-            
-            stats["total_conversation_counters"] = session.query(ConversationCounter).count()
-            
-            # 向量存储统计
-            stats["vector_collections"] = message_handler.memory.get_vector_store_stats()
-            
-            return JSONResponse(content={"success": True, "data": stats})
+        stats = await run_sync(_build_memory_stats, user_id, avatar_name)
+        return JSONResponse(content={"success": True, "data": stats})
             
     except Exception as e:
         logger.error(f"获取记忆统计异常: {e}", exc_info=True)
@@ -232,7 +209,7 @@ async def api_memory_core_update(request: Request):
         if not validate_user_id(user_id):
             return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
         
-        message_handler.memory.save_core_memory(user_id, avatar_name, content)
+        await run_sync(message_handler.memory.save_core_memory, user_id, avatar_name, content)
         logger.info(f"核心记忆已更新: user={user_id}, avatar={avatar_name}")
         return JSONResponse(content={"success": True, "message": "核心记忆已保存"})
         
@@ -248,17 +225,11 @@ async def api_memory_core_delete(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        with Session() as session:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='core'
-            ).first()
-            if snapshot:
-                session.delete(snapshot)
-                session.commit()
-                logger.info(f"核心记忆已删除: user={user_id}, avatar={avatar_name}")
-                return JSONResponse(content={"success": True, "message": "核心记忆已清空"})
-            else:
-                return JSONResponse(content={"success": True, "message": "核心记忆本就为空"})
+        deleted = await run_sync(_delete_memory_snapshot, user_id, avatar_name, "core")
+        if deleted:
+            logger.info(f"核心记忆已删除: user={user_id}, avatar={avatar_name}")
+            return JSONResponse(content={"success": True, "message": "核心记忆已清空"})
+        return JSONResponse(content={"success": True, "message": "核心记忆本就为空"})
     except Exception as e:
         logger.error(f"删除核心记忆异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"删除失败: {str(e)}"})
@@ -271,15 +242,9 @@ async def api_memory_short_delete(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        with Session() as session:
-            snapshot = session.query(MemorySnapshot).filter_by(
-                user_id=user_id, avatar_name=avatar_name, memory_type='short'
-            ).first()
-            if snapshot:
-                session.delete(snapshot)
-                session.commit()
-                logger.info(f"短期记忆已清空: user={user_id}, avatar={avatar_name}")
-            return JSONResponse(content={"success": True, "message": "短期记忆已清空"})
+        await run_sync(_delete_memory_snapshot, user_id, avatar_name, "short")
+        logger.info(f"短期记忆已清空: user={user_id}, avatar={avatar_name}")
+        return JSONResponse(content={"success": True, "message": "短期记忆已清空"})
     except Exception as e:
         logger.error(f"清空短期记忆异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"清空失败: {str(e)}"})
@@ -300,7 +265,7 @@ async def api_memory_vector_delete(user_id: str, avatar_name: str = "default", m
     
     try:
         # 使用公共方法删除向量记忆
-        success = message_handler.memory.delete_vector_memory(user_id, avatar_name, memory_id)
+        success = await run_sync(message_handler.memory.delete_vector_memory, user_id, avatar_name, memory_id)
         
         if success:
             if memory_id:
@@ -313,3 +278,46 @@ async def api_memory_vector_delete(user_id: str, avatar_name: str = "default", m
     except Exception as e:
         logger.error(f"删除向量记忆异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"删除失败: {str(e)}"})
+
+
+def _build_memory_stats(user_id: str = None, avatar_name: str = None):
+    with Session() as session:
+        stats = {
+            "total_short_memories": 0,
+            "total_core_memories": 0,
+            "total_conversation_counters": 0,
+            "vector_collections": []
+        }
+
+        if user_id:
+            stats["total_short_memories"] = session.query(MemorySnapshot).filter_by(
+                user_id=user_id, avatar_name=avatar_name or "default", memory_type='short'
+            ).count()
+            stats["total_core_memories"] = session.query(MemorySnapshot).filter_by(
+                user_id=user_id, avatar_name=avatar_name or "default", memory_type='core'
+            ).count()
+        else:
+            stats["total_short_memories"] = session.query(MemorySnapshot).filter_by(
+                memory_type='short'
+            ).count()
+            stats["total_core_memories"] = session.query(MemorySnapshot).filter_by(
+                memory_type='core'
+            ).count()
+
+        stats["total_conversation_counters"] = session.query(ConversationCounter).count()
+        stats["vector_collections"] = message_handler.memory.get_vector_store_stats()
+        return stats
+
+
+def _delete_memory_snapshot(user_id: str, avatar_name: str, memory_type: str) -> bool:
+    with Session() as session:
+        snapshot = session.query(MemorySnapshot).filter_by(
+            user_id=user_id,
+            avatar_name=avatar_name,
+            memory_type=memory_type,
+        ).first()
+        if not snapshot:
+            return False
+        session.delete(snapshot)
+        session.commit()
+        return True
