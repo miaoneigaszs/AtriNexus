@@ -39,7 +39,6 @@ class ImageHandler:
         # 下载图片
         image_data = self.client.download_media(media_id)
         if not image_data:
-            self.client.send_text(user_id, "抱歉，图片下载失败了，请重新发送试试 😊")
             return None
 
         # 识别图片内容

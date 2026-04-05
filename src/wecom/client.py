@@ -6,16 +6,19 @@ WeCom API 客户端封装
 - 简单速率限制
 """
 
+import asyncio
 import logging
 import time
 import threading
 from wechatpy.enterprise import WeChatClient
+from src.utils.http_pool import get_async_client
 
 logger = logging.getLogger('wecom')
 
 
 class WeComClient:
     """企业微信 API 客户端"""
+    API_BASE_URL = "https://qyapi.weixin.qq.com/cgi-bin"
 
     def __init__(self, corp_id: str, secret: str, agent_id: str):
         """
@@ -33,6 +36,7 @@ class WeComClient:
         self._last_send_time = 0.0
         self._min_interval = 0.5  # 最小发送间隔（秒）
         self._lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
 
         logger.info(f"WeComClient 初始化完成 (agent_id={agent_id})")
 
@@ -43,6 +47,15 @@ class WeComClient:
             elapsed = now - self._last_send_time
             if elapsed < self._min_interval:
                 time.sleep(self._min_interval - elapsed)
+            self._last_send_time = time.time()
+
+    async def _rate_limit_async(self):
+        """异步速率限制，避免阻塞事件循环。"""
+        async with self._async_lock:
+            now = time.time()
+            elapsed = now - self._last_send_time
+            if elapsed < self._min_interval:
+                await asyncio.sleep(self._min_interval - elapsed)
             self._last_send_time = time.time()
 
     def send_text(self, user_id: str, content: str) -> bool:
@@ -69,6 +82,41 @@ class WeComClient:
             logger.error(f"发送消息失败 (user={user_id}): {e}")
             return False
 
+    async def send_text_async(self, user_id: str, content: str) -> bool:
+        """异步发送文本消息给指定用户。"""
+        try:
+            await self._rate_limit_async()
+            access_token = await asyncio.to_thread(lambda: self.client.access_token)
+            response = await get_async_client().post(
+                f"{self.API_BASE_URL}/message/send",
+                params={"access_token": access_token},
+                json={
+                    "touser": user_id,
+                    "toparty": "",
+                    "totag": "",
+                    "agentid": self.agent_id,
+                    "msgtype": "text",
+                    "text": {"content": content},
+                    "safe": 0,
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
+            if result.get("errcode", 0) != 0:
+                logger.error(
+                    "异步发送消息失败 (user=%s): errcode=%s errmsg=%s",
+                    user_id,
+                    result.get("errcode"),
+                    result.get("errmsg"),
+                )
+                return False
+
+            logger.info(f"消息已异步发送给 {user_id}: {content[:50]}...")
+            return True
+        except Exception as e:
+            logger.error(f"异步发送消息失败 (user={user_id}): {e}")
+            return False
+
     def download_media(self, media_id: str) -> bytes:
         """
         下载企微临时素材（图片/语音/视频/文件）
@@ -90,5 +138,4 @@ class WeComClient:
         except Exception as e:
             logger.error(f"媒体文件下载异常: {e}")
             return None
-
 

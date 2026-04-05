@@ -113,8 +113,9 @@ class MessageHandler:
             return
 
         # 处理图片
-        image_description = self.image_handler.process_image(user_id, media_id)
+        image_description = await run_sync(self.image_handler.process_image, user_id, media_id)
         if not image_description:
+            await self.client.send_text_async(user_id, "抱歉，图片下载失败了，请重新发送试试 😊")
             return
 
         # 转换为文本消息处理
@@ -142,14 +143,14 @@ class MessageHandler:
 
         confirm_reply = self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
-            self.client.send_text(user_id, confirm_reply)
+            await self.client.send_text_async(user_id, confirm_reply)
             return
 
         # 2. 检查是否是命令
         if self.command_handler.is_command(content_trim):
             reply = self.command_handler.handle_command(user_id, content_trim)
             if reply:
-                self.client.send_text(user_id, reply)
+                await self.client.send_text_async(user_id, reply)
             return
 
         # 3. 正常消息处理流程
@@ -210,8 +211,7 @@ class MessageHandler:
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
         # 6. 调用 LLM 生成回复
         try:
-            reply = await run_sync(
-                self.reply_service.generate_reply,
+            reply = await self.reply_service.generate_reply_async(
                 message=content,
                 user_id=user_id,
                 system_prompt=system_prompt,
@@ -242,10 +242,10 @@ class MessageHandler:
 
         # 8. 发送回复
         if reply.strip():
-            await run_sync(self.client.send_text, user_id, reply)
+            await self.client.send_text_async(user_id, reply)
         else:
             logger.warning(f"回复内容为空，发送默认回复")
-            await run_sync(self.client.send_text, user_id, "😊")
+            await self.client.send_text_async(user_id, "😊")
 
         logger.info(f"消息已发送给用户，准备进行后台记忆更新: user={user_id}, reply_len={len(reply)}")
 

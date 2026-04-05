@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -64,6 +65,31 @@ class LangChainAgentService:
         kb_context: Optional[str] = None,
     ) -> str:
         try:
+            asyncio.get_running_loop()
+            logger.error("generate_reply() 在事件循环中被直接调用，请改用 generate_reply_async()")
+            return USER_VISIBLE_AGENT_ERROR
+        except RuntimeError:
+            return asyncio.run(
+                self.generate_reply_async(
+                    message=message,
+                    user_id=user_id,
+                    system_prompt=system_prompt,
+                    previous_context=previous_context,
+                    core_memory=core_memory,
+                    kb_context=kb_context,
+                )
+            )
+
+    async def generate_reply_async(
+        self,
+        message: str,
+        user_id: str,
+        system_prompt: str,
+        previous_context: Optional[List[Dict[str, Any]]] = None,
+        core_memory: Optional[str] = None,
+        kb_context: Optional[str] = None,
+    ) -> str:
+        try:
             tool_bundle = self.tool_catalog.build_tool_bundle(
                 user_id=user_id,
                 message=message,
@@ -74,17 +100,13 @@ class LangChainAgentService:
                 tool_bundle.summary,
                 tool_bundle.tools,
             )
-            result = agent.invoke(
-                {
-                    "messages": self._build_messages(
-                        message=message,
-                        previous_context=previous_context,
-                        system_prompt=system_prompt,
-                        core_memory=core_memory,
-                        kb_context=kb_context,
-                    )
-                },
-                config={"recursion_limit": self.max_iterations},
+            result = await self._invoke_agent_async(
+                agent,
+                message=message,
+                previous_context=previous_context,
+                system_prompt=system_prompt,
+                core_memory=core_memory,
+                kb_context=kb_context,
             )
             self._record_token_usage(
                 result=result,
@@ -99,6 +121,29 @@ class LangChainAgentService:
         except Exception as e:
             logger.error(f"LangChain agent 调用失败: {e}", exc_info=True)
             return USER_VISIBLE_AGENT_ERROR
+
+    async def _invoke_agent_async(
+        self,
+        agent: Any,
+        *,
+        message: str,
+        previous_context: Optional[List[Dict[str, Any]]],
+        system_prompt: str,
+        core_memory: Optional[str],
+        kb_context: Optional[str],
+    ) -> Any:
+        return await agent.ainvoke(
+                {
+                    "messages": self._build_messages(
+                        message=message,
+                        previous_context=previous_context,
+                        system_prompt=system_prompt,
+                        core_memory=core_memory,
+                        kb_context=kb_context,
+                    )
+                },
+                config={"recursion_limit": self.max_iterations},
+            )
 
     def _get_or_build_agent(
         self,
