@@ -51,6 +51,7 @@ class LangChainAgentService:
         self.max_tokens = max_tokens
         self.max_iterations = max(2, int(os.getenv("ATRINEXUS_AGENT_MAX_ITERATIONS", "8")))
         self.workspace_root = str(Path(__file__).resolve().parents[3])
+        self.agent_prompt_path = Path(self.workspace_root) / "src" / "base" / "agent.md"
         search_cfg = config.network_search
         search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
         self.tool_catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
@@ -63,6 +64,7 @@ class LangChainAgentService:
         )
         self._agent_cache: Dict[Tuple[str, ...], Any] = {}
         self._agent_cache_lock = threading.Lock()
+        self._agent_identity_prompt = self._load_agent_identity_prompt()
 
     def generate_reply(
         self,
@@ -190,6 +192,8 @@ class LangChainAgentService:
         tool_summary: str,
     ) -> str:
         prompt_parts: List[str] = []
+        if self._agent_identity_prompt:
+            prompt_parts.append(f"【Agent 认知】\n{self._agent_identity_prompt}")
         prompt_parts.append(f"【当前工具组】\n{', '.join(tool_profiles) if tool_profiles else 'none'}")
         prompt_parts.append(f"【可用工具摘要】\n{tool_summary}")
         prompt_parts.append(
@@ -218,6 +222,16 @@ class LangChainAgentService:
             "优先回答这几项：做了什么、结果是什么、是否成功；必要时再补一行关键细节。"
         )
         return "\n\n".join(prompt_parts)
+
+    def _load_agent_identity_prompt(self) -> str:
+        try:
+            return self.agent_prompt_path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            logger.warning("Agent 认知提示词不存在: %s", self.agent_prompt_path)
+            return ""
+        except Exception as exc:
+            logger.warning("加载 Agent 认知提示词失败: %s", exc)
+            return ""
 
     def _build_messages(
         self,
@@ -277,7 +291,9 @@ class LangChainAgentService:
         tool_names = [tool.name for tool in tool_bundle.tools]
         profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
         lines = [
-            "当前这条消息可用的工具组：",
+            "我刚检查了当前这条消息下启用的工具。",
+            "",
+            "当前工具组：",
             profile_text,
             "",
             "当前可用工具：",
@@ -286,7 +302,7 @@ class LangChainAgentService:
             lines.append(f"- {name}")
         if tool_bundle.summary_lines:
             lines.append("")
-            lines.append("说明：")
+            lines.append("这些工具当前分别能做：")
             lines.extend(tool_bundle.summary_lines)
         return "\n".join(lines)
 
