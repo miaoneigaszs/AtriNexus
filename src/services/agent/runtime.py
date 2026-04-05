@@ -397,6 +397,14 @@ class WorkspaceRuntime:
         del self._pending_changes[change_id]
         return f"已丢弃变更: {change_id}"
 
+    def get_latest_pending_change_id(self, owner_user_id: Optional[str] = None) -> Optional[str]:
+        """返回当前用户最近一次待确认修改的 ID。"""
+        return self._get_latest_pending_id(self._pending_changes, owner_user_id)
+
+    def get_latest_pending_command_id(self, owner_user_id: Optional[str] = None) -> Optional[str]:
+        """返回当前用户最近一次待确认命令的 ID。"""
+        return self._get_latest_pending_id(self._pending_commands, owner_user_id)
+
     def _resolve_path(self, raw_path: str) -> Path:
         candidate = (self.workspace_root / raw_path).resolve()
         if os.path.commonpath([str(self.workspace_root), str(candidate)]) != str(self.workspace_root):
@@ -486,6 +494,20 @@ class WorkspaceRuntime:
         pending_owner = pending.get("owner_user_id", "")
         if pending_owner and owner_user_id and pending_owner != owner_user_id:
             return f"该待确认{action_name}不属于当前用户"
+        return None
+
+    def _get_latest_pending_id(
+        self,
+        store: Dict[str, Dict[str, str]],
+        owner_user_id: Optional[str],
+    ) -> Optional[str]:
+        for pending_id, payload in reversed(list(store.items())):
+            pending_owner = payload.get("owner_user_id", "")
+            if owner_user_id and pending_owner and pending_owner != owner_user_id:
+                continue
+            if owner_user_id and not pending_owner:
+                continue
+            return pending_id
         return None
 
     def _build_diff(self, target: Path, old_text: str, new_text: str) -> str:

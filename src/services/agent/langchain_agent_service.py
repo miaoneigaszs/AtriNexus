@@ -274,7 +274,7 @@ class LangChainAgentService:
 
     def _build_tool_middleware(self):
         @wrap_tool_call
-        def managed_tool_call(request, handler):
+        async def managed_tool_call(request, handler):
             tool_name = request.tool_call.get("name", "<unknown>")
             tool_args = request.tool_call.get("args", {})
             logger.info(
@@ -283,7 +283,7 @@ class LangChainAgentService:
                 self._summarize_tool_args(tool_args),
             )
             try:
-                response = handler(request)
+                response = await handler(request)
             except Exception as exc:
                 logger.warning("Tool call failed: name=%s error=%s", tool_name, exc)
                 return ToolMessage(
@@ -545,3 +545,9 @@ class LangChainAgentService:
 
     def discard_pending_command(self, confirm_id: str, user_id: str) -> str:
         return self.tool_catalog.runtime.discard_pending_command(confirm_id, owner_user_id=user_id)
+
+    def get_latest_pending_change_id(self, user_id: str) -> Optional[str]:
+        return self.tool_catalog.runtime.get_latest_pending_change_id(owner_user_id=user_id)
+
+    def get_latest_pending_command_id(self, user_id: str) -> Optional[str]:
+        return self.tool_catalog.runtime.get_latest_pending_command_id(owner_user_id=user_id)

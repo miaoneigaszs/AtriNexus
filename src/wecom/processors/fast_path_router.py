@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import PurePosixPath
 from typing import Optional, Tuple, TYPE_CHECKING
@@ -222,6 +223,7 @@ class FastPathRouter:
             if not match:
                 continue
             normalized = self._normalize_path_fragment(match.group("path"))
+            normalized = self._resolve_existing_path_hint(normalized, expect_file=True)
             if normalized:
                 return normalized
         return None
@@ -232,6 +234,7 @@ class FastPathRouter:
             if not match:
                 continue
             normalized = self._normalize_path_fragment(match.group("path"))
+            normalized = self._resolve_existing_path_hint(normalized, expect_dir=True)
             if normalized:
                 return normalized
         return None
@@ -255,6 +258,7 @@ class FastPathRouter:
             if not match:
                 continue
             path = self._normalize_path_fragment(match.group("path"))
+            path = self._resolve_existing_path_hint(path, expect_file=True)
             find_text = match.group("find")
             replace_text = match.group("replace")
             if path and find_text:
@@ -267,6 +271,7 @@ class FastPathRouter:
             if not match:
                 continue
             path = self._normalize_path_fragment(match.group("path"))
+            path = self._resolve_existing_path_hint(path, expect_file=True)
             content = match.group("content")
             if path:
                 return path, content
@@ -278,6 +283,7 @@ class FastPathRouter:
             if not match:
                 continue
             path = self._normalize_path_fragment(match.group("path"))
+            path = self._resolve_existing_path_hint(path, expect_file=True)
             target = match.group("target").strip()
             instruction = match.group("instruction").strip()
             if path:
@@ -290,6 +296,7 @@ class FastPathRouter:
             if not match:
                 continue
             path = self._normalize_path_fragment(match.group("path"))
+            path = self._resolve_existing_path_hint(path, expect_file=True)
             content = match.group("content")
             raw_position = match.group("position")
             position = "start" if raw_position in {"开头", "前面"} else "end"
@@ -405,3 +412,57 @@ class FastPathRouter:
         normalized = re.sub(r"\s+", "", normalized)
         normalized = re.sub(r"/{2,}", "/", normalized)
         return normalized.strip("/")
+
+    def _resolve_existing_path_hint(
+        self,
+        path: str,
+        *,
+        expect_file: bool = False,
+        expect_dir: bool = False,
+    ) -> str:
+        if not path:
+            return path
+
+        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
+        if not error and candidate and candidate.exists():
+            if expect_file and candidate.is_file():
+                return path
+            if expect_dir and candidate.is_dir():
+                return path
+            if not expect_file and not expect_dir:
+                return path
+
+        lowered = path.lower()
+        if lowered == "readme":
+            return "README.md"
+
+        if "/" in path:
+            return path
+
+        matches = []
+        for file_path in self.tool_catalog.runtime._iter_files(self.tool_catalog.runtime.workspace_root):
+            if file_path.name.lower() != lowered:
+                continue
+            matches.append(self.tool_catalog.runtime._to_relative(file_path))
+            if len(matches) > 1:
+                break
+        if len(matches) == 1:
+            return matches[0]
+
+        if expect_dir:
+            dir_matches = []
+            for current_root, dirnames, _ in os.walk(self.tool_catalog.runtime.workspace_root):
+                dirnames[:] = [name for name in dirnames if name not in self.tool_catalog.runtime.SKIP_DIRS]
+                for dirname in dirnames:
+                    if dirname.lower() != lowered:
+                        continue
+                    dir_path = PurePosixPath(os.path.relpath(os.path.join(current_root, dirname), self.tool_catalog.runtime.workspace_root))
+                    dir_matches.append(str(dir_path))
+                    if len(dir_matches) > 1:
+                        break
+                if len(dir_matches) > 1:
+                    break
+            if len(dir_matches) == 1:
+                return dir_matches[0]
+
+        return path

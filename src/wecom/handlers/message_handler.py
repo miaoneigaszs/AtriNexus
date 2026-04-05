@@ -7,6 +7,8 @@ import logging
 import os
 import re
 
+from sqlalchemy.exc import IntegrityError
+
 from src.services.ai.llm_service import LLMService
 from src.services.agent.langchain_agent_service import LangChainAgentService
 from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
@@ -170,21 +172,54 @@ class MessageHandler:
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
+        if content in {"审批通过", "通过", "确认"}:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
+            return "当前没有待审批的命令或修改。"
+
         confirm_match = re.fullmatch(r"确认执行\s+([A-Za-z0-9_-]+)", content)
         if confirm_match:
             return await run_sync(self.reply_service.confirm_pending_command, confirm_match.group(1), user_id)
+
+        if content == "确认执行":
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
+            return "当前没有待确认执行的命令。"
 
         discard_match = re.fullmatch(r"取消执行\s+([A-Za-z0-9_-]+)", content)
         if discard_match:
             return await run_sync(self.reply_service.discard_pending_command, discard_match.group(1), user_id)
 
+        if content == "取消执行":
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
+            return "当前没有待取消的命令。"
+
         apply_change_match = re.fullmatch(r"确认修改\s+([A-Za-z0-9_-]+)", content)
         if apply_change_match:
             return await run_sync(self.reply_service.apply_pending_change, apply_change_match.group(1), user_id)
 
+        if content == "确认修改":
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
+            return "当前没有待确认的修改。"
+
         discard_change_match = re.fullmatch(r"取消修改\s+([A-Za-z0-9_-]+)", content)
         if discard_change_match:
             return await run_sync(self.reply_service.discard_pending_change, discard_change_match.group(1), user_id)
+
+        if content == "取消修改":
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
+            return "当前没有待取消的修改。"
 
         return None
 
@@ -289,6 +324,9 @@ class MessageHandler:
                 )
                 session.add(chat_msg)
                 session.commit()
+            except IntegrityError:
+                session.rollback()
+                logger.info(f"聊天记录已存在，跳过重复保存: msg_id={msg_id}")
             except Exception as e:
                 logger.error(f"保存聊天记录失败: {e}")
                 session.rollback()
