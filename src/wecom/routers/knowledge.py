@@ -189,7 +189,12 @@ async def api_kb_search(user_id: str, query: str, top_k: int = 10):
     
     try:
         # 使用 RAG 引擎的检索功能
-        retrieval = await run_sync(message_handler.rag.retrieve, user_id, query, top_k)
+        retrieval = await run_sync(
+            message_handler.rag.retrieve,
+            user_id,
+            query,
+            top_k=top_k,
+        )
         results = retrieval["results"]
         
         # 格式化返回结果
