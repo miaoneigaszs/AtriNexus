@@ -29,15 +29,23 @@ class ToolCatalog:
     """负责两件事：构建工具列表，生成给模型看的工具摘要。"""
 
     FILE_HINT_PATTERN = re.compile(
-        r"(\.py|\.md|\.txt|\.json|\.yaml|\.yml|\.toml|\.env|\.ini|/|\\|README|config|日志|目录|文件|代码)",
+        r"(\.py|\.md|\.txt|\.json|\.yaml|\.yml|\.toml|\.env|\.ini|txt|md|json|yaml|yml|toml|env|ini|py|/|\\|README|readme|config|日志|目录|文件|代码|文档|内容|写的什么|里面写了什么|里面有什么)",
         re.IGNORECASE,
     )
     WRITE_HINT_PATTERN = re.compile(
         r"(修改|改成|改一下|改一改|改短|缩短|精简|重写|润色|替换|追加|写入|写到|创建|新增|补充|覆盖|删除.*内容|加上|加一段|更新)",
         re.IGNORECASE,
     )
+    RENAME_HINT_PATTERN = re.compile(
+        r"(重命名|改名|改文件名|改成.*\.|移动到|挪到|rename)",
+        re.IGNORECASE,
+    )
     DOCUMENT_HINT_PATTERN = re.compile(
         r"(\.md|README|readme|文档|说明|白皮书|报告|手册|注释|提示词|prompt)",
+        re.IGNORECASE,
+    )
+    TOOL_HINT_PATTERN = re.compile(
+        r"(有哪些工具|有什么工具|能用什么工具|可以用什么工具|能做什么|会什么|能力有哪些)",
         re.IGNORECASE,
     )
     COMMAND_HINT_PATTERN = re.compile(
@@ -61,12 +69,14 @@ class ToolCatalog:
         runtime = self.runtime
         time_tool = self.time_tool
         message = message or ""
-        include_workspace_reads = self._needs_workspace_tools(message)
+        include_tool_overview = self._needs_tool_overview(message)
+        include_workspace_reads = include_tool_overview or self._needs_workspace_tools(message)
         include_write_preview = include_workspace_reads and (
             self._needs_write_tools(message) or self._looks_like_document_editable_task(message)
         )
-        include_command = self._needs_command_tool(message)
-        include_web = bool(self.search_api_key and self._needs_web_tool(message))
+        include_rename = include_workspace_reads and self._needs_rename_tool(message)
+        include_command = include_tool_overview or self._needs_command_tool(message)
+        include_web = bool(self.search_api_key and (include_tool_overview or self._needs_web_tool(message)))
 
         tools: List[BaseTool] = []
         profiles: List[str] = ["core"]
@@ -140,6 +150,20 @@ class ToolCatalog:
                 ]
             )
 
+        if include_rename:
+            profiles.append("workspace-rename")
+
+            @tool
+            def rename_path(
+                source_path: Annotated[str, Field(description="源文件或目录路径，相对 workspace 根目录")],
+                target_path: Annotated[str, Field(description="目标文件或目录路径，相对 workspace 根目录")],
+            ) -> str:
+                """Rename or move a file or directory inside the workspace."""
+                return runtime.rename_path(source_path, target_path)
+
+            tools.append(rename_path)
+            summary_lines.append("- rename_path: 重命名或移动 workspace 内的文件/目录。")
+
         if include_command:
             profiles.append("command")
             @tool
@@ -184,8 +208,14 @@ class ToolCatalog:
     def _looks_like_document_editable_task(self, message: str) -> bool:
         return bool(self.DOCUMENT_HINT_PATTERN.search(message))
 
+    def _needs_rename_tool(self, message: str) -> bool:
+        return bool(self.RENAME_HINT_PATTERN.search(message))
+
     def _needs_command_tool(self, message: str) -> bool:
         return bool(self.COMMAND_HINT_PATTERN.search(message))
 
     def _needs_web_tool(self, message: str) -> bool:
         return bool(self.WEB_HINT_PATTERN.search(message))
+
+    def _needs_tool_overview(self, message: str) -> bool:
+        return bool(self.TOOL_HINT_PATTERN.search(message))

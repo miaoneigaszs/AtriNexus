@@ -300,6 +300,22 @@ class WorkspaceRuntime:
         diff = self._build_diff(target, old_text, new_text)
         return self._format_preview(change_id, target, diff)
 
+    def rename_path(self, source_path: str, target_path: str) -> str:
+        source, error = self._resolve_path_or_error(source_path)
+        if error:
+            return error
+        target, error = self._resolve_path_or_error(target_path)
+        if error:
+            return error
+        if not source.exists():
+            return f"源路径不存在: {source_path}"
+        if target.exists():
+            return f"目标路径已存在: {target_path}"
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        return f"已重命名: {self._to_relative(source)} -> {self._to_relative(target)}"
+
     def apply_pending_change(self, change_id: str, owner_user_id: Optional[str] = None) -> str:
         pending = self._pending_changes.get(change_id)
         if not pending:

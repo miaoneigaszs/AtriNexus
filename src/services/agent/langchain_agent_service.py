@@ -18,6 +18,15 @@ logger = logging.getLogger("wecom")
 
 USER_VISIBLE_AGENT_ERROR = "抱歉，我暂时无法处理你的消息，请稍后再试。"
 MODELS_WITHOUT_TOOL_SUPPORT = {"deepseek-reasoner", "deepseek-r1"}
+TOOL_OVERVIEW_HINTS = (
+    "有哪些工具",
+    "有什么工具",
+    "能用什么工具",
+    "可以用什么工具",
+    "能做什么",
+    "会什么",
+    "能力有哪些",
+)
 
 
 class LangChainAgentService:
@@ -95,6 +104,8 @@ class LangChainAgentService:
                 message=message,
                 allow_tools=not self._model_lacks_tool_support(),
             )
+            if self._looks_like_tool_overview(message):
+                return self._format_tool_overview(tool_bundle)
             agent = self._get_or_build_agent(
                 tool_bundle.profiles,
                 tool_bundle.summary,
@@ -257,6 +268,27 @@ class LangChainAgentService:
     def _build_agent_cache_key(self, tool_profiles: List[str], tools) -> Tuple[str, ...]:
         tool_names = tuple(tool.name for tool in tools)
         return tuple(tool_profiles) + ("|",) + tool_names
+
+    def _looks_like_tool_overview(self, message: str) -> bool:
+        normalized = (message or "").strip()
+        return any(hint in normalized for hint in TOOL_OVERVIEW_HINTS)
+
+    def _format_tool_overview(self, tool_bundle) -> str:
+        tool_names = [tool.name for tool in tool_bundle.tools]
+        profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
+        lines = [
+            "当前这条消息可用的工具组：",
+            profile_text,
+            "",
+            "当前可用工具：",
+        ]
+        for name in tool_names:
+            lines.append(f"- {name}")
+        if tool_bundle.summary_lines:
+            lines.append("")
+            lines.append("说明：")
+            lines.extend(tool_bundle.summary_lines)
+        return "\n".join(lines)
 
     def _extract_text(self, result: Any) -> str:
         if isinstance(result, dict):
