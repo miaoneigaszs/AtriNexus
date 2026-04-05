@@ -55,7 +55,7 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 默认 RAG 路径已经切到 `atrinexus-rag-sdk`，不再继续把主项目堆成一套完整自实现 RAG 内核。
 
-项目中仍保留 legacy RAG 作为兼容和回退路径，但当前默认是：
+当前代码基线直接使用：
 
 - `SdkRAGService`
 - 每个用户一个 SDK namespace
@@ -100,15 +100,13 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 ### 记忆与日记
 
 - `src/services/memory_manager.py`
-- `src/services/memory_legacy_store.py`
+- `src/services/memory_store.py`
 - `src/services/diary_service.py`
 - `src/services/database.py`
 
 ### RAG
 
 - `src/services/rag_service.py`
-- `src/services/rag_engine.py`（legacy / fallback）
-- `src/services/rag_legacy_document.py`
 
 ### 向量存储
 
@@ -149,9 +147,7 @@ AtriNexus/
 │   │   ├── intent_service.py
 │   │   ├── llm_service.py
 │   │   ├── memory_manager.py
-│   │   ├── memory_legacy_store.py
-│   │   ├── rag_engine.py
-│   │   ├── rag_legacy_document.py
+│   │   ├── memory_store.py
 │   │   ├── rag_service.py
 │   │   └── session_service.py
 │   ├── utils/
@@ -230,11 +226,9 @@ curl http://127.0.0.1:8080/health
 
 ## 重要说明
 
-- 仓库中同时包含当前默认主路径和少量 legacy 兼容路径
-- 默认向量后端是 Qdrant
-- 默认 RAG 后端是 SDK
-- 默认回复 / 工具调用路径是 LangChain
-- legacy 模块仍保留用于回退和兼容，但已经不是主要方向
+- 当前运行主路径已经统一到 Qdrant、`atrinexus-rag-sdk` 和 LangChain。
+- SQLite 仍然是对话历史、短期记忆、核心记忆和日记的事实来源。
+- 项目刻意保持轻量，不朝通用 Agent 平台方向膨胀。
 
 ## 适合谁
 

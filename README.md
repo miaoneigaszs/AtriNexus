@@ -55,7 +55,7 @@ Current storage split:
 
 The default RAG path now uses `atrinexus-rag-sdk` instead of continuing to expand a custom in-project RAG stack.
 
-The project still keeps a legacy RAG implementation for fallback and compatibility, but the default path is:
+The current codebase now uses:
 
 - `SdkRAGService`
 - SDK-managed namespace per user
@@ -100,15 +100,13 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 ### Memory and diary
 
 - `src/services/memory_manager.py`
-- `src/services/memory_legacy_store.py`
+- `src/services/memory_store.py`
 - `src/services/diary_service.py`
 - `src/services/database.py`
 
 ### RAG
 
 - `src/services/rag_service.py`
-- `src/services/rag_engine.py` (legacy/fallback path)
-- `src/services/rag_legacy_document.py`
 
 ### Vector storage
 
@@ -149,9 +147,7 @@ AtriNexus/
 │   │   ├── intent_service.py
 │   │   ├── llm_service.py
 │   │   ├── memory_manager.py
-│   │   ├── memory_legacy_store.py
-│   │   ├── rag_engine.py
-│   │   ├── rag_legacy_document.py
+│   │   ├── memory_store.py
 │   │   ├── rag_service.py
 │   │   └── session_service.py
 │   ├── utils/
@@ -230,11 +226,9 @@ Typical production layout includes:
 
 ## Important Notes
 
-- This repository contains both the current default runtime path and some legacy compatibility paths.
-- The default vector backend is Qdrant.
-- The default RAG backend is SDK-based.
-- The default reply/tool path is LangChain-based.
-- Legacy modules still exist where they are needed for fallback or compatibility, but they are no longer the primary direction.
+- The runtime path is now centered on Qdrant, `atrinexus-rag-sdk`, and LangChain.
+- SQLite remains the source of truth for conversation history, short-term memory, core memory, and diaries.
+- The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
 
 ## Who This Is For
 
