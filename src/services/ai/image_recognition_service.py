@@ -51,7 +51,7 @@ class ImageRecognitionService:
     """
     VL 模型图片识别服务。
     
-    典型调用方式（在 handlers.py 中）：
+    典型调用方式（在 MessageHandler 中）：
         image_data: bytes = wecom_client.download_image(media_id)
         description = image_service.describe(image_data)
     """

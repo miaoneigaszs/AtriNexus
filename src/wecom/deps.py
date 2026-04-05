@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from data.config import config
 from src.wecom.client import WeComClient
-from src.wecom.handlers import MessageHandler
+from src.wecom.handlers.message_handler import MessageHandler
 
 # 项目根目录
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
