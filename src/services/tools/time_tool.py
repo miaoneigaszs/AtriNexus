@@ -1,42 +1,15 @@
-"""
-时间查询工具
-
-当 LLM 需要知道当前时间时调用，返回带时段、星期、农历的格式化时间字符串。
-"""
+"""时间查询工具。"""
 
 import datetime
 import logging
 
 import pytz
 
-from src.services.tools.base_tool import BaseTool
-
 logger = logging.getLogger('wecom')
 
 
-class TimeTool(BaseTool):
-    """获取当前北京时间（含时段、星期、农历）"""
-
-    @property
-    def name(self) -> str:
-        return "get_current_time"
-
-    def schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": (
-                    "获取当前的日期和时间。"
-                    "当用户询问时间、日期，或需要知道当前时间来回答问题时调用此工具。"
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            }
-        }
+class TimeTool:
+    """获取当前北京时间（含时段、星期、农历）。"""
 
     def execute(self, **kwargs) -> str:
         """返回格式化的当前北京时间"""

@@ -14,7 +14,7 @@ logger = logging.getLogger('wecom')
 
 T = TypeVar('T')
 
-# 全局线程池执行器（用于 ChromaDB 等同步库的异步包装）
+# 全局线程池执行器（用于同步 I/O 的异步包装）
 _executor = ThreadPoolExecutor(
     max_workers=config.system_performance.thread_pool.max_workers,
     thread_name_prefix="async_io_"
@@ -36,7 +36,7 @@ async def run_sync(func: Callable[..., T], *args, **kwargs) -> T:
     Example:
         result = await run_sync(collection.query, query_texts=[query])
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         _executor,
         lambda: func(*args, **kwargs)

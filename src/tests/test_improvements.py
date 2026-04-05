@@ -99,15 +99,15 @@ def test_memory_manager_structure():
     
     assert 'MemoryManager' in classes, "MemoryManager 类不存在"
     
-    # 检查新方法
-    assert '_get_or_create_counter' in functions, "_get_or_create_counter 方法不存在"
+    # 检查当前 MemoryManager 仍承担的协调方法
     assert '_increment_core_count' in functions, "_increment_core_count 方法不存在"
     assert '_increment_vector_count' in functions, "_increment_vector_count 方法不存在"
     assert '_do_update_vector_memory' in functions, "_do_update_vector_memory 方法不存在"
     assert '_do_update_core_memory' in functions, "_do_update_core_memory 方法不存在"
+    assert 'build_full_context' in functions, "build_full_context 方法不存在"
     
     print("[OK] MemoryManager 类存在")
-    print("[OK] 双独立计数器方法存在")
+    print("[OK] 记忆计数与上下文协调方法存在")
     print("[OK] 向量/核心记忆更新子方法存在")
     
     return True
@@ -123,7 +123,6 @@ def test_rag_service_structure():
     
     classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
     
-    assert 'BaseRAGService' in classes, "BaseRAGService 类不存在"
     assert 'SdkRAGService' in classes, "SdkRAGService 类不存在"
     
     print("[OK] RAG 服务边界存在")

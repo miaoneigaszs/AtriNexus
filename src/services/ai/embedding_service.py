@@ -1,6 +1,7 @@
 """
-共享 Embedding 服务模块
-提供统一的 Embedding 和 Reranker 功能，供 MemoryManager 和 RAGEngine 使用
+共享 Embedding 服务模块。
+
+提供统一的 Embedding 和 Reranker 功能，供记忆系统和 SDK RAG 相关调用复用。
 """
 
 import logging
@@ -13,7 +14,7 @@ logger = logging.getLogger('wecom')
 class SiliconFlowEmbedding:
     """
     SiliconFlow Embedding API 封装
-    兼容 ChromaDB 的 EmbeddingFunction 协议
+    兼容当前向量存储层需要的 embedding callable 协议
     """
 
     def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1",
@@ -23,7 +24,7 @@ class SiliconFlowEmbedding:
         self.model = model
 
     def name(self) -> str:
-        """兼容最新版 ChromaDB 的 EmbeddingFunction 协议要求"""
+        """返回 embedding callable 名称。"""
         return f"siliconflow_embedding_{self.model.replace('/', '_')}"
 
     def embed_documents(self, documents: List[str]) -> List[List[float]]:
@@ -87,7 +88,6 @@ class SiliconFlowEmbedding:
         """
         获取单个查询的 embedding
         用于 LangChain 风格的接口
-        兼容 ChromaDB 的调用方式
         必须返回 List[List[float]]
         """
         texts = input if input is not None else ([query] if query else [])
@@ -97,7 +97,6 @@ class SiliconFlowEmbedding:
 
     def __call__(self, input) -> List[List[float]]:
         """
-        ChromaDB EmbeddingFunction 接口
         使实例可直接作为函数调用
         input 可能是 List[str] 或单 str，统一转为列表处理
         必须返回 List[List[float]]
