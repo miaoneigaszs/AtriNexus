@@ -106,7 +106,7 @@ class ContextBuilder:
         return core_memory
 
     def build_system_prompt(self, avatar_name: str, current_mode: str) -> str:
-        """构建当前轮的人设提示词。"""
+        """构建当前轮的模式提示词。"""
         return self.prompt_manager.build_persona_prompt(avatar_name, current_mode)
 
     def build_kb_context(self, kb_results: List[Dict], include_headers: bool = True) -> str:

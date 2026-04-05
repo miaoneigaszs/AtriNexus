@@ -31,7 +31,6 @@ class PromptManager:
         self.root_dir = Path(root_dir)
         self.system_dir = self.root_dir / "src" / "base" / "prompts" / "system"
         self.runtime_dir = self.root_dir / "src" / "base" / "prompts" / "runtime"
-        self.avatar_root = self.root_dir / "data" / "avatars"
 
     def build_agent_static_prompt(self) -> str:
         """组装稳定前缀。
@@ -58,21 +57,25 @@ class PromptManager:
         """
         return self.build_agent_static_prompt()
 
-    def build_avatar_prompt(self, avatar_name: str, current_mode: str) -> str:
-        avatar_path = self.avatar_root / avatar_name / "avatar.md"
-        avatar_prompt = self._read_markdown(avatar_path)
-        if current_mode == "work" and avatar_prompt:
-            avatar_prompt += (
-                "\n\n【当前模式：工作模式】"
-                "请以专业、简洁、高效的方式回应。"
-                "保留少量角色感即可，不要主动使用轻佻、挖苦或冒犯性的调侃。"
-                "不要使用“机器人保护法”式的玩笑威胁，不要把用户称作“小寂寞鬼”或类似称呼。"
-                "默认先解决问题，再保留一点温和的人设表达。"
+    def build_mode_prompt(self, current_mode: str) -> str:
+        """构建当前会话模式提示。
+
+        这里不再引入独立 avatar 人设文件，避免角色扮演压过工作型助手的主职责。
+        """
+        if current_mode == "companion":
+            return (
+                "当前处于陪伴模式。\n"
+                "表达可以更温和、更有陪伴感，但仍然要实事求是，不要编造，不要夸张表演。"
             )
-        return avatar_prompt
+
+        return (
+            "当前处于工作模式。\n"
+            "表达应当直率、简洁、接地气，有啥说啥，先解决问题。"
+            "可以保留少量温度，但不要主动卖萌、调侃、挖苦或角色表演。"
+        )
 
     def build_persona_prompt(self, avatar_name: str, current_mode: str) -> str:
-        return self.build_avatar_prompt(avatar_name, current_mode)
+        return self.build_mode_prompt(current_mode)
 
     def build_runtime_prompt(
         self,
@@ -97,7 +100,7 @@ class PromptManager:
         if tool_summary:
             sections.append(f"【当前可用工具摘要】\n{tool_summary}")
         if current_persona_prompt:
-            sections.append(f"【当前角色设定】\n{current_persona_prompt}")
+            sections.append(f"【当前会话风格】\n{current_persona_prompt}")
 
         blackboard = self._build_runtime_blackboard()
         if blackboard:
@@ -109,7 +112,7 @@ class PromptManager:
             sections.append(
                 "【参考资料】\n"
                 f"{kb_context}\n"
-                "必须结合上述参考资料，并严格保持当前角色设定来回答用户的问题。"
+                "必须结合上述参考资料，并严格保持当前会话风格来回答用户的问题。"
                 "如果参考资料无相关性，请忽略资料，自然回复即可。"
             )
 

@@ -230,7 +230,6 @@ class FastPathRouter:
     def _handle_profile_overview(self, user_id: str, message: str) -> str:
         tool_profile = normalize_tool_profile(self.session_service.get_tool_profile(user_id))
         current_mode = self.session_service.get_current_mode(user_id)
-        avatar_name = self.session_service.get_current_avatar(user_id)
         tool_bundle = self.tool_catalog.build_tool_bundle(
             user_id=user_id,
             message=message,
@@ -241,7 +240,6 @@ class FastPathRouter:
             "我刚检查了当前会话状态。",
             "",
             f"当前模式：{current_mode}",
-            f"当前人设：{avatar_name}",
             f"当前能力档位：{tool_profile}",
             "当前工具组：",
             "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无",
