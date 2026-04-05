@@ -15,6 +15,7 @@ from src.services.tools.time_tool import TimeTool
 @dataclass(frozen=True)
 class ToolBundle:
     tools: List[BaseTool]
+    profiles: List[str]
     summary_lines: List[str]
 
     @property
@@ -51,7 +52,7 @@ class ToolCatalog:
 
     def build_tool_bundle(self, user_id: str, message: str, allow_tools: bool = True) -> ToolBundle:
         if not allow_tools:
-            return ToolBundle(tools=[], summary_lines=[])
+            return ToolBundle(tools=[], profiles=[], summary_lines=[])
 
         runtime = self.runtime
         time_tool = self.time_tool
@@ -62,6 +63,7 @@ class ToolCatalog:
         include_web = bool(self.search_api_key and self._needs_web_tool(message))
 
         tools: List[BaseTool] = []
+        profiles: List[str] = ["core"]
         summary_lines: List[str] = []
 
         @tool
@@ -73,6 +75,7 @@ class ToolCatalog:
         summary_lines.append("- get_current_time: 查询当前日期和时间。用户问时间、日期、星期时使用。")
 
         if include_workspace_reads:
+            profiles.append("workspace-read")
             @tool
             def list_directory(
                 path: Annotated[str, Field(description="要列出的目录路径，相对 workspace 根目录")] = ".",
@@ -105,6 +108,7 @@ class ToolCatalog:
             )
 
         if include_write_preview:
+            profiles.append("workspace-edit-preview")
             @tool
             def preview_write_file(
                 path: Annotated[str, Field(description="要写入的文件路径，相对 workspace 根目录")],
@@ -131,18 +135,20 @@ class ToolCatalog:
             )
 
         if include_command:
+            profiles.append("command")
             @tool
             def run_command(
                 command: Annotated[str, Field(description="要执行的命令，默认在 workspace 根目录执行")],
                 timeout_seconds: Annotated[int, Field(description="命令超时时间，单位秒，建议 5 到 20 秒")] = 20,
             ) -> str:
-                """执行命令。用户要求运行脚本、执行 git/python/测试命令时使用。高风险命令会进入确认流程。"""
+                """执行命令。用户要求运行脚本、执行 git/python/测试命令时使用。安全命令直接执行，复杂或高风险命令进入确认流程。"""
                 return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
             tools.append(run_command)
-            summary_lines.append("- run_command: 执行命令。用户要求运行脚本、测试、git 或 shell 命令时使用。")
+            summary_lines.append("- run_command: 执行命令。安全命令直接执行；含 shell 操作符、未知可执行文件或高风险命令时进入确认流程。")
 
         if include_web:
+            profiles.append("web")
             search_tool = SearchTool(api_key=self.search_api_key)
 
             @tool
@@ -155,7 +161,7 @@ class ToolCatalog:
             tools.append(web_search)
             summary_lines.append("- web_search: 搜索互联网。用户询问最新信息、实时事件、新闻时使用。")
 
-        return ToolBundle(tools=tools, summary_lines=summary_lines)
+        return ToolBundle(tools=tools, profiles=profiles, summary_lines=summary_lines)
 
     def _needs_workspace_tools(self, message: str) -> bool:
         lowered = message.lower()

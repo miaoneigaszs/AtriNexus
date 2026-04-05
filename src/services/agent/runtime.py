@@ -2,10 +2,67 @@ from __future__ import annotations
 
 import difflib
 import os
+import shlex
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import uuid
+
+
+@dataclass(frozen=True)
+class CommandExecutionPolicy:
+    """轻量命令执行策略。"""
+
+    safe_bins: Tuple[str, ...] = (
+        "git",
+        "python",
+        "python3",
+        "pytest",
+        "uv",
+        "pip",
+        "pip3",
+        "ls",
+        "pwd",
+        "cat",
+        "head",
+        "tail",
+        "rg",
+    )
+    shell_operator_tokens: Tuple[str, ...] = ("|", "||", "&", "&&", ";", ">", ">>", "<", "2>", "$(", "`")
+    blocked_patterns: Tuple[str, ...] = (
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "mkfs",
+        "format ",
+        ":(){:|:&};:",
+    )
+    confirm_patterns: Tuple[str, ...] = (
+        "rm -rf",
+        "rm -fr",
+        "rm -f",
+        "rm -r",
+        "del /s",
+        "del /q",
+        "rd /s",
+        "rmdir /s",
+        "move ",
+        "mv ",
+        "ren ",
+        "rename ",
+        "git clean",
+        "git reset --hard",
+        "git checkout --",
+    )
+
+
+@dataclass(frozen=True)
+class CommandExecutionPlan:
+    mode: str
+    reason: str = ""
+    argv: Tuple[str, ...] = ()
 
 
 class WorkspaceRuntime:
@@ -25,8 +82,13 @@ class WorkspaceRuntime:
         "node_modules",
     }
 
-    def __init__(self, workspace_root: str) -> None:
+    def __init__(
+        self,
+        workspace_root: str,
+        command_policy: Optional[CommandExecutionPolicy] = None,
+    ) -> None:
         self.workspace_root = Path(workspace_root).resolve()
+        self.command_policy = command_policy or CommandExecutionPolicy()
         self._pending_changes: Dict[str, Dict[str, str]] = {}
         self._pending_commands: Dict[str, Dict[str, str]] = {}
 
@@ -40,10 +102,12 @@ class WorkspaceRuntime:
         if not command:
             return "缺少要执行的命令"
 
-        if self._is_blocked_command(command):
+        plan = self._build_command_plan(command)
+
+        if plan.mode == "deny":
             return "命令被拒绝：包含高风险或破坏性操作"
 
-        if self._requires_confirmation(command):
+        if plan.mode == "confirm":
             confirm_id = self._store_pending_command(command, timeout_seconds, owner_user_id)
             return (
                 f"这是高风险命令，暂不直接执行。\n"
@@ -53,7 +117,7 @@ class WorkspaceRuntime:
                 f"如需取消，请回复：取消执行 {confirm_id}"
             )
 
-        return self._execute_command(command, timeout_seconds)
+        return self._execute_command(command, timeout_seconds, plan)
 
     def confirm_pending_command(self, confirm_id: str, owner_user_id: Optional[str] = None) -> str:
         pending = self._pending_commands.get(confirm_id)
@@ -66,7 +130,7 @@ class WorkspaceRuntime:
         command = pending["command"]
         timeout_seconds = int(pending["timeout_seconds"])
         del self._pending_commands[confirm_id]
-        return self._execute_command(command, timeout_seconds)
+        return self._execute_command(command, timeout_seconds, self._build_command_plan(command))
 
     def discard_pending_command(self, confirm_id: str, owner_user_id: Optional[str] = None) -> str:
         if confirm_id not in self._pending_commands:
@@ -77,19 +141,37 @@ class WorkspaceRuntime:
         del self._pending_commands[confirm_id]
         return f"已取消待执行命令: {confirm_id}"
 
-    def _execute_command(self, command: str, timeout_seconds: int) -> str:
+    def _execute_command(
+        self,
+        command: str,
+        timeout_seconds: int,
+        plan: Optional[CommandExecutionPlan] = None,
+    ) -> str:
         timeout = max(1, min(int(timeout_seconds), 120))
+        plan = plan or self._build_command_plan(command)
         try:
-            completed = subprocess.run(
-                command,
-                shell=True,
-                cwd=str(self.workspace_root),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="ignore",
-                timeout=timeout,
-            )
+            if plan.mode == "direct":
+                completed = subprocess.run(
+                    list(plan.argv),
+                    shell=False,
+                    cwd=str(self.workspace_root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=timeout,
+                )
+            else:
+                completed = subprocess.run(
+                    command,
+                    shell=True,
+                    cwd=str(self.workspace_root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="ignore",
+                    timeout=timeout,
+                )
         except subprocess.TimeoutExpired:
             return f"命令执行超时（>{timeout}s）: {command}"
         except Exception as exc:
@@ -100,6 +182,7 @@ class WorkspaceRuntime:
         sections = [
             f"命令: {command}",
             f"退出码: {completed.returncode}",
+            f"执行模式: {'direct' if plan.mode == 'direct' else 'confirmed-shell'}",
         ]
         if stdout:
             sections.append(f"标准输出:\n{self._truncate_text(stdout, self.MAX_OUTPUT_CHARS)}")
@@ -275,39 +358,27 @@ class WorkspaceRuntime:
             return text
         return text[:limit] + "\n\n[输出过长，已截断]"
 
-    def _is_blocked_command(self, command: str) -> bool:
+    def _build_command_plan(self, command: str) -> CommandExecutionPlan:
         normalized = " ".join(command.lower().split())
-        blocked_patterns = (
-            "shutdown",
-            "reboot",
-            "halt",
-            "poweroff",
-            "mkfs",
-            "format ",
-            ":(){:|:&};:",
-        )
-        return any(pattern in normalized for pattern in blocked_patterns)
+        if any(pattern in normalized for pattern in self.command_policy.blocked_patterns):
+            return CommandExecutionPlan(mode="deny", reason="blocked-pattern")
+        if any(pattern in normalized for pattern in self.command_policy.confirm_patterns):
+            return CommandExecutionPlan(mode="confirm", reason="confirm-pattern")
+        if any(token in command for token in self.command_policy.shell_operator_tokens):
+            return CommandExecutionPlan(mode="confirm", reason="shell-operator")
 
-    def _requires_confirmation(self, command: str) -> bool:
-        normalized = " ".join(command.lower().split())
-        confirm_patterns = (
-            "rm -rf",
-            "rm -fr",
-            "rm -f",
-            "rm -r",
-            "del /s",
-            "del /q",
-            "rd /s",
-            "rmdir /s",
-            "move ",
-            "mv ",
-            "ren ",
-            "rename ",
-            "git clean",
-            "git reset --hard",
-            "git checkout --",
-        )
-        return any(pattern in normalized for pattern in confirm_patterns)
+        try:
+            argv = tuple(shlex.split(command, posix=os.name != "nt"))
+        except ValueError:
+            return CommandExecutionPlan(mode="confirm", reason="parse-failed")
+
+        if not argv:
+            return CommandExecutionPlan(mode="deny", reason="empty")
+
+        executable = Path(argv[0]).name.lower()
+        if executable not in self.command_policy.safe_bins:
+            return CommandExecutionPlan(mode="confirm", reason="unknown-bin")
+        return CommandExecutionPlan(mode="direct", reason="safe-bin", argv=argv)
 
     def _store_pending_command(self, command: str, timeout_seconds: int, owner_user_id: Optional[str]) -> str:
         confirm_id = uuid.uuid4().hex[:12]

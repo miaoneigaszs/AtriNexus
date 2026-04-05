@@ -65,7 +65,15 @@ class LangChainAgentService:
                 message=message,
                 allow_tools=not self._model_lacks_tool_support(),
             )
-            agent = self._build_agent(message, system_prompt, core_memory, kb_context, tool_bundle.summary, tool_bundle.tools)
+            agent = self._build_agent(
+                message,
+                system_prompt,
+                core_memory,
+                kb_context,
+                tool_bundle.profiles,
+                tool_bundle.summary,
+                tool_bundle.tools,
+            )
             result = agent.invoke(
                 {"messages": self._build_messages(message, previous_context)},
                 config={"recursion_limit": self.max_iterations},
@@ -81,19 +89,21 @@ class LangChainAgentService:
         system_prompt: str,
         core_memory: Optional[str],
         kb_context: Optional[str],
+        tool_profiles: List[str],
         tool_summary: str,
         tools,
     ):
         logger.info(
-            "LangChain tools selected: message_len=%s, tool_count=%s, tools=%s",
+            "LangChain tools selected: message_len=%s, tool_count=%s, profiles=%s, tools=%s",
             len(message),
             len(tools),
+            tool_profiles,
             [tool.name for tool in tools],
         )
         return create_agent(
             model=self.model_client,
             tools=tools,
-            system_prompt=self._build_system_prompt(system_prompt, core_memory, kb_context, tool_summary),
+            system_prompt=self._build_system_prompt(system_prompt, core_memory, kb_context, tool_profiles, tool_summary),
         )
 
     def _build_system_prompt(
@@ -101,6 +111,7 @@ class LangChainAgentService:
         system_prompt: str,
         core_memory: Optional[str],
         kb_context: Optional[str],
+        tool_profiles: List[str],
         tool_summary: str,
     ) -> str:
         prompt_parts: List[str] = []
@@ -115,13 +126,14 @@ class LangChainAgentService:
                 "必须结合上述参考资料，并严格保持你的【角色设定】来回答用户的问题。"
                 "如果参考资料无相关性，请忽略资料，自然回复即可。"
             )
+        prompt_parts.append(f"【当前工具组】\n{', '.join(tool_profiles) if tool_profiles else 'none'}")
         prompt_parts.append(f"【可用工具摘要】\n{tool_summary}")
         prompt_parts.append(
             "【工具使用指导】\n"
-            "你拥有读取文件、搜索文件、执行命令和生成文件修改预览的能力。\n"
+            "你拥有按需启用的工具组，包括 workspace 读取、命令执行、联网搜索和文件修改预览。\n"
             "只要任务涉及文件、目录、代码、命令执行，就应优先调用工具，而不是空谈步骤。\n"
             "如果用户要求修改文件，先读取必要内容，再使用 preview_write_file 或 preview_edit_file 生成修改预览。\n"
-            "高风险命令会进入确认流程；文件修改预览也需要用户后续确认才能真正落盘。"
+            "安全命令会直接执行；含 shell 操作符、未知可执行文件或高风险命令会进入确认流程；文件修改预览也需要用户后续确认才能真正落盘。"
         )
         prompt_parts.append(
             "【工具选择示例】\n"
