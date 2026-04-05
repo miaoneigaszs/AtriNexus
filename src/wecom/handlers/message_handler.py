@@ -15,7 +15,6 @@ from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_
 from src.services.memory_manager import MemoryManager
 from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
-from src.services.intent_service import IntentService
 from src.services.vector_store import QdrantVectorStore
 from src.services.database import Session, ChatMessage
 from src.utils.async_utils import run_sync
@@ -27,7 +26,6 @@ from src.wecom.handlers.command_handler import CommandHandler
 from src.wecom.handlers.image_handler import ImageHandler
 from src.wecom.processors.context_builder import ContextBuilder
 from src.wecom.processors.fast_path_router import FastPathRouter
-from src.wecom.processors.rag_processor import RAGProcessor
 from src.wecom.processors.reply_cleaner import ReplyCleaner
 from src.wecom.middleware.dedup_middleware import DedupMiddleware
 
@@ -68,9 +66,9 @@ class MessageHandler:
             model=config.llm.model,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
+            rag_service=self.rag,
         )
         self.session_service = SessionService(kb_session_timeout=5)
-        self.intent_service = IntentService(rag_service=self.rag)
 
         # ========== 初始化处理器（使用拆分后的组件）==========
         self.command_handler = CommandHandler(self.rag)
@@ -81,7 +79,6 @@ class MessageHandler:
             self.session_service,
             self.llm_service,
         )
-        self.rag_processor = RAGProcessor(self.rag, self.intent_service, self.session_service)
 
         logger.info(
             f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, "
@@ -225,7 +222,7 @@ class MessageHandler:
 
     async def _execute_kb_search(self, user_id: str, content: str, msg_id: str,
                                   category_filter: str = None):
-        """执行知识库检索和回复生成（流程编排）"""
+        """执行普通消息回复生成。KB 检索改为 agent 按需工具调用。"""
 
         # 1. 构建上下文
         ctx = await run_sync(
@@ -236,33 +233,17 @@ class MessageHandler:
         current_mode = ctx["current_mode"]
         previous_context = ctx["previous_context"]
 
-        # 2. 执行 RAG 检索
-        kb_results, _, need_search = await run_sync(
-            self.rag_processor.execute_rag_retrieval,
-            user_id, content, previous_context, category_filter
-        )
-
-        # 3. 构建知识库上下文
-        kb_context = ""
-        if kb_results:
-            logger.info(f"==>[RAG Trace] 已将 {len(kb_results)} 个知识切片注入 Prompt 上下文。")
-            try:
-                kb_context = self.context_builder.build_kb_context(kb_results)
-            except Exception:
-                logger.exception("[RAG Trace] 构建知识库上下文失败")
-                raise
-
-        # 4. 构建记忆上下文
+        # 2. 构建记忆上下文
         core_memory = self.context_builder.build_merged_memory_context(ctx["mem_ctx"])
 
-        # 5. 构建系统提示词
+        # 3. 构建系统提示词
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
         inferred_profile = self.reply_service.tool_catalog.infer_tool_profile(content)
         current_profile = self.session_service.get_tool_profile(user_id)
         tool_profile = merge_tool_profile(current_profile, inferred_profile)
         if tool_profile != normalize_tool_profile(current_profile):
             self.session_service.set_tool_profile(user_id, tool_profile)
-        # 6. 调用 LLM 生成回复
+        # 4. 调用 LLM 生成回复
         try:
             reply = await self.reply_service.generate_reply_async(
                 message=content,
@@ -271,30 +252,20 @@ class MessageHandler:
                 tool_profile=tool_profile,
                 previous_context=previous_context,
                 core_memory=core_memory,
-                kb_context=kb_context if kb_context else None
+                kb_context=None,
             )
 
             # 清理回复
             reply = ReplyCleaner.clean_reply(reply)
 
-            # 处理知识库引用：提取使用的片段并清理标记
-            used_indices = []
-            if need_search and kb_results:
-                reply, used_indices = self.context_builder.extract_and_clean_references(reply)
-                # 只添加被使用的片段作为参考
-                if used_indices:
-                    references = self.context_builder.format_kb_references(kb_results, used_indices)
-                    if references:
-                        reply += references
-
         except Exception as e:
             logger.error(f"LLM 调用失败: {e}")
             reply = "抱歉，我暂时无法处理您的消息，请稍后再试。"
 
-        # 7. 保存对话记录
+        # 5. 保存对话记录
         await run_sync(self._save_chat_message, user_id, content, reply, msg_id)
 
-        # 8. 发送回复
+        # 6. 发送回复
         if reply.strip():
             await self.client.send_text_async(user_id, reply)
         else:
@@ -303,7 +274,7 @@ class MessageHandler:
 
         logger.info(f"消息已发送给用户，准备进行后台记忆更新: user={user_id}, reply_len={len(reply)}")
 
-        # 9. 更新记忆
+        # 7. 更新记忆
         try:
             await self.memory.after_reply_async(user_id, avatar_name, content, reply)
         except Exception as e:

@@ -63,6 +63,7 @@ class LangChainAgentService:
         model: str,
         temperature: float,
         max_tokens: int,
+        rag_service: Optional[object] = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
@@ -73,7 +74,11 @@ class LangChainAgentService:
         self.workspace_root = str(Path(__file__).resolve().parents[3])
         search_cfg = config.network_search
         search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
-        self.tool_catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
+        self.tool_catalog = ToolCatalog(
+            workspace_root=self.workspace_root,
+            search_api_key=search_api_key,
+            rag_service=rag_service,
+        )
         self.prompt_manager = PromptManager(self.workspace_root)
         self.model_client = ChatOpenAI(
             api_key=self.api_key,

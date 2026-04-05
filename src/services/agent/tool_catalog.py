@@ -8,6 +8,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import Field
 
 from src.services.agent.runtime import WorkspaceRuntime
+from src.services.agent.kb_tools import build_kb_list_assets_response, build_kb_search_response
 from src.services.agent.tool_profiles import (
     normalize_tool_profile,
     should_enable_command,
@@ -64,9 +65,15 @@ class ToolCatalog:
         re.IGNORECASE,
     )
 
-    def __init__(self, workspace_root: str, search_api_key: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        workspace_root: str,
+        search_api_key: Optional[str] = None,
+        rag_service: Optional[object] = None,
+    ) -> None:
         self.runtime = WorkspaceRuntime(workspace_root)
         self.search_api_key = search_api_key
+        self.rag_service = rag_service
         self.time_tool = TimeTool()
 
     def build_tool_bundle(
@@ -88,6 +95,7 @@ class ToolCatalog:
         include_rename = should_enable_workspace_edit(profile)
         include_command = include_tool_overview or should_enable_command(profile)
         include_web = bool(self.search_api_key and (include_tool_overview or should_enable_web(profile)))
+        include_kb = self.rag_service is not None
 
         tools: List[BaseTool] = []
         profiles: List[str] = ["core", profile]
@@ -200,6 +208,39 @@ class ToolCatalog:
 
             tools.append(run_command)
             summary_lines.append("- run_command: 执行命令。安全命令直接执行，复杂或高风险命令进入确认流程。")
+
+        if include_kb:
+            profiles.append("kb")
+
+            @tool
+            def kb_list_assets() -> str:
+                """List current knowledge-base documents, categories, and heading previews."""
+                return build_kb_list_assets_response(self.rag_service, user_id)
+
+            @tool
+            def kb_search(
+                query: Annotated[str, Field(description="知识库搜索问题或关键词")],
+                doc_filter: Annotated[str, Field(description="可选，限定某个文档名")] = "",
+                top_k: Annotated[int, Field(description="返回结果数量，建议 1 到 5")] = 3,
+                category: Annotated[str, Field(description="可选，限定某个分类")] = "",
+            ) -> str:
+                """Search the knowledge base for relevant content."""
+                return build_kb_search_response(
+                    self.rag_service,
+                    user_id,
+                    query,
+                    top_k=top_k,
+                    doc_filter=doc_filter,
+                    category=category,
+                )
+
+            tools.extend([kb_list_assets, kb_search])
+            summary_lines.extend(
+                [
+                    "- kb_list_assets: 查看当前知识库里有哪些文档、分类和标题摘要。",
+                    "- kb_search: 在知识库中搜索相关内容，可选限定文档或分类。",
+                ]
+            )
 
         if include_web:
             profiles.append("web")
