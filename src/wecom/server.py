@@ -211,6 +211,17 @@ app.include_router(diary_router)
 app.include_router(token_router)
 
 
+# ========== 生命周期事件 ==========
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """关闭共享客户端，避免连接池和句柄泄漏。"""
+    from src.utils.http_pool import close_async_client, close_sync_client
+
+    await close_async_client()
+    close_sync_client()
+
+
 # ========== 启动函数 ==========
 
 def start_server(host: str = "0.0.0.0", port: int = 8000):
