@@ -4,11 +4,11 @@
 """
 
 import logging
-import os
 import re
 from typing import Dict, Any, List, Tuple
 
 from src.services.memory_manager import MemoryManager
+from src.services.prompt_manager import PromptManager
 from src.services.session_service import SessionService
 from data.config import config
 
@@ -47,6 +47,7 @@ class ContextBuilder:
         self.session_service = session_service
         self.root_dir = root_dir
         self.avatar_dir = config.behavior.context.avatar_dir
+        self.prompt_manager = PromptManager(root_dir)
 
     def build_search_context(self, user_id: str, content: str) -> Dict[str, Any]:
         """
@@ -105,24 +106,8 @@ class ContextBuilder:
         return core_memory
 
     def build_system_prompt(self, avatar_name: str, current_mode: str) -> str:
-        """
-        构建系统提示词
-
-        Args:
-            avatar_name: 人设名称
-            current_mode: 当前模式
-
-        Returns:
-            str: 系统提示词
-        """
-        # 加载人设提示词
-        system_prompt = self._load_avatar_prompt(avatar_name)
-
-        # 添加模式提示
-        if current_mode == 'work' and system_prompt:
-            system_prompt += "\n\n【当前模式：工作模式】请以专业、简洁、高效的方式回应。"
-
-        return system_prompt
+        """构建当前轮的人设提示词。"""
+        return self.prompt_manager.build_persona_prompt(avatar_name, current_mode)
 
     def build_kb_context(self, kb_results: List[Dict], include_headers: bool = True) -> str:
         """
@@ -203,20 +188,6 @@ class ContextBuilder:
         if references:
             return f"\n\n🔍 **参考依据**: " + ", ".join(references)
         return ""
-
-    def _load_avatar_prompt(self, avatar_name: str) -> str:
-        """加载人设提示词（纯粹读取用户定义角色，不干扰额外世界设定）"""
-        prompt = ""
-
-        # 加载角色专属人设
-        avatar_path = os.path.join(self.root_dir, 'data', 'avatars', avatar_name, 'avatar.md')
-        try:
-            with open(avatar_path, 'r', encoding='utf-8') as f:
-                prompt += f.read()
-        except FileNotFoundError:
-            logger.warning(f"人设文件不存在: {avatar_path}，当前无预设人设")
-
-        return prompt
 
     def _check_companion_trigger(self, content: str) -> bool:
         """检查是否触发陪伴模式"""

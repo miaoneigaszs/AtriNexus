@@ -270,6 +270,62 @@ class WorkspaceRuntime:
         diff = self._build_diff(target, old_text, content)
         return self._format_preview(change_id, target, diff)
 
+    def preview_append_file(
+        self,
+        path: str,
+        content: str,
+        position: str = "end",
+        owner_user_id: Optional[str] = None,
+    ) -> str:
+        """预览在文件头部或尾部追加内容。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        old_text = target.read_text(encoding="utf-8", errors="ignore")
+        normalized_position = position.strip().lower()
+        if normalized_position not in {"start", "end"}:
+            return "追加位置无效，只支持 start 或 end"
+
+        if normalized_position == "start":
+            new_text = content + old_text
+        else:
+            new_text = old_text + content
+
+        change_id = self._store_pending_change(target, old_text, new_text, owner_user_id)
+        diff = self._build_diff(target, old_text, new_text)
+        return self._format_preview(change_id, target, diff)
+
+    def preview_replace_span(
+        self,
+        path: str,
+        start_index: int,
+        end_index: int,
+        replacement_text: str,
+        owner_user_id: Optional[str] = None,
+    ) -> str:
+        """预览按字符范围替换文件中的一段内容。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        old_text = target.read_text(encoding="utf-8", errors="ignore")
+        if start_index < 0 or end_index < start_index or end_index > len(old_text):
+            return "替换范围无效"
+
+        new_text = old_text[:start_index] + replacement_text + old_text[end_index:]
+        change_id = self._store_pending_change(target, old_text, new_text, owner_user_id)
+        diff = self._build_diff(target, old_text, new_text)
+        return self._format_preview(change_id, target, diff)
+
     def preview_edit_file(
         self,
         path: str,

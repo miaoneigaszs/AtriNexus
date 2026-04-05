@@ -8,7 +8,8 @@ import os
 import re
 
 from src.services.ai.llm_service import LLMService
-from src.services.agent import LangChainAgentService
+from src.services.agent.langchain_agent_service import LangChainAgentService
+from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.services.memory_manager import MemoryManager
 from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
@@ -23,6 +24,7 @@ from data.config import config
 from src.wecom.handlers.command_handler import CommandHandler
 from src.wecom.handlers.image_handler import ImageHandler
 from src.wecom.processors.context_builder import ContextBuilder
+from src.wecom.processors.fast_path_router import FastPathRouter
 from src.wecom.processors.rag_processor import RAGProcessor
 from src.wecom.processors.reply_cleaner import ReplyCleaner
 from src.wecom.middleware.dedup_middleware import DedupMiddleware
@@ -72,6 +74,11 @@ class MessageHandler:
         self.command_handler = CommandHandler(self.rag)
         self.image_handler = ImageHandler(self.client)
         self.context_builder = ContextBuilder(self.memory, self.session_service, self.root_dir)
+        self.fast_path_router = FastPathRouter(
+            self.reply_service.tool_catalog,
+            self.session_service,
+            self.llm_service,
+        )
         self.rag_processor = RAGProcessor(self.rag, self.intent_service, self.session_service)
 
         logger.info(
@@ -146,14 +153,20 @@ class MessageHandler:
             await self.client.send_text_async(user_id, confirm_reply)
             return
 
-        # 2. 检查是否是命令
+        # 2. 快路径：能力查询、读文件、列目录、重命名
+        fast_path_reply = await run_sync(self.fast_path_router.try_handle, user_id, content_trim)
+        if fast_path_reply is not None:
+            await self.client.send_text_async(user_id, fast_path_reply)
+            return
+
+        # 3. 检查是否是命令
         if self.command_handler.is_command(content_trim):
             reply = await run_sync(self.command_handler.handle_command, user_id, content_trim)
             if reply:
                 await self.client.send_text_async(user_id, reply)
             return
 
-        # 3. 正常消息处理流程
+        # 4. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
@@ -209,12 +222,18 @@ class MessageHandler:
 
         # 5. 构建系统提示词
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
+        inferred_profile = self.reply_service.tool_catalog.infer_tool_profile(content)
+        current_profile = self.session_service.get_tool_profile(user_id)
+        tool_profile = merge_tool_profile(current_profile, inferred_profile)
+        if tool_profile != normalize_tool_profile(current_profile):
+            self.session_service.set_tool_profile(user_id, tool_profile)
         # 6. 调用 LLM 生成回复
         try:
             reply = await self.reply_service.generate_reply_async(
                 message=content,
                 user_id=user_id,
                 system_prompt=system_prompt,
+                tool_profile=tool_profile,
                 previous_context=previous_context,
                 core_memory=core_memory,
                 kb_context=kb_context if kb_context else None

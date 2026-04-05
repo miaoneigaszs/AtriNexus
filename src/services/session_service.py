@@ -48,6 +48,49 @@ class SessionService:
             if state:
                 state.variables = json.dumps(variables, ensure_ascii=False)
                 session.commit()
+
+    def get_session_variables(self, user_id: str) -> Dict[str, Any]:
+        """读取会话扩展变量。"""
+        state = self.get_session(user_id)
+        raw = state.variables or "{}"
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("用户 %s 的 session variables 不是合法 JSON，已忽略", user_id)
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def get_tool_profile(self, user_id: str) -> str:
+        """读取当前会话绑定的工具 profile。"""
+        variables = self.get_session_variables(user_id)
+        return str(variables.get("tool_profile", "chat"))
+
+    def get_current_mode(self, user_id: str) -> str:
+        """读取当前会话模式。"""
+        state = self.get_session(user_id)
+        return str(state.mode or "work")
+
+    def get_current_avatar(self, user_id: str) -> str:
+        """读取当前会话绑定的人设名称。"""
+        state = self.get_session(user_id)
+        return str(state.avatar_name or "ATRI")
+
+    def set_tool_profile(self, user_id: str, tool_profile: str) -> None:
+        """更新当前会话绑定的工具 profile。"""
+        with Session() as session:
+            state = session.query(SessionState).filter_by(user_id=user_id).first()
+            if not state:
+                return
+
+            try:
+                variables = json.loads(state.variables or "{}")
+            except json.JSONDecodeError:
+                variables = {}
+
+            variables["tool_profile"] = tool_profile
+            state.variables = json.dumps(variables, ensure_ascii=False)
+            state.last_active = datetime.now()
+            session.commit()
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""

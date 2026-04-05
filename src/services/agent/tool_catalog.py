@@ -8,6 +8,13 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import Field
 
 from src.services.agent.runtime import WorkspaceRuntime
+from src.services.agent.tool_profiles import (
+    normalize_tool_profile,
+    should_enable_command,
+    should_enable_web,
+    should_enable_workspace_edit,
+    should_enable_workspace_read,
+)
 from src.services.tools.search_tool import SearchTool
 from src.services.tools.time_tool import TimeTool
 
@@ -26,7 +33,7 @@ class ToolBundle:
 
 
 class ToolCatalog:
-    """负责两件事：构建工具列表，生成给模型看的工具摘要。"""
+    """构建当前会话可见的工具列表，并生成工具摘要。"""
 
     FILE_HINT_PATTERN = re.compile(
         r"(\.py|\.md|\.txt|\.json|\.yaml|\.yml|\.toml|\.env|\.ini|txt|md|json|yaml|yml|toml|env|ini|py|/|\\|README|readme|config|日志|目录|文件|代码|文档|内容|写的什么|里面写了什么|里面有什么)",
@@ -62,36 +69,41 @@ class ToolCatalog:
         self.search_api_key = search_api_key
         self.time_tool = TimeTool()
 
-    def build_tool_bundle(self, user_id: str, message: str, allow_tools: bool = True) -> ToolBundle:
+    def build_tool_bundle(
+        self,
+        user_id: str,
+        message: str,
+        allow_tools: bool = True,
+        tool_profile: Optional[str] = None,
+    ) -> ToolBundle:
         if not allow_tools:
             return ToolBundle(tools=[], profiles=[], summary_lines=[])
 
         runtime = self.runtime
-        time_tool = self.time_tool
         message = message or ""
+        profile = normalize_tool_profile(tool_profile)
         include_tool_overview = self._needs_tool_overview(message)
-        include_workspace_reads = include_tool_overview or self._needs_workspace_tools(message)
-        include_write_preview = include_workspace_reads and (
-            self._needs_write_tools(message) or self._looks_like_document_editable_task(message)
-        )
-        include_rename = include_workspace_reads and self._needs_rename_tool(message)
-        include_command = include_tool_overview or self._needs_command_tool(message)
-        include_web = bool(self.search_api_key and (include_tool_overview or self._needs_web_tool(message)))
+        include_workspace_reads = include_tool_overview or should_enable_workspace_read(profile)
+        include_write_preview = should_enable_workspace_edit(profile)
+        include_rename = should_enable_workspace_edit(profile)
+        include_command = include_tool_overview or should_enable_command(profile)
+        include_web = bool(self.search_api_key and (include_tool_overview or should_enable_web(profile)))
 
         tools: List[BaseTool] = []
-        profiles: List[str] = ["core"]
+        profiles: List[str] = ["core", profile]
         summary_lines: List[str] = []
 
         @tool
         def get_current_time() -> str:
             """Read the current local date and time."""
-            return time_tool.execute()
+            return self.time_tool.execute()
 
         tools.append(get_current_time)
         summary_lines.append("- get_current_time: 读取当前本地日期和时间。")
 
         if include_workspace_reads:
             profiles.append("workspace-read")
+
             @tool
             def list_directory(
                 path: Annotated[str, Field(description="要列出的目录路径，相对 workspace 根目录")] = ".",
@@ -125,12 +137,13 @@ class ToolCatalog:
 
         if include_write_preview:
             profiles.append("workspace-edit-preview")
+
             @tool
             def preview_write_file(
                 path: Annotated[str, Field(description="要写入的文件路径，相对 workspace 根目录")],
                 content: Annotated[str, Field(description="写入后的完整文件内容")],
             ) -> str:
-                """Preview creating or overwriting a file. Use this when you already know the full new content."""
+                """Preview creating or overwriting a file."""
                 return runtime.preview_write_file(path, content, owner_user_id=user_id)
 
             @tool
@@ -139,14 +152,24 @@ class ToolCatalog:
                 find_text: Annotated[str, Field(description="待替换的原始文本片段，必须足够精确")],
                 replace_text: Annotated[str, Field(description="替换后的文本片段")],
             ) -> str:
-                """Preview a precise in-file edit. Use this for a targeted replacement when the original text is specific enough."""
+                """Preview a precise in-file edit."""
                 return runtime.preview_edit_file(path, find_text, replace_text, owner_user_id=user_id)
 
-            tools.extend([preview_write_file, preview_edit_file])
+            @tool
+            def preview_append_file(
+                path: Annotated[str, Field(description="要追加内容的文件路径，相对 workspace 根目录")],
+                content: Annotated[str, Field(description="要追加的文本内容")],
+                position: Annotated[str, Field(description="追加位置，只支持 start 或 end")] = "end",
+            ) -> str:
+                """Preview appending content to the start or end of a file."""
+                return runtime.preview_append_file(path, content, position=position, owner_user_id=user_id)
+
+            tools.extend([preview_write_file, preview_edit_file, preview_append_file])
             summary_lines.extend(
                 [
-                    "- preview_write_file: 预览整文件写入或重写。适合新建文件、重写 README、重写 Markdown 文档。",
-                    "- preview_edit_file: 预览精确局部修改。适合替换、追加、修正文档中的具体片段。",
+                    "- preview_write_file: 预览整文件写入或重写。",
+                    "- preview_edit_file: 预览精确局部修改。",
+                    "- preview_append_file: 预览在文件头部或尾部追加内容。",
                 ]
             )
 
@@ -166,12 +189,13 @@ class ToolCatalog:
 
         if include_command:
             profiles.append("command")
+
             @tool
             def run_command(
                 command: Annotated[str, Field(description="要执行的命令，默认在 workspace 根目录执行")],
                 timeout_seconds: Annotated[int, Field(description="命令超时时间，单位秒，建议 5 到 20 秒")] = 20,
             ) -> str:
-                """Run a command in the workspace. Safe commands run directly; complex or high-risk commands require confirmation."""
+                """Run a command in the workspace."""
                 return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
             tools.append(run_command)
@@ -192,6 +216,20 @@ class ToolCatalog:
             summary_lines.append("- web_search: 搜索互联网，获取最新信息。")
 
         return ToolBundle(tools=tools, profiles=profiles, summary_lines=summary_lines)
+
+    def infer_tool_profile(self, message: str) -> str:
+        message = message or ""
+        if self._needs_command_tool(message):
+            return "workspace_exec"
+        if (
+            self._needs_write_tools(message)
+            or self._needs_rename_tool(message)
+            or self._looks_like_document_editable_task(message)
+        ):
+            return "workspace_edit"
+        if self._needs_workspace_tools(message):
+            return "workspace_read"
+        return "chat"
 
     def _needs_workspace_tools(self, message: str) -> bool:
         lowered = message.lower()

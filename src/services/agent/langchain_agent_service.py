@@ -4,15 +4,21 @@ import asyncio
 import logging
 import os
 import threading
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import dynamic_prompt, wrap_model_call, wrap_tool_call
+from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 
 from data.config import config
 from src.services.agent.tool_catalog import ToolCatalog
+from src.services.prompt_manager import PromptManager
 from src.services.token_monitor import token_monitor
+from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
 
 logger = logging.getLogger("wecom")
 
@@ -27,6 +33,20 @@ TOOL_OVERVIEW_HINTS = (
     "会什么",
     "能力有哪些",
 )
+MAX_TOOL_RESULT_CHARS = 4000
+MAX_TOOL_ARG_CHARS = 500
+
+
+@dataclass
+class AgentRunContext:
+    """单轮 agent 调用的动态上下文。"""
+
+    persona_prompt: str
+    core_memory: Optional[str]
+    kb_context: Optional[str]
+    tool_profile: Optional[str]
+    tool_profiles: List[str]
+    tool_summary: str
 
 
 class LangChainAgentService:
@@ -51,10 +71,10 @@ class LangChainAgentService:
         self.max_tokens = max_tokens
         self.max_iterations = max(2, int(os.getenv("ATRINEXUS_AGENT_MAX_ITERATIONS", "8")))
         self.workspace_root = str(Path(__file__).resolve().parents[3])
-        self.agent_prompt_path = Path(self.workspace_root) / "src" / "base" / "agent.md"
         search_cfg = config.network_search
         search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
         self.tool_catalog = ToolCatalog(workspace_root=self.workspace_root, search_api_key=search_api_key)
+        self.prompt_manager = PromptManager(self.workspace_root)
         self.model_client = ChatOpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
@@ -64,13 +84,13 @@ class LangChainAgentService:
         )
         self._agent_cache: Dict[Tuple[str, ...], Any] = {}
         self._agent_cache_lock = threading.Lock()
-        self._agent_identity_prompt = self._load_agent_identity_prompt()
 
     def generate_reply(
         self,
         message: str,
         user_id: str,
         system_prompt: str,
+        tool_profile: Optional[str] = None,
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
         kb_context: Optional[str] = None,
@@ -85,6 +105,7 @@ class LangChainAgentService:
                     message=message,
                     user_id=user_id,
                     system_prompt=system_prompt,
+                    tool_profile=tool_profile,
                     previous_context=previous_context,
                     core_memory=core_memory,
                     kb_context=kb_context,
@@ -96,6 +117,7 @@ class LangChainAgentService:
         message: str,
         user_id: str,
         system_prompt: str,
+        tool_profile: Optional[str] = None,
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
         kb_context: Optional[str] = None,
@@ -105,6 +127,7 @@ class LangChainAgentService:
                 user_id=user_id,
                 message=message,
                 allow_tools=not self._model_lacks_tool_support(),
+                tool_profile=tool_profile,
             )
             if self._looks_like_tool_overview(message):
                 return self._format_tool_overview(tool_bundle)
@@ -120,6 +143,9 @@ class LangChainAgentService:
                 system_prompt=system_prompt,
                 core_memory=core_memory,
                 kb_context=kb_context,
+                tool_profile=tool_profile,
+                tool_profiles=tool_bundle.profiles,
+                tool_summary=tool_bundle.summary,
             )
             self._record_token_usage(
                 result=result,
@@ -144,17 +170,25 @@ class LangChainAgentService:
         system_prompt: str,
         core_memory: Optional[str],
         kb_context: Optional[str],
+        tool_profile: Optional[str],
+        tool_profiles: List[str],
+        tool_summary: str,
     ) -> Any:
         return await agent.ainvoke(
                 {
                     "messages": self._build_messages(
                         message=message,
                         previous_context=previous_context,
-                        system_prompt=system_prompt,
-                        core_memory=core_memory,
-                        kb_context=kb_context,
                     )
                 },
+                context=AgentRunContext(
+                    persona_prompt=system_prompt,
+                    core_memory=core_memory,
+                    kb_context=kb_context,
+                    tool_profile=tool_profile,
+                    tool_profiles=tool_profiles,
+                    tool_summary=tool_summary,
+                ),
                 config={"recursion_limit": self.max_iterations},
             )
 
@@ -181,6 +215,12 @@ class LangChainAgentService:
             model=self.model_client,
             tools=tools,
             system_prompt=self._build_static_system_prompt(tool_profiles, tool_summary),
+            middleware=[
+                self._build_dynamic_prompt_middleware(),
+                self._build_model_middleware(),
+                self._build_tool_middleware(),
+            ],
+            context_schema=AgentRunContext,
         )
         with self._agent_cache_lock:
             self._agent_cache[cache_key] = agent
@@ -191,65 +231,18 @@ class LangChainAgentService:
         tool_profiles: List[str],
         tool_summary: str,
     ) -> str:
-        prompt_parts: List[str] = []
-        if self._agent_identity_prompt:
-            prompt_parts.append(f"【Agent 认知】\n{self._agent_identity_prompt}")
-        prompt_parts.append(f"【当前工具组】\n{', '.join(tool_profiles) if tool_profiles else 'none'}")
-        prompt_parts.append(f"【可用工具摘要】\n{tool_summary}")
-        prompt_parts.append(
-            "【工具使用指导】\n"
-            "你拥有按需启用的工具组，包括 workspace 读取、命令执行、联网搜索和文件修改预览。\n"
-            "只要任务涉及文件、目录、代码、命令执行，就应优先调用工具，而不是空谈步骤。\n"
-            "如果用户要求修改文件，先读取必要内容，再使用 preview_write_file 或 preview_edit_file 生成修改预览。\n"
-            "Markdown、README、说明文档、白皮书、报告这类文档同样允许修改，不要因为它们是文档就只读不改。\n"
-            "如果局部替换难以精确命中，就先 read_file，再直接用 preview_write_file 生成整份文件的新版本。\n"
-            "安全命令会直接执行；含 shell 操作符、未知可执行文件或高风险命令会进入确认流程；文件修改预览也需要用户后续确认才能真正落盘。"
+        return self.prompt_manager.build_agent_system_prompt(
+            tool_profiles=tool_profiles,
+            tool_summary=tool_summary,
         )
-        prompt_parts.append(
-            "【工具选择示例】\n"
-            "- 用户说“看看 src 目录” -> 调用 list_directory。\n"
-            "- 用户说“读一下 README.md” -> 调用 read_file。\n"
-            "- 用户说“把 config.json 里某项改成 xxx” -> 先 read_file，再 preview_edit_file。\n"
-            "- 用户说“把 README 第一段改短一点” -> 先 read_file，再 preview_edit_file；如果难以精确替换，就用 preview_write_file。\n"
-            "- 用户说“把这篇 Markdown 文档整体重写得更清楚” -> 先 read_file，再用 preview_write_file。\n"
-            "- 用户说“执行 git status” -> 调用 run_command。\n"
-            "- 用户问“今天星期几” -> 调用 get_current_time。"
-        )
-        prompt_parts.append(
-            "【执行类回复风格】\n"
-            "当你在执行命令、读取文件、搜索代码或生成修改预览时，必须使用直接、简洁、结果导向的表达。\n"
-            "不要使用“主人”等称呼，不要撒娇，不要附加人格化感叹，不要添加与结果无关的修饰句。\n"
-            "优先回答这几项：做了什么、结果是什么、是否成功；必要时再补一行关键细节。"
-        )
-        return "\n\n".join(prompt_parts)
-
-    def _load_agent_identity_prompt(self) -> str:
-        try:
-            return self.agent_prompt_path.read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            logger.warning("Agent 认知提示词不存在: %s", self.agent_prompt_path)
-            return ""
-        except Exception as exc:
-            logger.warning("加载 Agent 认知提示词失败: %s", exc)
-            return ""
 
     def _build_messages(
         self,
         *,
         message: str,
         previous_context: Optional[List[Dict[str, Any]]],
-        system_prompt: str,
-        core_memory: Optional[str],
-        kb_context: Optional[str],
     ) -> List[Dict[str, str]]:
         messages: List[Dict[str, str]] = []
-        dynamic_system_prompt = self._build_dynamic_system_prompt(
-            system_prompt=system_prompt,
-            core_memory=core_memory,
-            kb_context=kb_context,
-        )
-        if dynamic_system_prompt:
-            messages.append({"role": "system", "content": dynamic_system_prompt})
         for item in previous_context or []:
             role = str(item.get("role", "")).strip()
             content = str(item.get("content", "")).strip()
@@ -258,30 +251,131 @@ class LangChainAgentService:
         messages.append({"role": "user", "content": message})
         return messages
 
-    def _build_dynamic_system_prompt(
-        self,
-        *,
-        system_prompt: str,
-        core_memory: Optional[str],
-        kb_context: Optional[str],
-    ) -> str:
-        prompt_parts: List[str] = []
-        if system_prompt:
-            prompt_parts.append(f"【角色设定】\n{system_prompt}")
-        if core_memory:
-            prompt_parts.append(f"【核心记忆】\n{core_memory}")
-        if kb_context:
-            prompt_parts.append(
-                "【参考资料】\n"
-                f"{kb_context}\n"
-                "必须结合上述参考资料，并严格保持你的【角色设定】来回答用户的问题。"
-                "如果参考资料无相关性，请忽略资料，自然回复即可。"
-            )
-        return "\n\n".join(prompt_parts)
-
     def _build_agent_cache_key(self, tool_profiles: List[str], tools) -> Tuple[str, ...]:
         tool_names = tuple(tool.name for tool in tools)
         return tuple(tool_profiles) + ("|",) + tool_names
+
+    def _build_dynamic_prompt_middleware(self):
+        prompt_manager = self.prompt_manager
+
+        @dynamic_prompt
+        def runtime_prompt(request) -> str:
+            context = request.runtime.context
+            return prompt_manager.build_runtime_prompt(
+                persona_prompt=context.persona_prompt,
+                tool_profile=context.tool_profile,
+                tool_profiles=context.tool_profiles,
+                tool_summary=context.tool_summary,
+                core_memory=context.core_memory,
+                kb_context=context.kb_context,
+            )
+
+        return runtime_prompt
+
+    def _build_tool_middleware(self):
+        @wrap_tool_call
+        def managed_tool_call(request, handler):
+            tool_name = request.tool_call.get("name", "<unknown>")
+            tool_args = request.tool_call.get("args", {})
+            logger.info(
+                "Tool call start: name=%s args=%s",
+                tool_name,
+                self._summarize_tool_args(tool_args),
+            )
+            try:
+                response = handler(request)
+            except Exception as exc:
+                logger.warning("Tool call failed: name=%s error=%s", tool_name, exc)
+                return ToolMessage(
+                    content=f"工具 {tool_name} 执行失败：{exc}",
+                    tool_call_id=request.tool_call["id"],
+                    status="error",
+                )
+
+            if not isinstance(response, ToolMessage):
+                logger.info("Tool call end: name=%s result_type=%s", tool_name, type(response).__name__)
+                return response
+
+            content = self._extract_tool_message_text(response)
+            logger.info(
+                "Tool call end: name=%s status=%s content_chars=%s",
+                tool_name,
+                response.status,
+                len(content),
+            )
+            if len(content) <= MAX_TOOL_RESULT_CHARS:
+                return response
+
+            return ToolMessage(
+                content=self._truncate_tool_text(content),
+                tool_call_id=response.tool_call_id,
+                status=response.status,
+                artifact=response.artifact,
+                name=response.name,
+                id=response.id,
+            )
+
+        return managed_tool_call
+
+    def _build_model_middleware(self):
+        @wrap_model_call
+        async def managed_model_call(request, handler):
+            model_name = getattr(request.model, "model_name", None) or getattr(request.model, "model", None) or self.model
+            start = time.perf_counter()
+            if PROMETHEUS_AVAILABLE and Metrics.active_llm_requests:
+                Metrics.active_llm_requests.labels(model=model_name, request_type="agent").inc()
+            logger.info(
+                "Model call start: model=%s messages=%s tools=%s",
+                model_name,
+                len(request.messages),
+                len(request.tools),
+            )
+            try:
+                response = await handler(request)
+            except Exception as exc:
+                duration = time.perf_counter() - start
+                logger.warning("Model call failed: model=%s duration_ms=%.2f error=%s", model_name, duration * 1000, exc)
+                if PROMETHEUS_AVAILABLE and Metrics.llm_errors_total:
+                    Metrics.llm_errors_total.labels(model=model_name, error_type=type(exc).__name__).inc()
+                raise
+            finally:
+                if PROMETHEUS_AVAILABLE and Metrics.active_llm_requests:
+                    Metrics.active_llm_requests.labels(model=model_name, request_type="agent").dec()
+
+            duration = time.perf_counter() - start
+            logger.info("Model call end: model=%s duration_ms=%.2f", model_name, duration * 1000)
+            if PROMETHEUS_AVAILABLE and Metrics.llm_request_duration:
+                Metrics.llm_request_duration.labels(model=model_name).observe(duration)
+            return response
+
+        return managed_model_call
+
+    def _summarize_tool_args(self, tool_args: Any) -> str:
+        raw = str(tool_args)
+        if len(raw) <= MAX_TOOL_ARG_CHARS:
+            return raw
+        return raw[:MAX_TOOL_ARG_CHARS] + "...[truncated]"
+
+    def _extract_tool_message_text(self, message: ToolMessage) -> str:
+        content = message.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if text:
+                        parts.append(str(text))
+            return "\n".join(parts)
+        return str(content)
+
+    def _truncate_tool_text(self, text: str) -> str:
+        if len(text) <= MAX_TOOL_RESULT_CHARS:
+            return text
+        return text[:MAX_TOOL_RESULT_CHARS] + "\n\n[工具输出过长，已截断]"
 
     def _looks_like_tool_overview(self, message: str) -> bool:
         normalized = (message or "").strip()
