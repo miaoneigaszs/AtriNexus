@@ -141,14 +141,14 @@ class MessageHandler:
 
         content_trim = content.strip()
 
-        confirm_reply = self._handle_pending_action_confirmation(user_id, content_trim)
+        confirm_reply = await self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
             await self.client.send_text_async(user_id, confirm_reply)
             return
 
         # 2. 检查是否是命令
         if self.command_handler.is_command(content_trim):
-            reply = self.command_handler.handle_command(user_id, content_trim)
+            reply = await run_sync(self.command_handler.handle_command, user_id, content_trim)
             if reply:
                 await self.client.send_text_async(user_id, reply)
             return
@@ -156,22 +156,22 @@ class MessageHandler:
         # 3. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
-    def _handle_pending_action_confirmation(self, user_id: str, content: str):
+    async def _handle_pending_action_confirmation(self, user_id: str, content: str):
         confirm_match = re.fullmatch(r"确认执行\s+([A-Za-z0-9_-]+)", content)
         if confirm_match:
-            return self.reply_service.confirm_pending_command(confirm_match.group(1), user_id)
+            return await run_sync(self.reply_service.confirm_pending_command, confirm_match.group(1), user_id)
 
         discard_match = re.fullmatch(r"取消执行\s+([A-Za-z0-9_-]+)", content)
         if discard_match:
-            return self.reply_service.discard_pending_command(discard_match.group(1), user_id)
+            return await run_sync(self.reply_service.discard_pending_command, discard_match.group(1), user_id)
 
         apply_change_match = re.fullmatch(r"确认修改\s+([A-Za-z0-9_-]+)", content)
         if apply_change_match:
-            return self.reply_service.apply_pending_change(apply_change_match.group(1), user_id)
+            return await run_sync(self.reply_service.apply_pending_change, apply_change_match.group(1), user_id)
 
         discard_change_match = re.fullmatch(r"取消修改\s+([A-Za-z0-9_-]+)", content)
         if discard_change_match:
-            return self.reply_service.discard_pending_change(discard_change_match.group(1), user_id)
+            return await run_sync(self.reply_service.discard_pending_change, discard_change_match.group(1), user_id)
 
         return None
 
