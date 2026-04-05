@@ -186,6 +186,8 @@ class LangChainAgentService:
             "你拥有按需启用的工具组，包括 workspace 读取、命令执行、联网搜索和文件修改预览。\n"
             "只要任务涉及文件、目录、代码、命令执行，就应优先调用工具，而不是空谈步骤。\n"
             "如果用户要求修改文件，先读取必要内容，再使用 preview_write_file 或 preview_edit_file 生成修改预览。\n"
+            "Markdown、README、说明文档、白皮书、报告这类文档同样允许修改，不要因为它们是文档就只读不改。\n"
+            "如果局部替换难以精确命中，就先 read_file，再直接用 preview_write_file 生成整份文件的新版本。\n"
             "安全命令会直接执行；含 shell 操作符、未知可执行文件或高风险命令会进入确认流程；文件修改预览也需要用户后续确认才能真正落盘。"
         )
         prompt_parts.append(
@@ -193,6 +195,8 @@ class LangChainAgentService:
             "- 用户说“看看 src 目录” -> 调用 list_directory。\n"
             "- 用户说“读一下 README.md” -> 调用 read_file。\n"
             "- 用户说“把 config.json 里某项改成 xxx” -> 先 read_file，再 preview_edit_file。\n"
+            "- 用户说“把 README 第一段改短一点” -> 先 read_file，再 preview_edit_file；如果难以精确替换，就用 preview_write_file。\n"
+            "- 用户说“把这篇 Markdown 文档整体重写得更清楚” -> 先 read_file，再用 preview_write_file。\n"
             "- 用户说“执行 git status” -> 调用 run_command。\n"
             "- 用户问“今天星期几” -> 调用 get_current_time。"
         )

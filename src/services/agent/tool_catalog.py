@@ -36,6 +36,10 @@ class ToolCatalog:
         r"(修改|改成|改一下|改一改|改短|缩短|精简|重写|润色|替换|追加|写入|写到|创建|新增|补充|覆盖|删除.*内容|加上|加一段|更新)",
         re.IGNORECASE,
     )
+    DOCUMENT_HINT_PATTERN = re.compile(
+        r"(\.md|README|readme|文档|说明|白皮书|报告|手册|注释|提示词|prompt)",
+        re.IGNORECASE,
+    )
     COMMAND_HINT_PATTERN = re.compile(
         r"(`[^`]+`)|(执行|运行|跑一下|命令|终端|shell|git |python |pytest|npm |pnpm |uv |pip )",
         re.IGNORECASE,
@@ -58,7 +62,9 @@ class ToolCatalog:
         time_tool = self.time_tool
         message = message or ""
         include_workspace_reads = self._needs_workspace_tools(message)
-        include_write_preview = self._needs_write_tools(message)
+        include_write_preview = include_workspace_reads and (
+            self._needs_write_tools(message) or self._looks_like_document_editable_task(message)
+        )
         include_command = self._needs_command_tool(message)
         include_web = bool(self.search_api_key and self._needs_web_tool(message))
 
@@ -68,11 +74,11 @@ class ToolCatalog:
 
         @tool
         def get_current_time() -> str:
-            """获取当前日期和时间。用户询问时间、日期或星期时使用。"""
+            """Read the current local date and time."""
             return time_tool.execute()
 
         tools.append(get_current_time)
-        summary_lines.append("- get_current_time: 查询当前日期和时间。用户问时间、日期、星期时使用。")
+        summary_lines.append("- get_current_time: 读取当前本地日期和时间。")
 
         if include_workspace_reads:
             profiles.append("workspace-read")
@@ -80,14 +86,14 @@ class ToolCatalog:
             def list_directory(
                 path: Annotated[str, Field(description="要列出的目录路径，相对 workspace 根目录")] = ".",
             ) -> str:
-                """列出 workspace 内指定目录的文件和子目录。用户提到目录、文件夹、项目结构时使用。"""
+                """List files and directories inside the workspace."""
                 return runtime.list_directory(path)
 
             @tool
             def read_file(
                 path: Annotated[str, Field(description="要读取的文件路径，相对 workspace 根目录")],
             ) -> str:
-                """读取文件内容。用户提到文件名、配置、代码片段、日志时使用。"""
+                """Read file contents from the workspace."""
                 return runtime.read_file(path)
 
             @tool
@@ -95,15 +101,15 @@ class ToolCatalog:
                 query: Annotated[str, Field(description="要搜索的关键词")],
                 path: Annotated[str, Field(description="搜索起始路径，相对 workspace 根目录")] = ".",
             ) -> str:
-                """在 workspace 内按关键词搜索文件内容。用户要找代码、配置、文本片段时使用。"""
+                """Search workspace files for matching text."""
                 return runtime.search_files(query, path)
 
             tools.extend([list_directory, read_file, search_files])
             summary_lines.extend(
                 [
-                    "- list_directory: 查看目录结构。用户提到目录、文件夹、项目结构时使用。",
-                    "- read_file: 读取文件内容。用户提到文件名、配置、日志或代码时使用。",
-                    "- search_files: 按关键词搜索文件内容。用户想找某段代码、文本或配置时使用。",
+                    "- list_directory: 列出目录内容。",
+                    "- read_file: 读取文件内容。",
+                    "- search_files: 按关键词搜索文件内容。",
                 ]
             )
 
@@ -114,7 +120,7 @@ class ToolCatalog:
                 path: Annotated[str, Field(description="要写入的文件路径，相对 workspace 根目录")],
                 content: Annotated[str, Field(description="写入后的完整文件内容")],
             ) -> str:
-                """生成文件写入预览，不直接落盘。用户要求新建文件或整体覆盖文件时使用。"""
+                """Preview creating or overwriting a file. Use this when you already know the full new content."""
                 return runtime.preview_write_file(path, content, owner_user_id=user_id)
 
             @tool
@@ -123,14 +129,14 @@ class ToolCatalog:
                 find_text: Annotated[str, Field(description="待替换的原始文本片段，必须足够精确")],
                 replace_text: Annotated[str, Field(description="替换后的文本片段")],
             ) -> str:
-                """生成文件局部修改预览，不直接落盘。用户要求修改、追加、替换部分内容时使用。"""
+                """Preview a precise in-file edit. Use this for a targeted replacement when the original text is specific enough."""
                 return runtime.preview_edit_file(path, find_text, replace_text, owner_user_id=user_id)
 
             tools.extend([preview_write_file, preview_edit_file])
             summary_lines.extend(
                 [
-                    "- preview_write_file: 生成整文件写入预览。用户要创建新文件或整体覆盖文件时使用。",
-                    "- preview_edit_file: 生成局部修改预览。用户要替换、追加、修改文件部分内容时使用。",
+                    "- preview_write_file: 预览整文件写入或重写。适合新建文件、重写 README、重写 Markdown 文档。",
+                    "- preview_edit_file: 预览精确局部修改。适合替换、追加、修正文档中的具体片段。",
                 ]
             )
 
@@ -141,11 +147,11 @@ class ToolCatalog:
                 command: Annotated[str, Field(description="要执行的命令，默认在 workspace 根目录执行")],
                 timeout_seconds: Annotated[int, Field(description="命令超时时间，单位秒，建议 5 到 20 秒")] = 20,
             ) -> str:
-                """执行命令。用户要求运行脚本、执行 git/python/测试命令时使用。安全命令直接执行，复杂或高风险命令进入确认流程。"""
+                """Run a command in the workspace. Safe commands run directly; complex or high-risk commands require confirmation."""
                 return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
             tools.append(run_command)
-            summary_lines.append("- run_command: 执行命令。安全命令直接执行；含 shell 操作符、未知可执行文件或高风险命令时进入确认流程。")
+            summary_lines.append("- run_command: 执行命令。安全命令直接执行，复杂或高风险命令进入确认流程。")
 
         if include_web:
             profiles.append("web")
@@ -155,11 +161,11 @@ class ToolCatalog:
             def web_search(
                 query: Annotated[str, Field(description="搜索关键词或问题")],
             ) -> str:
-                """搜索互联网获取最新信息。用户询问实时新闻、最新事件或训练数据中没有的信息时调用。"""
+                """Search the web for up-to-date information."""
                 return search_tool.execute(query=query)
 
             tools.append(web_search)
-            summary_lines.append("- web_search: 搜索互联网。用户询问最新信息、实时事件、新闻时使用。")
+            summary_lines.append("- web_search: 搜索互联网，获取最新信息。")
 
         return ToolBundle(tools=tools, profiles=profiles, summary_lines=summary_lines)
 
@@ -174,6 +180,9 @@ class ToolCatalog:
 
     def _needs_write_tools(self, message: str) -> bool:
         return bool(self.WRITE_HINT_PATTERN.search(message))
+
+    def _looks_like_document_editable_task(self, message: str) -> bool:
+        return bool(self.DOCUMENT_HINT_PATTERN.search(message))
 
     def _needs_command_tool(self, message: str) -> bool:
         return bool(self.COMMAND_HINT_PATTERN.search(message))
