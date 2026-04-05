@@ -91,6 +91,35 @@ class SessionService:
             state.variables = json.dumps(variables, ensure_ascii=False)
             state.last_active = datetime.now()
             session.commit()
+
+    def get_last_workspace_target(self, user_id: str) -> Dict[str, str]:
+        """读取最近一次文件系统快路径命中的目标。"""
+        variables = self.get_session_variables(user_id)
+        value = variables.get("last_workspace_target", {})
+        return value if isinstance(value, dict) else {}
+
+    def set_last_workspace_target(self, user_id: str, path: str, target_type: str) -> None:
+        """记录最近一次命中的文件或目录，便于承接“它/这个文件”这类后续追问。"""
+        if target_type not in {"file", "dir"}:
+            return
+
+        with Session() as session:
+            state = session.query(SessionState).filter_by(user_id=user_id).first()
+            if not state:
+                return
+
+            try:
+                variables = json.loads(state.variables or "{}")
+            except json.JSONDecodeError:
+                variables = {}
+
+            variables["last_workspace_target"] = {
+                "path": path,
+                "type": target_type,
+            }
+            state.variables = json.dumps(variables, ensure_ascii=False)
+            state.last_active = datetime.now()
+            session.commit()
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""

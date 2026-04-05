@@ -32,6 +32,10 @@ class FastPathRouter:
             r"(?P<path>[^\s，。！？]+(?:\.[A-Za-z0-9_-]+|README(?:\.md)?))\s*(?:里写的什么|写了什么|内容是什么)",
             re.IGNORECASE,
         ),
+        re.compile(
+            r"(?P<path>[^\s，。！？]+(?:\.[A-Za-z0-9_-]+|README(?:\.md)?))\s*里(?:有什么|有哪些)",
+            re.IGNORECASE,
+        ),
     )
     READ_FILE_LINE_PATTERNS = (
         re.compile(
@@ -88,6 +92,10 @@ class FastPathRouter:
             re.IGNORECASE,
         ),
     )
+    FOLLOWUP_RENAME_PATTERN = re.compile(
+        r"^(?:改为|改成|重命名为|命名为)\s*(?P<target>[^\s，。！？]+)$",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -99,11 +107,13 @@ class FastPathRouter:
         self.session_service = session_service
         self.llm_service = llm_service
         self.prompt_manager = PromptManager(str(self.tool_catalog.runtime.workspace_root))
+        self._current_user_id = ""
 
     def try_handle(self, user_id: str, message: str) -> Optional[str]:
         message = (message or "").strip()
         if not message:
             return None
+        self._current_user_id = user_id
 
         self._upgrade_tool_profile(user_id, message)
 
@@ -116,11 +126,13 @@ class FastPathRouter:
         block_rewrite_request = self._extract_block_rewrite_request(message)
         if block_rewrite_request:
             path, target, instruction = block_rewrite_request
+            self.session_service.set_last_workspace_target(user_id, path, "file")
             return self._handle_block_rewrite(user_id, path, target, instruction)
 
         replace_request = self._extract_replace_request(message)
         if replace_request:
             path, find_text, replace_text = replace_request
+            self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_edit_file(
                 path,
                 find_text,
@@ -131,6 +143,7 @@ class FastPathRouter:
         rewrite_request = self._extract_rewrite_request(message)
         if rewrite_request:
             path, content = rewrite_request
+            self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_write_file(
                 path,
                 content,
@@ -140,6 +153,7 @@ class FastPathRouter:
         append_request = self._extract_append_request(message)
         if append_request:
             path, content, position = append_request
+            self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_append_file(
                 path,
                 content,
@@ -150,12 +164,18 @@ class FastPathRouter:
         rename_paths = self._extract_rename_paths(message)
         if rename_paths:
             source_path, target_path = rename_paths
-            return self.tool_catalog.runtime.rename_path(source_path, target_path)
+            reply = self.tool_catalog.runtime.rename_path(source_path, target_path)
+            if not reply.startswith(("未找到源路径", "路径不允许访问", "目标路径无效")):
+                self.session_service.set_last_workspace_target(user_id, target_path, "file")
+            return reply
 
         read_line_request = self._extract_read_file_line_request(message)
         if read_line_request:
             path, position = read_line_request
-            return self.tool_catalog.runtime.read_file_line(path, position)
+            reply = self.tool_catalog.runtime.read_file_line(path, position)
+            if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
+                self.session_service.set_last_workspace_target(user_id, path, "file")
+            return reply
 
         search_request = self._extract_search_request(message)
         if search_request:
@@ -164,11 +184,21 @@ class FastPathRouter:
 
         file_path = self._extract_read_file_path(message)
         if file_path:
-            return self.tool_catalog.runtime.read_file(file_path)
+            reply = self.tool_catalog.runtime.read_file(file_path)
+            if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
+                self.session_service.set_last_workspace_target(user_id, file_path, "file")
+            return reply
 
         dir_path = self._extract_directory_path(message)
         if dir_path:
-            return self.tool_catalog.runtime.list_directory(dir_path)
+            reply = self.tool_catalog.runtime.list_directory(dir_path)
+            if not reply.startswith(("路径不存在", "目标不是目录", "路径不允许访问")):
+                self.session_service.set_last_workspace_target(user_id, dir_path, "dir")
+            return reply
+
+        followup_reply = self._handle_followup_reference(user_id, message)
+        if followup_reply:
+            return followup_reply
 
         return None
 
@@ -236,7 +266,7 @@ class FastPathRouter:
                 continue
             normalized = self._normalize_path_fragment(match.group("path"))
             normalized = self._resolve_existing_path_hint(normalized, expect_file=True)
-            if normalized:
+            if normalized and self._looks_like_existing_file(normalized):
                 return normalized
         return None
 
@@ -247,7 +277,7 @@ class FastPathRouter:
                 continue
             normalized = self._normalize_path_fragment(match.group("path"))
             normalized = self._resolve_existing_path_hint(normalized, expect_dir=True)
-            if normalized:
+            if normalized and self._looks_like_existing_dir(normalized):
                 return normalized
         return None
 
@@ -419,7 +449,31 @@ class FastPathRouter:
                 if str(source_parent) != ".":
                     target = str(source_parent / target_path.name)
             return source, target
-        return None
+
+        return self._extract_followup_rename_target(message)
+
+    def _extract_followup_rename_target(self, message: str) -> Optional[Tuple[str, str]]:
+        match = self.FOLLOWUP_RENAME_PATTERN.search(message.strip())
+        if not match:
+            return None
+
+        last_target = self.session_service.get_last_workspace_target(self._current_user_id)
+        if str(last_target.get("type", "")).strip() != "file":
+            return None
+        source = str(last_target.get("path", "")).strip()
+        if not source:
+            return None
+
+        target = self._normalize_path_fragment(match.group("target"))
+        if not target:
+            return None
+
+        target_path = PurePosixPath(target)
+        if len(target_path.parts) == 1 and source not in {".", ""}:
+            source_parent = PurePosixPath(source).parent
+            if str(source_parent) != ".":
+                target = str(source_parent / target_path.name)
+        return source, target
 
     def _normalize_path_fragment(self, fragment: str) -> str:
         normalized = (fragment or "").strip()
@@ -461,6 +515,21 @@ class FastPathRouter:
         if lowered == "readme":
             return "README.md"
 
+        last_target = self.session_service.get_last_workspace_target(self._current_user_id)
+        last_path = str(last_target.get("path", "")).strip()
+        last_type = str(last_target.get("type", "")).strip()
+        if last_path and "/" not in path:
+            base_dir = PurePosixPath(last_path) if last_type == "dir" else PurePosixPath(last_path).parent
+            candidate_path = str(base_dir / path) if str(base_dir) != "." else path
+            candidate, candidate_error = self.tool_catalog.runtime._resolve_path_or_error(candidate_path)
+            if not candidate_error and candidate and candidate.exists():
+                if expect_file and candidate.is_file():
+                    return candidate_path
+                if expect_dir and candidate.is_dir():
+                    return candidate_path
+                if not expect_file and not expect_dir:
+                    return candidate_path
+
         if "/" in path:
             return path
 
@@ -491,3 +560,27 @@ class FastPathRouter:
                 return dir_matches[0]
 
         return path
+
+    def _looks_like_existing_file(self, path: str) -> bool:
+        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
+        return not error and bool(candidate and candidate.exists() and candidate.is_file())
+
+    def _looks_like_existing_dir(self, path: str) -> bool:
+        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
+        return not error and bool(candidate and candidate.exists() and candidate.is_dir())
+
+    def _handle_followup_reference(self, user_id: str, message: str) -> Optional[str]:
+        last_target = self.session_service.get_last_workspace_target(user_id)
+        path = str(last_target.get("path", "")).strip()
+        target_type = str(last_target.get("type", "")).strip()
+        if not path:
+            return None
+
+        if target_type == "file" and any(token in message for token in ("它", "这个文件")):
+            if any(keyword in message for keyword in ("内容", "写的什么", "写了什么", "有什么", "有哪些")):
+                return self.tool_catalog.runtime.read_file(path)
+            if any(keyword in message for keyword in ("最后一行", "末行", "第一行", "首行")):
+                position = "first" if any(keyword in message for keyword in ("第一行", "首行")) else "last"
+                return self.tool_catalog.runtime.read_file_line(path, position)
+
+        return None

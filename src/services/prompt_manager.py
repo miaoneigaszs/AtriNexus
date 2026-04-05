@@ -62,7 +62,13 @@ class PromptManager:
         avatar_path = self.avatar_root / avatar_name / "avatar.md"
         avatar_prompt = self._read_markdown(avatar_path)
         if current_mode == "work" and avatar_prompt:
-            avatar_prompt += "\n\n【当前模式：工作模式】请以专业、简洁、高效的方式回应。"
+            avatar_prompt += (
+                "\n\n【当前模式：工作模式】"
+                "请以专业、简洁、高效的方式回应。"
+                "保留少量角色感即可，不要主动使用轻佻、挖苦或冒犯性的调侃。"
+                "不要使用“机器人保护法”式的玩笑威胁，不要把用户称作“小寂寞鬼”或类似称呼。"
+                "默认先解决问题，再保留一点温和的人设表达。"
+            )
         return avatar_prompt
 
     def build_persona_prompt(self, avatar_name: str, current_mode: str) -> str:
