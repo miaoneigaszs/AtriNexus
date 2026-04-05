@@ -8,12 +8,14 @@ LLM 文本生成服务模块。
 """
 
 
+import asyncio
 import logging
 import re # 正则表达式处理
 import json
 import requests
 from typing import Dict, List, Optional, Any
-from openai import OpenAI
+import httpx
+from openai import AsyncOpenAI, OpenAI
 
 import emoji
 from src.services.ai.model_manager import ModelManager
@@ -50,6 +52,11 @@ class LLMService:
         from src.utils.version import get_current_version, get_version_identifier
         version = get_current_version()
         version_identifier = get_version_identifier()
+        self._default_headers = {
+            "Content-Type": "application/json",
+            "User-Agent": version_identifier,
+            "X-AtriNexus-Version": version
+        }
 
         # 配置超时：连接5秒，读取30秒，总超时50秒
         from httpx import Timeout # httpx的Timeout类支持更细粒度的超时控制，分别设置连接、读取、写入和连接池的超时时间
@@ -58,13 +65,20 @@ class LLMService:
         self.client = OpenAI(
             api_key=api_key,
             base_url=base_url,
-            default_headers={
-                "Content-Type": "application/json",
-                "User-Agent": version_identifier,
-                "X-AtriNexus-Version": version
-            }, # 添加自定义版本头，方便后端识别请求来源和版本
+            default_headers=self._default_headers, # 添加自定义版本头，方便后端识别请求来源和版本
             timeout=timeout,
             max_retries=2  # 减少重试次数，快速失败
+        )
+        self.async_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=self._default_headers,
+            timeout=timeout,
+            max_retries=2
+        )
+        self._ollama_async_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0),
+            headers=self._default_headers,
         )
         self.config = {
             "model": model,
@@ -260,10 +274,88 @@ class LLMService:
         
         return raw_content
 
+    async def _send_single_request_async(
+        self,
+        current_model: str,
+        messages: List[Dict[str, str]],
+        user_id: str = "unknown",
+    ) -> str:
+        """执行单次异步 API 请求，成功返回 raw_content，失败抛出异常。"""
+        is_ollama = 'localhost:11434' in str(self.client.base_url)
+
+        if is_ollama:
+            request_config = {
+                "model": current_model.split('/')[-1],
+                "messages": messages,
+                "stream": False,
+                "options": {"temperature": self.config["temperature"], "max_tokens": self.config["max_token"]},
+            }
+            response = await self._ollama_async_client.post(
+                str(self.client.base_url),
+                json=request_config,
+            )
+            response.raise_for_status()
+            response_data = response.json()
+            if response_data and "message" in response_data:
+                content = response_data["message"]["content"]
+                estimated_tokens = max(1, len(content) // 4)
+                token_monitor.record(
+                    user_id=user_id,
+                    model=current_model,
+                    prompt_tokens=max(1, sum(len(m.get("content", "")) for m in messages) // 4),
+                    completion_tokens=estimated_tokens,
+                    request_type="chat",
+                )
+                return content
+            raise ValueError(f"错误的API响应结构: {json.dumps(response_data, default=str)}")
+
+        response = await self.async_client.chat.completions.create(
+            model=current_model,
+            messages=messages,
+            temperature=self.config["temperature"],
+            max_tokens=self.config["max_token"],
+        )
+
+        if not self._validate_response(response.model_dump()):
+            raise ValueError(f"错误的API响应结构: {json.dumps(response.model_dump(), default=str)}")
+
+        message = response.choices[0].message
+
+        usage = getattr(response, 'usage', None)
+        if usage:
+            token_monitor.record(
+                user_id=user_id,
+                model=current_model,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                request_type="chat",
+            )
+
+        raw_content = message.content
+        if not raw_content:
+            reasoning = getattr(message, 'reasoning_content', None)
+            if not reasoning and hasattr(message, 'model_dump'):
+                reasoning = (message.model_dump() or {}).get('reasoning_content', '')
+            if reasoning:
+                logger.info("检测到推理模型格式：content为空，从reasoning_content提取回复")
+                raw_content = reasoning
+        return raw_content
+
     def _process_response_content(self, raw_content: str) -> str:
         """清理、过滤响应内容"""
         clean_content = self._sanitize_response(raw_content)
         return self._filter_thinking_content(clean_content)
+
+    async def chat_async(self, messages: list, **kwargs) -> str:
+        """异步发送聊天请求并获取回复。"""
+        try:
+            model = kwargs.get('model', self.config["model"])
+            logger.info(f"使用模型: {model} 发送异步聊天请求")
+            raw_content = await self._send_single_request_async(model, messages)
+            return self._process_response_content(raw_content) or ""
+        except Exception as e:
+            logger.error(f"Async chat completion failed: {str(e)}")
+            return USER_VISIBLE_LLM_ERROR
 
     def chat(self, messages: list, **kwargs) -> str:
         """
@@ -277,13 +369,11 @@ class LLMService:
             str: AI的回复内容
         """
         try:
-            # 使用传入的model参数，如果没有则使用默认模型
-            model = kwargs.get('model', self.config["model"])
-            logger.info(f"使用模型: {model} 发送聊天请求")
-            raw_content = self._send_single_request(model, messages)
-            clean_content = self._sanitize_response(raw_content)
-            return self._filter_thinking_content(clean_content) or ""
-
+            asyncio.get_running_loop()
+            logger.error("chat() 在事件循环中被直接调用，请改用 chat_async()")
+            return USER_VISIBLE_LLM_ERROR
+        except RuntimeError:
+            return asyncio.run(self.chat_async(messages, **kwargs))
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
             return USER_VISIBLE_LLM_ERROR

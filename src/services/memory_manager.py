@@ -597,9 +597,6 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"[CoreMemory] 更新核心记忆失败: {e}", exc_info=True)
 
-
-
-
     # ========== 异步方法（性能优化）==========
 
 
@@ -665,7 +662,93 @@ class MemoryManager:
         
         适用于"即发即忘"场景，不等待写入完成。
         """
-        # 创建后台任务，不等待完成
         asyncio.create_task(
-            run_sync(self.after_reply, user_id, avatar_name, user_msg, bot_reply)
+            self._after_reply_background(user_id, avatar_name, user_msg, bot_reply)
         )
+
+    async def _after_reply_background(
+        self,
+        user_id: str,
+        avatar_name: str,
+        user_msg: str,
+        bot_reply: str,
+    ) -> None:
+        try:
+            await run_sync(append_short_memory_entry, user_id, avatar_name, user_msg, bot_reply)
+            await self._update_memories_if_needed_async(user_id, avatar_name)
+        except Exception as e:
+            logger.error(f"异步更新记忆失败: {e}", exc_info=True)
+
+    async def _update_memories_if_needed_async(self, user_id: str, avatar_name: str) -> None:
+        vector_count = await run_sync(self._increment_vector_count, user_id, avatar_name)
+        if vector_count >= 10:
+            await run_sync(self._reset_vector_count, user_id, avatar_name)
+            await self._do_update_vector_memory_async(user_id, avatar_name)
+
+        core_count = await run_sync(self._increment_core_count, user_id, avatar_name)
+        if core_count >= 15:
+            await run_sync(self._reset_core_count, user_id, avatar_name)
+            await self._do_update_core_memory_async(user_id, avatar_name)
+
+    async def _do_update_vector_memory_async(self, user_id: str, avatar_name: str) -> None:
+        if not self._vector_store_available:
+            return
+        if not self.llm_service:
+            logger.warning("[VectorMemory] 未注入 LLMService，跳过向量记忆更新")
+            return
+        try:
+            short_memory = await run_sync(self.get_short_memory, user_id, avatar_name)
+            context = self.build_context_from_memory(short_memory)
+            summary_messages = [
+                {"role": "system", "content": (
+                    "请用2-3句话，以第三人称简洁总结以下对话的主要内容和关键信息，"
+                    "使用对话中出现的具体称呼（如人名、昵称），而不是泛称'用户'或'AI'。"
+                    "只返回总结，不要任何解释。"
+                )},
+                {"role": "user", "content": json.dumps(context, ensure_ascii=False)}
+            ]
+            summary = await self.llm_service.chat_async(summary_messages)
+            if summary and summary != "抱歉，我暂时无法处理你的消息，请稍后再试。":
+                await run_sync(self.add_to_vector_memory, user_id, avatar_name, summary)
+                logger.info(f"[VectorMemory] 对话摘要已写入，user={user_id}: {summary[:50]}...")
+        except Exception as e:
+            logger.error(f"[VectorMemory] 异步生成对话摘要失败: {e}", exc_info=True)
+
+    async def _do_update_core_memory_async(self, user_id: str, avatar_name: str) -> None:
+        if not self.llm_service:
+            logger.warning("[CoreMemory] 未注入 LLMService，跳过核心记忆更新")
+            return
+        try:
+            short_memory = await run_sync(self.get_short_memory, user_id, avatar_name)
+            context = self.build_context_from_memory(short_memory)
+            existing_core = await run_sync(self.get_core_memory, user_id, avatar_name)
+
+            try:
+                with open(self._memory_prompt_path, 'r', encoding='utf-8') as f:
+                    memory_prompt = f.read()
+            except FileNotFoundError:
+                memory_prompt = (
+                    f"请根据旧核心记忆和最新对话，按以下格式重写核心记忆：\n"
+                    f"{_ZONE_STABLE}\n（稳定信息，200字内，只改变明确更新的内容）\n\n"
+                    f"{_ZONE_RECENT}\n（近期信息，200字内，根据最新对话重新提炼）\n\n"
+                    "直接输出双区格式文本，不要任何解释。"
+                )
+
+            messages = [
+                {"role": "system", "content": memory_prompt},
+                {"role": "user", "content": (
+                    f"旧核心记忆：\n{existing_core}\n\n"
+                    f"最新对话：\n{json.dumps(context, ensure_ascii=False)}"
+                )}
+            ]
+            new_core = await self.llm_service.chat_async(messages)
+            if new_core and new_core != "抱歉，我暂时无法处理你的消息，请稍后再试。":
+                await run_sync(self.save_core_memory, user_id, avatar_name, new_core)
+                stable = self._extract_zone(new_core, _ZONE_STABLE)
+                recent = self._extract_zone(new_core, _ZONE_RECENT)
+                logger.info(
+                    f"[CoreMemory] 核心记忆已更新 "
+                    f"稳定区={len(stable)}字 近期区={len(recent)}字"
+                )
+        except Exception as e:
+            logger.error(f"[CoreMemory] 异步更新核心记忆失败: {e}", exc_info=True)
