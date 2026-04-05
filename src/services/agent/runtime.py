@@ -227,6 +227,25 @@ class WorkspaceRuntime:
             suffix = ""
         return f"文件: {self._to_relative(target)}\n\n{text}{suffix}"
 
+    def read_file_line(self, path: str, position: str = "last") -> str:
+        """读取文件首行或末行，适合简单、确定性的文件提问。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        lines = target.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if not lines:
+            return f"文件: {self._to_relative(target)}\n\n[文件为空]"
+
+        normalized = "first" if position == "first" else "last"
+        line = lines[0] if normalized == "first" else lines[-1]
+        label = "首行" if normalized == "first" else "末行"
+        return f"文件: {self._to_relative(target)}\n{label}: {line}"
+
     def search_files(self, query: str, path: str = ".") -> str:
         query = query.strip()
         if not query:

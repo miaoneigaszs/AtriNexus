@@ -172,7 +172,7 @@ class MessageHandler:
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
-        if content in {"审批通过", "通过", "确认"}:
+        if content in {"审批通过", "通过", "确认", "同意"}:
             latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
             if latest_change_id:
                 return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)

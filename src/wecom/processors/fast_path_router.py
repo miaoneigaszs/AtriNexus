@@ -33,9 +33,16 @@ class FastPathRouter:
             re.IGNORECASE,
         ),
     )
+    READ_FILE_LINE_PATTERNS = (
+        re.compile(
+            r"(?P<path>[^\s，。！？]+(?:\.[A-Za-z0-9_-]+|README(?:\.md)?))\s*(?P<position>最后一行|末行|最后1行|第一行|首行|第1行)",
+            re.IGNORECASE,
+        ),
+    )
     LIST_DIR_PATTERNS = (
         re.compile(r"(?:看看|查看|列出)\s*(?P<path>[^\s，。！？]+)\s*目录"),
         re.compile(r"(?P<path>[^\s，。！？]+)\s*目录(?:里|下)?(?:有什么|有哪些)?"),
+        re.compile(r"(?P<path>[^\s，。！？]+)\s*里(?:写的什么|有什么|有哪些)"),
     )
     SEARCH_FILE_PATTERNS = (
         re.compile(
@@ -145,6 +152,11 @@ class FastPathRouter:
             source_path, target_path = rename_paths
             return self.tool_catalog.runtime.rename_path(source_path, target_path)
 
+        read_line_request = self._extract_read_file_line_request(message)
+        if read_line_request:
+            path, position = read_line_request
+            return self.tool_catalog.runtime.read_file_line(path, position)
+
         search_request = self._extract_search_request(message)
         if search_request:
             query, path = search_request
@@ -250,6 +262,19 @@ class FastPathRouter:
             if not query:
                 continue
             return query, path or "."
+        return None
+
+    def _extract_read_file_line_request(self, message: str) -> Optional[Tuple[str, str]]:
+        for pattern in self.READ_FILE_LINE_PATTERNS:
+            match = pattern.search(message)
+            if not match:
+                continue
+            path = self._normalize_path_fragment(match.group("path"))
+            path = self._resolve_existing_path_hint(path, expect_file=True)
+            raw_position = match.group("position")
+            position = "first" if raw_position in {"第一行", "首行", "第1行"} else "last"
+            if path:
+                return path, position
         return None
 
     def _extract_replace_request(self, message: str) -> Optional[Tuple[str, str, str]]:
