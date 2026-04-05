@@ -85,13 +85,17 @@ def execute_scheduled_task(task: dict):
             logger.warning(f"[定时任务] 加载记忆/上下文失败: {mem_err}")
         
         # 3. 调用 LLM 生成消息
-        reply = message_handler.llm_service.get_response(
-            message=content,
-            user_id=chat_id,
-            system_prompt=system_prompt,
-            previous_context=previous_context,
-            core_memory=core_memory or "",
-            kb_context=None
+        prompt_parts = [system_prompt]
+        if core_memory:
+            prompt_parts.append(f"【核心记忆】\n{core_memory}")
+        if previous_context:
+            prompt_parts.append(f"【近期上下文】\n{json.dumps(previous_context, ensure_ascii=False)}")
+
+        reply = message_handler.llm_service.chat(
+            [
+                {"role": "system", "content": "\n\n".join(part for part in prompt_parts if part)},
+                {"role": "user", "content": content},
+            ]
         )
         
         # 4. 清理回复
@@ -223,4 +227,3 @@ def init_scheduler():
     logger.info("[定时任务] 调度器已启动")
     
     return scheduler
-

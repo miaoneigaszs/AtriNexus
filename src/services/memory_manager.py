@@ -16,7 +16,7 @@ from typing import List, Optional
 
 from src.services.database import Session
 from src.services.ai.embedding_service import EmbeddingService
-from src.services.memory_legacy_store import (
+from src.services.memory_store import (
     append_short_memory_entry,
     build_context_from_short_memory,
     increment_memory_counter,

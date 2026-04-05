@@ -285,13 +285,11 @@ class DiaryService:
             return None
         
         try:
-            diary_content = self.llm_service.get_response(
-                message="请根据上述对话记录，以AI助手的第一人称视角写一篇日记。",
-                user_id=f"diary_{user_id}",
-                system_prompt=prompt,
-                previous_context=[],
-                core_memory=None,
-                kb_context=None
+            diary_content = self.llm_service.chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": "请根据上述对话记录，以AI助手的第一人称视角写一篇日记。"},
+                ]
             )
             
             diary_content = diary_content.strip()

@@ -1,7 +1,7 @@
 """
 RAG 服务边界。
 
-当前默认实现是 SDK，主项目不再维护 legacy RAG 主路径。
+当前默认实现是 SDK，主项目只保留当前主路径所需的 RAG 服务接口。
 """
 
 from __future__ import annotations

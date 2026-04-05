@@ -20,7 +20,7 @@ class ContextBuilder:
 
     @staticmethod
     def _normalize_kb_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
-        """兼容 legacy 与 SDK 两种检索结果结构。"""
+        """兼容不同来源的检索结果结构。"""
         metadata = dict(result.get("metadata") or {})
         if metadata:
             return metadata

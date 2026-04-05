@@ -50,7 +50,7 @@ class LangChainAgentService:
             max_tokens=self.max_tokens,
         )
 
-    def get_response(
+    def generate_reply(
         self,
         message: str,
         user_id: str,

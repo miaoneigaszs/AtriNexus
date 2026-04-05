@@ -211,7 +211,7 @@ class MessageHandler:
         # 6. 调用 LLM 生成回复
         try:
             reply = await run_sync(
-                self.reply_service.get_response,
+                self.reply_service.generate_reply,
                 message=content,
                 user_id=user_id,
                 system_prompt=system_prompt,
