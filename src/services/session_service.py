@@ -29,8 +29,7 @@ class SessionService:
     
     def get_session(self, user_id: str) -> SessionState:
         """获取或创建用户会话状态"""
-        session = Session(expire_on_commit=False)
-        try:
+        with Session(expire_on_commit=False) as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 state = SessionState(user_id=user_id, mode='work')
@@ -41,88 +40,69 @@ class SessionService:
                 session.expire(state)
                 session.refresh(state)
             return state
-        finally:
-            session.close()
     
     def update_session_variables(self, user_id: str, variables: dict):
         """更新用户会话上下文变量"""
-        session = Session()
-        try:
+        with Session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.variables = json.dumps(variables, ensure_ascii=False)
                 session.commit()
-        finally:
-            session.close()
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""
-        session = Session()
-        try:
+        with Session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.mode = mode
                 state.last_active = datetime.now()
                 session.commit()
                 logger.info(f"用户 {user_id} 模式切换为 {mode}")
-        finally:
-            session.close()
     
     # ---------- KB检索会话管理 ----------
     
     def get_kb_search_session(self, user_id: str) -> Optional[KBSearchSession]:
         """获取用户当前的知识库检索会话"""
-        session = Session()
-        try:
+        with Session() as session:
             kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-            if kb_session:
-                # 检查是否过期
-                if kb_session.expires_at and kb_session.expires_at < datetime.now():
-                    session.delete(kb_session)
-                    session.commit()
-                    return None
+            if kb_session and kb_session.expires_at and kb_session.expires_at < datetime.now():
+                session.delete(kb_session)
+                session.commit()
+                return None
             return kb_session
-        finally:
-            session.close()
     
     def create_kb_search_session(self, user_id: str, original_query: str,
                                   waiting_for: str, candidates: List[Dict],
                                   current_filter: str = ""):
         """创建知识库检索会话"""
-        session = Session()
-        try:
-            # 删除旧会话
-            old_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-            if old_session:
-                session.delete(old_session)
+        with Session() as session:
+            try:
+                old_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
+                if old_session:
+                    session.delete(old_session)
 
-            # 创建新会话
-            kb_session = KBSearchSession(
-                user_id=user_id,
-                original_query=original_query,
-                current_filter=current_filter,
-                waiting_for=waiting_for,
-                candidates=json.dumps(candidates, ensure_ascii=False),
-                expires_at=datetime.now() + timedelta(minutes=self.kb_session_timeout)
-            )
-            session.add(kb_session)
-            session.commit()
-        except Exception as e:
-            logger.error(f"创建KB检索会话失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+                kb_session = KBSearchSession(
+                    user_id=user_id,
+                    original_query=original_query,
+                    current_filter=current_filter,
+                    waiting_for=waiting_for,
+                    candidates=json.dumps(candidates, ensure_ascii=False),
+                    expires_at=datetime.now() + timedelta(minutes=self.kb_session_timeout)
+                )
+                session.add(kb_session)
+                session.commit()
+            except Exception as e:
+                logger.error(f"创建KB检索会话失败: {e}")
+                session.rollback()
     
     def clear_kb_search_session(self, user_id: str):
         """清除知识库检索会话"""
-        session = Session()
-        try:
-            kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-            if kb_session:
-                session.delete(kb_session)
-                session.commit()
-        except Exception as e:
-            logger.error(f"清除KB检索会话失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        with Session() as session:
+            try:
+                kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
+                if kb_session:
+                    session.delete(kb_session)
+                    session.commit()
+            except Exception as e:
+                logger.error(f"清除KB检索会话失败: {e}")
+                session.rollback()

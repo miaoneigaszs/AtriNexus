@@ -23,9 +23,6 @@ class DedupMiddleware:
         Returns:
             bool: 是否重复
         """
-        session = Session()
-        try:
+        with Session() as session:
             exists = session.query(ChatMessage).filter_by(wecom_msg_id=msg_id).first()
             return exists is not None
-        finally:
-            session.close()

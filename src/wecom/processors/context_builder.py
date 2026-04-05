@@ -59,19 +59,10 @@ class ContextBuilder:
         Returns:
             Dict: 包含会话状态、人设、模式、记忆等上下文信息
         """
-        # 获取会话状态
         state = self.session_service.get_session(user_id)
         avatar_name = state.avatar_name or 'ATRI'
-        current_mode = state.mode or 'work'
-
-        # 检查陪伴模式触发
-        if self._check_companion_trigger(content):
-            current_mode = 'companion'
-            self.session_service.update_session_mode(user_id, 'companion')
-            logger.info(f"用户 {user_id} 切换至陪伴模式")
-
-        # 构建记忆上下文
-        mem_ctx = self.memory.build_full_context(user_id, avatar_name, content)
+        current_mode = self._resolve_mode(user_id, content, state.mode or 'work')
+        mem_ctx = self._build_memory_context(user_id, avatar_name, content)
 
         return {
             "state": state,
@@ -80,6 +71,17 @@ class ContextBuilder:
             "mem_ctx": mem_ctx,
             "previous_context": mem_ctx["previous_context"],
         }
+
+    def _resolve_mode(self, user_id: str, content: str, current_mode: str) -> str:
+        if not self._check_companion_trigger(content):
+            return current_mode
+
+        self.session_service.update_session_mode(user_id, 'companion')
+        logger.info(f"用户 {user_id} 切换至陪伴模式")
+        return 'companion'
+
+    def _build_memory_context(self, user_id: str, avatar_name: str, content: str) -> Dict[str, Any]:
+        return self.memory.build_full_context(user_id, avatar_name, content)
 
     def build_merged_memory_context(self, mem_ctx: Dict[str, Any]) -> str:
         """
@@ -136,32 +138,34 @@ class ContextBuilder:
         if not kb_results:
             return ""
 
-        kb_context = "[从知识库中检索到的参考资料]：\n"
-        kb_context += "【引用说明】如果你在回复中使用了某个参考片段，请在相关句子末尾用 [1][2][3] 等标注来源编号。\n"
-        kb_context += "如果所有片段都与问题无关，请完全忽略它们，自然回复即可。\n\n"
+        kb_context = self._build_kb_context_header()
 
         for i, res in enumerate(kb_results):
-            ref_num = i + 1
-            meta = self._normalize_kb_metadata(res)
-
-            kb_context += f"[{ref_num}] "
-            kb_context += f"来源：《{meta.get('file_name', '未知文件')}》"
-
-            # 添加分类信息
-            category = meta.get('category', '')
-            if category:
-                kb_context += f" ({category})"
-            kb_context += "\n"
-
-            # 添加标题结构
-            if include_headers:
-                titles = [meta.get(f"H{j}") for j in range(1, 4) if meta.get(f"H{j}")]
-                if titles:
-                    kb_context += f"    章节：{' > '.join(titles)}\n"
-
-            kb_context += f"    内容：{res['content']}\n\n"
+            kb_context += self._format_kb_item(i + 1, res, include_headers)
 
         return kb_context
+
+    def _build_kb_context_header(self) -> str:
+        return (
+            "[从知识库中检索到的参考资料]：\n"
+            "【引用说明】如果你在回复中使用了某个参考片段，请在相关句子末尾用 [1][2][3] 等标注来源编号。\n"
+            "如果所有片段都与问题无关，请完全忽略它们，自然回复即可。\n\n"
+        )
+
+    def _format_kb_item(self, ref_num: int, result: Dict[str, Any], include_headers: bool) -> str:
+        meta = self._normalize_kb_metadata(result)
+        lines = [f"[{ref_num}] 来源：《{meta.get('file_name', '未知文件')}》"]
+        category = meta.get('category', '')
+        if category:
+            lines[0] += f" ({category})"
+
+        if include_headers:
+            titles = [meta.get(f"H{j}") for j in range(1, 4) if meta.get(f"H{j}")]
+            if titles:
+                lines.append(f"    章节：{' > '.join(titles)}")
+
+        lines.append(f"    内容：{result['content']}")
+        return "\n".join(lines) + "\n\n"
 
     def format_kb_references(self, kb_results: List[Dict], used_indices: List[int] = None) -> str:
         """
@@ -239,14 +243,20 @@ class ContextBuilder:
         # 提取唯一的引用编号
         used_indices = list(set(int(m) for m in matches))
 
-        # 清理回复中的引用标记
         cleaned_reply = re.sub(pattern, '', reply)
-
-        # 清理可能留下的多余空格
-        cleaned_reply = re.sub(r'\s+', ' ', cleaned_reply).strip()
+        cleaned_reply = self._normalize_reply_spacing(cleaned_reply)
 
         if used_indices:
             logger.info(f"[RAG引用] LLM使用了知识片段: {sorted(used_indices)}")
 
         return cleaned_reply, sorted(used_indices)
+
+    def _normalize_reply_spacing(self, text: str) -> str:
+        normalized_lines = [
+            re.sub(r'[ \t]{2,}', ' ', line).rstrip()
+            for line in text.splitlines()
+        ]
+        normalized = "\n".join(normalized_lines)
+        normalized = re.sub(r'\n{3,}', '\n\n', normalized)
+        return normalized.strip()
 

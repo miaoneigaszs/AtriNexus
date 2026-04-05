@@ -4,7 +4,7 @@ import difflib
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 import uuid
 
 
@@ -30,7 +30,12 @@ class WorkspaceRuntime:
         self._pending_changes: Dict[str, Dict[str, str]] = {}
         self._pending_commands: Dict[str, Dict[str, str]] = {}
 
-    def run_command(self, command: str, timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT) -> str:
+    def run_command(
+        self,
+        command: str,
+        timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT,
+        owner_user_id: Optional[str] = None,
+    ) -> str:
         command = command.strip()
         if not command:
             return "缺少要执行的命令"
@@ -39,7 +44,7 @@ class WorkspaceRuntime:
             return "命令被拒绝：包含高风险或破坏性操作"
 
         if self._requires_confirmation(command):
-            confirm_id = self._store_pending_command(command, timeout_seconds)
+            confirm_id = self._store_pending_command(command, timeout_seconds, owner_user_id)
             return (
                 f"这是高风险命令，暂不直接执行。\n"
                 f"确认 ID: {confirm_id}\n"
@@ -50,19 +55,25 @@ class WorkspaceRuntime:
 
         return self._execute_command(command, timeout_seconds)
 
-    def confirm_pending_command(self, confirm_id: str) -> str:
+    def confirm_pending_command(self, confirm_id: str, owner_user_id: Optional[str] = None) -> str:
         pending = self._pending_commands.get(confirm_id)
         if not pending:
             return f"未找到待确认命令: {confirm_id}"
+        owner_error = self._check_pending_owner(pending, owner_user_id, "命令")
+        if owner_error:
+            return owner_error
 
         command = pending["command"]
         timeout_seconds = int(pending["timeout_seconds"])
         del self._pending_commands[confirm_id]
         return self._execute_command(command, timeout_seconds)
 
-    def discard_pending_command(self, confirm_id: str) -> str:
+    def discard_pending_command(self, confirm_id: str, owner_user_id: Optional[str] = None) -> str:
         if confirm_id not in self._pending_commands:
             return f"未找到待取消命令: {confirm_id}"
+        owner_error = self._check_pending_owner(self._pending_commands[confirm_id], owner_user_id, "命令")
+        if owner_error:
+            return owner_error
         del self._pending_commands[confirm_id]
         return f"已取消待执行命令: {confirm_id}"
 
@@ -99,7 +110,9 @@ class WorkspaceRuntime:
         return "\n\n".join(sections)
 
     def list_directory(self, path: str = ".") -> str:
-        target = self._resolve_path(path)
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
         if not target.exists():
             return f"路径不存在: {path}"
         if not target.is_dir():
@@ -115,7 +128,9 @@ class WorkspaceRuntime:
         return "\n".join(lines)
 
     def read_file(self, path: str) -> str:
-        target = self._resolve_path(path)
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
         if not target.exists():
             return f"文件不存在: {path}"
         if not target.is_file():
@@ -134,7 +149,9 @@ class WorkspaceRuntime:
         if not query:
             return "缺少搜索关键词"
 
-        root = self._resolve_path(path)
+        root, error = self._resolve_path_or_error(path)
+        if error:
+            return error
         if not root.exists():
             return f"路径不存在: {path}"
 
@@ -156,56 +173,33 @@ class WorkspaceRuntime:
             return f"未找到包含「{query}」的内容"
         return "\n".join(matches)
 
-    def write_file(self, path: str, content: str) -> str:
-        target = self._resolve_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        existed = target.exists()
-        if existed and not target.is_file():
-            return f"目标不是文件: {path}"
-
-        target.write_text(content, encoding="utf-8")
-        action = "覆盖写入" if existed else "新建写入"
-        return f"{action}完成: {self._to_relative(target)}"
-
-    def replace_in_file(self, path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
-        if not old_text:
-            return "缺少待替换文本"
-
-        target = self._resolve_path(path)
-        if not target.exists():
-            return f"文件不存在: {path}"
-        if not target.is_file():
-            return f"目标不是文件: {path}"
-
-        text = target.read_text(encoding="utf-8", errors="ignore")
-        count = text.count(old_text)
-        if count == 0:
-            return "未找到待替换文本"
-        if count > 1 and not replace_all:
-            return f"待替换文本出现 {count} 次，请提供更精确的片段或显式设置 replace_all=true"
-
-        new_content = text.replace(old_text, new_text, -1 if replace_all else 1)
-        target.write_text(new_content, encoding="utf-8")
-        replaced = count if replace_all else 1
-        return f"替换完成: {self._to_relative(target)}，共替换 {replaced} 处"
-
-    def preview_write_file(self, path: str, content: str) -> str:
-        target = self._resolve_path(path)
+    def preview_write_file(self, path: str, content: str, owner_user_id: Optional[str] = None) -> str:
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
         old_text = ""
         if target.exists():
             if not target.is_file():
                 return f"目标不是文件: {path}"
             old_text = target.read_text(encoding="utf-8", errors="ignore")
 
-        change_id = self._store_pending_change(target, old_text, content)
+        change_id = self._store_pending_change(target, old_text, content, owner_user_id)
         diff = self._build_diff(target, old_text, content)
         return self._format_preview(change_id, target, diff)
 
-    def preview_edit_file(self, path: str, find_text: str, replace_text: str) -> str:
+    def preview_edit_file(
+        self,
+        path: str,
+        find_text: str,
+        replace_text: str,
+        owner_user_id: Optional[str] = None,
+    ) -> str:
         if not find_text:
             return "缺少待替换文本"
 
-        target = self._resolve_path(path)
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
         if not target.exists():
             return f"文件不存在: {path}"
         if not target.is_file():
@@ -219,40 +213,46 @@ class WorkspaceRuntime:
             return "待替换文本出现多次，请提供更精确的片段"
 
         new_text = old_text.replace(find_text, replace_text, 1)
-        change_id = self._store_pending_change(target, old_text, new_text)
+        change_id = self._store_pending_change(target, old_text, new_text, owner_user_id)
         diff = self._build_diff(target, old_text, new_text)
         return self._format_preview(change_id, target, diff)
 
-    def apply_pending_change(self, change_id: str) -> str:
+    def apply_pending_change(self, change_id: str, owner_user_id: Optional[str] = None) -> str:
         pending = self._pending_changes.get(change_id)
         if not pending:
             return f"未找到待应用变更: {change_id}"
+        owner_error = self._check_pending_owner(pending, owner_user_id, "修改")
+        if owner_error:
+            return owner_error
 
-        target = self._resolve_path(pending["path"])
+        target, error = self._resolve_path_or_error(pending["path"])
+        if error:
+            return error
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(pending["new_text"], encoding="utf-8")
         del self._pending_changes[change_id]
         return f"已应用变更: {change_id} -> {self._to_relative(target)}"
 
-    def discard_pending_change(self, change_id: str) -> str:
+    def discard_pending_change(self, change_id: str, owner_user_id: Optional[str] = None) -> str:
         if change_id not in self._pending_changes:
             return f"未找到待丢弃变更: {change_id}"
+        owner_error = self._check_pending_owner(self._pending_changes[change_id], owner_user_id, "修改")
+        if owner_error:
+            return owner_error
         del self._pending_changes[change_id]
         return f"已丢弃变更: {change_id}"
-
-    def list_pending_changes(self) -> str:
-        if not self._pending_changes:
-            return "当前没有待审批变更"
-        lines = ["待审批变更："]
-        for change_id, pending in self._pending_changes.items():
-            lines.append(f"- {change_id}: {pending['path']}")
-        return "\n".join(lines)
 
     def _resolve_path(self, raw_path: str) -> Path:
         candidate = (self.workspace_root / raw_path).resolve()
         if os.path.commonpath([str(self.workspace_root), str(candidate)]) != str(self.workspace_root):
             raise ValueError("路径超出 workspace 范围")
         return candidate
+
+    def _resolve_path_or_error(self, raw_path: str) -> Tuple[Optional[Path], Optional[str]]:
+        try:
+            return self._resolve_path(raw_path), None
+        except ValueError:
+            return None, "路径超出 workspace 范围"
 
     def _to_relative(self, path: Path) -> str:
         try:
@@ -309,22 +309,41 @@ class WorkspaceRuntime:
         )
         return any(pattern in normalized for pattern in confirm_patterns)
 
-    def _store_pending_command(self, command: str, timeout_seconds: int) -> str:
-        confirm_id = str(uuid.uuid4())[:8]
+    def _store_pending_command(self, command: str, timeout_seconds: int, owner_user_id: Optional[str]) -> str:
+        confirm_id = uuid.uuid4().hex[:12]
         self._pending_commands[confirm_id] = {
             "command": command,
             "timeout_seconds": str(timeout_seconds),
+            "owner_user_id": owner_user_id or "",
         }
         return confirm_id
 
-    def _store_pending_change(self, target: Path, old_text: str, new_text: str) -> str:
-        change_id = str(uuid.uuid4())[:8]
+    def _store_pending_change(
+        self,
+        target: Path,
+        old_text: str,
+        new_text: str,
+        owner_user_id: Optional[str],
+    ) -> str:
+        change_id = uuid.uuid4().hex[:12]
         self._pending_changes[change_id] = {
             "path": str(self._to_relative(target)),
             "old_text": old_text,
             "new_text": new_text,
+            "owner_user_id": owner_user_id or "",
         }
         return change_id
+
+    def _check_pending_owner(
+        self,
+        pending: Dict[str, str],
+        owner_user_id: Optional[str],
+        action_name: str,
+    ) -> Optional[str]:
+        pending_owner = pending.get("owner_user_id", "")
+        if pending_owner and owner_user_id and pending_owner != owner_user_id:
+            return f"该待确认{action_name}不属于当前用户"
+        return None
 
     def _build_diff(self, target: Path, old_text: str, new_text: str) -> str:
         diff_lines = difflib.unified_diff(

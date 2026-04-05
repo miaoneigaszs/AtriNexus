@@ -141,12 +141,9 @@ async def check_database() -> HealthCheckResult:
         from sqlalchemy import text
         
         # 尝试执行简单查询
-        session = Session()
-        try:
+        with Session() as session:
             session.execute(text("SELECT 1"))
             session.commit()
-        finally:
-            session.close()
         
         latency = (time.time() - start) * 1000
         return HealthCheckResult(

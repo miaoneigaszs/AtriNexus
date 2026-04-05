@@ -16,6 +16,21 @@ from src.wecom.deps import (
 
 router = APIRouter(tags=["知识库"])
 
+
+def _build_result_metadata(result: dict) -> dict:
+    metadata = dict(result.get("metadata") or {})
+    if metadata:
+        return metadata
+
+    heading_path = result.get("heading_path") or []
+    normalized = {
+        "file_name": result.get("source_file", "") or result.get("file_name", ""),
+        "category": result.get("category", ""),
+    }
+    for idx, title in enumerate(heading_path[:3], start=1):
+        normalized[f"H{idx}"] = title
+    return normalized
+
 # ========== 页面路由 ==========
 
 @router.get("/kb-upload", response_class=HTMLResponse)
@@ -181,7 +196,7 @@ async def api_kb_search(user_id: str, query: str, top_k: int = 10):
         for r in results:
             chunks.append({
                 "content": r.get("content", ""),
-                "metadata": r.get("metadata", {}),
+                "metadata": _build_result_metadata(r),
                 "score": r.get("score", 0)
             })
         

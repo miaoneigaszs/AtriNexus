@@ -29,8 +29,8 @@ def test_file_syntax():
         'src/services/ai/embedding_service.py',
         'src/services/database.py',
         'src/services/memory_manager.py',
-        'src/services/rag_engine.py',
-        'src/wecom/handlers.py',
+        'src/services/rag_service.py',
+        'src/wecom/handlers/message_handler.py',
     ]
     
     all_passed = True
@@ -113,26 +113,21 @@ def test_memory_manager_structure():
     return True
 
 
-def test_rag_engine_structure():
-    """测试 RAGEngine 结构"""
-    print("\n=== 测试 RAGEngine 结构 ===")
+def test_rag_service_structure():
+    """测试 RAGService 结构"""
+    print("\n=== 测试 RAGService 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/rag_engine.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/rag_service.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
     classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    functions = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
     
-    assert 'RAGEngine' in classes, "RAGEngine 类不存在"
+    assert 'BaseRAGService' in classes, "BaseRAGService 类不存在"
+    assert 'SdkRAGService' in classes, "SdkRAGService 类不存在"
     
-    # 检查新方法
-    assert 'get_document_outline' in functions, "get_document_outline 方法不存在"
-    assert 'format_search_results' in functions, "format_search_results 方法不存在"
-    
-    print("[OK] RAGEngine 类存在")
-    print("[OK] get_document_outline 方法存在")
-    print("[OK] format_search_results 方法存在")
+    print("[OK] RAG 服务边界存在")
+    print("[OK] SdkRAGService 类存在")
     
     return True
 
@@ -141,7 +136,7 @@ def test_handlers_structure():
     """测试 MessageHandler 结构"""
     print("\n=== 测试 MessageHandler 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/wecom/handlers.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/wecom/handlers/message_handler.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -150,13 +145,12 @@ def test_handlers_structure():
     
     assert 'MessageHandler' in classes, "MessageHandler 类不存在"
     
-    # 检查新方法
-    assert '_check_kb_intent_v2' in functions, "_check_kb_intent_v2 方法不存在"
-    assert '_handle_kb_outline_command' in functions, "_handle_kb_outline_command 方法不存在"
+    assert 'process_message' in functions, "process_message 方法不存在"
+    assert '_handle_pending_action_confirmation' in functions, "_handle_pending_action_confirmation 方法不存在"
 
     print("[OK] MessageHandler 类存在")
-    print("[OK] _check_kb_intent_v2 方法存在")
-    print("[OK] 文档大纲命令处理方法存在")
+    print("[OK] process_message 方法存在")
+    print("[OK] 待确认动作处理方法存在")
     
     return True
 
@@ -172,7 +166,7 @@ def main():
         test_embedding_service_structure,
         test_database_structure,
         test_memory_manager_structure,
-        test_rag_engine_structure,
+        test_rag_service_structure,
         test_handlers_structure,
     ]
     

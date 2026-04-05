@@ -175,8 +175,7 @@ async def api_memory_stats(user_id: str = None, avatar_name: str = None):
         avatar_name: 可选，指定人设
     """
     try:
-        session = Session()
-        try:
+        with Session() as session:
             stats = {
                 "total_short_memories": 0,
                 "total_core_memories": 0,
@@ -206,8 +205,6 @@ async def api_memory_stats(user_id: str = None, avatar_name: str = None):
             stats["vector_collections"] = message_handler.memory.get_vector_store_stats()
             
             return JSONResponse(content={"success": True, "data": stats})
-        finally:
-            session.close()
             
     except Exception as e:
         logger.error(f"获取记忆统计异常: {e}", exc_info=True)
@@ -251,8 +248,7 @@ async def api_memory_core_delete(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        session = Session()
-        try:
+        with Session() as session:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id, avatar_name=avatar_name, memory_type='core'
             ).first()
@@ -263,8 +259,6 @@ async def api_memory_core_delete(user_id: str, avatar_name: str = "default"):
                 return JSONResponse(content={"success": True, "message": "核心记忆已清空"})
             else:
                 return JSONResponse(content={"success": True, "message": "核心记忆本就为空"})
-        finally:
-            session.close()
     except Exception as e:
         logger.error(f"删除核心记忆异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"删除失败: {str(e)}"})
@@ -277,8 +271,7 @@ async def api_memory_short_delete(user_id: str, avatar_name: str = "default"):
         return JSONResponse(status_code=400, content={"success": False, "message": "无效的 UserID"})
     
     try:
-        session = Session()
-        try:
+        with Session() as session:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id, avatar_name=avatar_name, memory_type='short'
             ).first()
@@ -287,8 +280,6 @@ async def api_memory_short_delete(user_id: str, avatar_name: str = "default"):
                 session.commit()
                 logger.info(f"短期记忆已清空: user={user_id}, avatar={avatar_name}")
             return JSONResponse(content={"success": True, "message": "短期记忆已清空"})
-        finally:
-            session.close()
     except Exception as e:
         logger.error(f"清空短期记忆异常: {e}", exc_info=True)
         return JSONResponse(status_code=500, content={"success": False, "message": f"清空失败: {str(e)}"})

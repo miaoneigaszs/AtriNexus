@@ -1,8 +1,7 @@
 """
 RAG 服务边界。
 
-先提供一层最小抽象，把调用方从当前 RAGEngine 解耦出来，
-后续可以在不改上层业务的前提下切换到新的 SDK 实现。
+当前默认实现是 SDK，主项目不再维护 legacy RAG 主路径。
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ import sys
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from data.config import config
-from src.services.rag_engine import RAGEngine
 
 
 @runtime_checkable
@@ -57,7 +55,7 @@ class RAGService(Protocol):
 
 
 class BaseRAGService(ABC):
-    """抽象基类，便于后续接入 SDK 实现。"""
+    """抽象基类，约束主项目对 RAG 能力的最小依赖面。"""
 
     @abstractmethod
     def index_document(
@@ -97,67 +95,6 @@ class BaseRAGService(ABC):
     @abstractmethod
     def format_retrieval_results(self, results: List[Dict[str, Any]], include_score: bool = True) -> str:
         raise NotImplementedError
-
-
-class LegacyRAGService(BaseRAGService):
-    """对现有 RAGEngine 的兼容适配层。"""
-
-    def __init__(self, engine: RAGEngine):
-        self.engine = engine
-
-    def index_document(
-        self,
-        user_id: str,
-        file_name: str,
-        file_path: str,
-        *,
-        category: str = "默认分类",
-    ) -> tuple[bool, str]:
-        return self.engine.add_document(
-            user_id=user_id,
-            file_name=file_name,
-            file_path=file_path,
-            category=category,
-        )
-
-    def retrieve(
-        self,
-        user_id: str,
-        query: str,
-        *,
-        top_k: int = 3,
-        filter_conditions: Optional[Dict[str, Any]] = None,
-        skip_rerank: bool = False,
-    ) -> Dict[str, Any]:
-        filters = dict(filter_conditions or {})
-        results = self.engine.retrieve_knowledge(
-            user_id,
-            query,
-            top_k=top_k,
-            category_filter=filters.get("category"),
-            h1_filter=filters.get("H1"),
-            h2_filter=filters.get("H2"),
-            skip_rerank=skip_rerank,
-        )
-        return {
-            "user_id": user_id,
-            "query": query,
-            "count": len(results),
-            "results": results,
-            "formatted_context": self.format_retrieval_results(results, include_score=False),
-        }
-
-    def list_documents(self, user_id: str) -> Dict[str, List[str]]:
-        return self.engine.get_knowledge_list(user_id)
-
-    def get_document_outline(self, user_id: str, file_name: Optional[str] = None) -> Dict[str, Any]:
-        return self.engine.get_document_outline(user_id, file_name)
-
-    def delete_document(self, user_id: str, file_name: str) -> bool:
-        return self.engine.delete_document(user_id, file_name)
-
-    def format_retrieval_results(self, results: List[Dict[str, Any]], include_score: bool = True) -> str:
-        return self.engine.format_search_results(results, include_score=include_score)
 
 
 class SdkRAGService(BaseRAGService):
@@ -167,12 +104,10 @@ class SdkRAGService(BaseRAGService):
         self,
         sdk_root: Optional[str] = None,
         sdk: Any = None,
-        fallback_service: Optional[BaseRAGService] = None,
     ):
         raw_sdk_root = sdk_root or os.getenv("ATRINEXUS_RAG_SDK_ROOT", "")
         self._sdk_root = Path(raw_sdk_root) if raw_sdk_root else None
         self._sdk = sdk
-        self._fallback_service = fallback_service
 
     @staticmethod
     def _build_sdk_config(RAGConfig: Any) -> Any:

@@ -10,8 +10,7 @@ import re
 from src.services.ai.llm_service import LLMService
 from src.services.agent import LangChainAgentService
 from src.services.memory_manager import MemoryManager
-from src.services.rag_engine import RAGEngine
-from src.services.rag_service import LegacyRAGService, SdkRAGService
+from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
 from src.services.intent_service import IntentService
 from src.services.vector_store import QdrantVectorStore
@@ -40,8 +39,6 @@ class MessageHandler:
 
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         self.vector_backend = self._resolve_vector_backend()
-        self.rag_backend = self._resolve_rag_backend()
-        self.agent_backend = self._resolve_agent_backend()
 
         # ========== 初始化核心服务 ==========
         # LLM 服务
@@ -60,8 +57,14 @@ class MessageHandler:
 
         # 其他服务
         self.memory = MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
-        self.rag = self._init_rag_service()
-        self.reply_service = self._init_reply_service()
+        self.rag = SdkRAGService()
+        self.reply_service = LangChainAgentService(
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+        )
         self.session_service = SessionService(kb_session_timeout=5)
         self.intent_service = IntentService(rag_service=self.rag)
 
@@ -73,7 +76,7 @@ class MessageHandler:
 
         logger.info(
             f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, "
-            f"rag_backend={self.rag_backend}, agent_backend={self.agent_backend}"
+            f"rag_backend=sdk, agent_backend=langchain"
         )
 
     def _resolve_vector_backend(self) -> str:
@@ -81,20 +84,6 @@ class MessageHandler:
         if backend != "qdrant":
             logger.warning(f"VECTOR_BACKEND={backend} 已不再作为主路径支持，改用 qdrant")
         return "qdrant"
-
-    def _resolve_rag_backend(self) -> str:
-        backend = os.getenv("RAG_BACKEND", "sdk").strip().lower() or "sdk"
-        if backend not in {"sdk", "legacy"}:
-            logger.warning(f"RAG_BACKEND={backend} 非法，改用 sdk")
-            return "sdk"
-        return backend
-
-    def _resolve_agent_backend(self) -> str:
-        backend = os.getenv("AGENT_BACKEND", "langchain").strip().lower() or "langchain"
-        if backend not in {"legacy", "langchain"}:
-            logger.warning(f"AGENT_BACKEND={backend} 非法，改用 langchain")
-            return "langchain"
-        return backend
 
     def _init_vector_store(self) -> QdrantVectorStore:
         qdrant_url = os.getenv("ATRINEXUS_QDRANT_URL", "").strip() or None
@@ -111,36 +100,6 @@ class MessageHandler:
         os.makedirs(qdrant_path, exist_ok=True)
         logger.info(f"初始化 Qdrant 向量存储: path={qdrant_path}")
         return QdrantVectorStore(path=qdrant_path, embedding_function=None)
-
-    def _build_legacy_rag_service(self) -> LegacyRAGService:
-        return LegacyRAGService(RAGEngine(vector_store=self.vector_store))
-
-    def _init_rag_service(self):
-        legacy_rag = self._build_legacy_rag_service()
-        if self.rag_backend == "sdk":
-            try:
-                logger.info("初始化 SDK RAG 服务")
-                return SdkRAGService(fallback_service=legacy_rag)
-            except Exception as e:
-                logger.error(f"SDK RAG 初始化失败，回退到 legacy: {e}")
-                self.rag_backend = "legacy"
-        return legacy_rag
-
-    def _init_reply_service(self):
-        if self.agent_backend == "langchain":
-            try:
-                logger.info("初始化 LangChain Agent 回复服务")
-                return LangChainAgentService(
-                    api_key=config.llm.api_key,
-                    base_url=config.llm.base_url,
-                    model=config.llm.model,
-                    temperature=config.llm.temperature,
-                    max_tokens=config.llm.max_tokens,
-                )
-            except Exception as e:
-                logger.error(f"LangChain Agent 初始化失败，回退到 legacy: {e}")
-                self.agent_backend = "legacy"
-        return self.llm_service
 
     # ========== 消息处理入口 ==========
 
@@ -181,7 +140,7 @@ class MessageHandler:
 
         content_trim = content.strip()
 
-        confirm_reply = self._handle_pending_command_confirmation(content_trim)
+        confirm_reply = self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
             self.client.send_text(user_id, confirm_reply)
             return
@@ -196,18 +155,22 @@ class MessageHandler:
         # 3. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
-    def _handle_pending_command_confirmation(self, content: str):
-        reply_service = self.reply_service
-        if not isinstance(reply_service, LangChainAgentService):
-            return None
-
+    def _handle_pending_action_confirmation(self, user_id: str, content: str):
         confirm_match = re.fullmatch(r"确认执行\s+([A-Za-z0-9_-]+)", content)
         if confirm_match:
-            return reply_service.confirm_pending_command(confirm_match.group(1))
+            return self.reply_service.confirm_pending_command(confirm_match.group(1), user_id)
 
         discard_match = re.fullmatch(r"取消执行\s+([A-Za-z0-9_-]+)", content)
         if discard_match:
-            return reply_service.discard_pending_command(discard_match.group(1))
+            return self.reply_service.discard_pending_command(discard_match.group(1), user_id)
+
+        apply_change_match = re.fullmatch(r"确认修改\s+([A-Za-z0-9_-]+)", content)
+        if apply_change_match:
+            return self.reply_service.apply_pending_change(apply_change_match.group(1), user_id)
+
+        discard_change_match = re.fullmatch(r"取消修改\s+([A-Za-z0-9_-]+)", content)
+        if discard_change_match:
+            return self.reply_service.discard_pending_change(discard_change_match.group(1), user_id)
 
         return None
 
@@ -296,20 +259,18 @@ class MessageHandler:
 
     def _save_chat_message(self, user_id: str, content: str, reply: str, msg_id: str):
         """保存聊天记录到数据库"""
-        session = Session()
-        try:
-            chat_msg = ChatMessage(
-                sender_id=user_id,
-                sender_name=user_id,
-                message=content,
-                reply=reply,
-                wecom_msg_id=msg_id
-            )
-            session.add(chat_msg)
-            session.commit()
-        except Exception as e:
-            logger.error(f"保存聊天记录失败: {e}")
-            session.rollback()
-        finally:
-            session.close()
+        with Session() as session:
+            try:
+                chat_msg = ChatMessage(
+                    sender_id=user_id,
+                    sender_name=user_id,
+                    message=content,
+                    reply=reply,
+                    wecom_msg_id=msg_id
+                )
+                session.add(chat_msg)
+                session.commit()
+            except Exception as e:
+                logger.error(f"保存聊天记录失败: {e}")
+                session.rollback()
 
