@@ -78,10 +78,8 @@ def test_database_structure():
     classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
     
     assert 'ConversationCounter' in classes, "ConversationCounter 类不存在"
-    assert 'KBSearchSession' in classes, "KBSearchSession 类不存在"
     
     print("[OK] ConversationCounter 类存在")
-    print("[OK] KBSearchSession 类存在")
     
     return True
 

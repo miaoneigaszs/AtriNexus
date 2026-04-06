@@ -8,13 +8,14 @@ from datetime import datetime
 from typing import Tuple
 
 from data.config import config
-from src.services.database import ConversationCounter, MemorySnapshot, Session
+from src.services.database import ConversationCounter, MemorySnapshot
+from src.services.db_session import new_session
 
 logger = logging.getLogger("wecom")
 
 
 def load_short_memory(user_id: str, avatar_name: str) -> list:
-    with Session() as session:
+    with new_session() as session:
         try:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id,
@@ -30,7 +31,7 @@ def load_short_memory(user_id: str, avatar_name: str) -> list:
 
 
 def save_short_memory(user_id: str, avatar_name: str, memory: list) -> bool:
-    with Session() as session:
+    with new_session() as session:
         try:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id,
@@ -58,7 +59,7 @@ def save_short_memory(user_id: str, avatar_name: str, memory: list) -> bool:
 
 
 def load_core_memory(user_id: str, avatar_name: str) -> str:
-    with Session() as session:
+    with new_session() as session:
         try:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id,
@@ -75,7 +76,7 @@ def load_core_memory(user_id: str, avatar_name: str) -> str:
 
 
 def save_core_memory(user_id: str, avatar_name: str, content: str) -> bool:
-    with Session() as session:
+    with new_session() as session:
         try:
             snapshot = session.query(MemorySnapshot).filter_by(
                 user_id=user_id,
@@ -109,7 +110,7 @@ def save_core_memory(user_id: str, avatar_name: str, content: str) -> bool:
 
 
 def increment_memory_counter(user_id: str, avatar_name: str, field: str) -> int:
-    with Session() as session:
+    with new_session() as session:
         try:
             counter = _get_or_create_counter(session, user_id, avatar_name)
             current = getattr(counter, field, 0) or 0
@@ -123,7 +124,7 @@ def increment_memory_counter(user_id: str, avatar_name: str, field: str) -> int:
 
 
 def reset_memory_counter(user_id: str, avatar_name: str, field: str) -> None:
-    with Session() as session:
+    with new_session() as session:
         try:
             counter = _get_or_create_counter(session, user_id, avatar_name)
             setattr(counter, field, 0)
@@ -161,7 +162,7 @@ def build_context_from_short_memory(short_memory: list) -> list:
 
 
 def get_memory_counters(user_id: str, avatar_name: str) -> Tuple[int, int]:
-    with Session() as session:
+    with new_session() as session:
         try:
             counter = _get_or_create_counter(session, user_id, avatar_name)
             return (counter.count or 0, getattr(counter, "vector_count", 0) or 0)

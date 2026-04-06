@@ -1,14 +1,16 @@
 """
 会话状态管理服务
-统一管理用户会话状态和KB检索会话
+统一管理用户会话状态
 """
 
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from datetime import datetime
+from typing import Dict, Any, List, Optional
 
-from src.services.database import Session, SessionState, KBSearchSession
+from src.services.agent.tool_profiles import default_tool_profile_for_mode
+from src.services.database import SessionState
+from src.services.db_session import new_session
 
 logger = logging.getLogger('wecom')
 
@@ -16,20 +18,14 @@ logger = logging.getLogger('wecom')
 class SessionService:
     """会话状态管理服务"""
     
-    def __init__(self, kb_session_timeout: int = 5):
-        """
-        初始化会话服务
-        
-        Args:
-            kb_session_timeout: KB检索会话超时时间（分钟）
-        """
-        self.kb_session_timeout = kb_session_timeout
+    def __init__(self):
+        """初始化会话服务。"""
     
     # ---------- 用户会话状态管理 ----------
     
     def get_session(self, user_id: str) -> SessionState:
         """获取或创建用户会话状态"""
-        with Session(expire_on_commit=False) as session:
+        with new_session(expire_on_commit=False) as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 state = SessionState(user_id=user_id, mode='work')
@@ -43,7 +39,7 @@ class SessionService:
     
     def update_session_variables(self, user_id: str, variables: dict):
         """更新用户会话上下文变量"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.variables = json.dumps(variables, ensure_ascii=False)
@@ -62,8 +58,18 @@ class SessionService:
 
     def get_tool_profile(self, user_id: str) -> str:
         """读取当前会话绑定的工具 profile。"""
-        variables = self.get_session_variables(user_id)
-        return str(variables.get("tool_profile", "chat"))
+        state = self.get_session(user_id)
+        raw = state.variables or "{}"
+        try:
+            variables = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("用户 %s 的 session variables 不是合法 JSON，已忽略", user_id)
+            variables = {}
+
+        value = str(variables.get("tool_profile", "")).strip()
+        if value:
+            return value
+        return default_tool_profile_for_mode(state.mode)
 
     def get_current_mode(self, user_id: str) -> str:
         """读取当前会话模式。"""
@@ -77,7 +83,7 @@ class SessionService:
 
     def set_tool_profile(self, user_id: str, tool_profile: str) -> None:
         """更新当前会话绑定的工具 profile。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -103,7 +109,7 @@ class SessionService:
         if target_type not in {"file", "dir"}:
             return
 
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -137,7 +143,7 @@ class SessionService:
         payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         """保存待确认的路径候选，等待用户回复“是/不是/序号”。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -159,7 +165,7 @@ class SessionService:
 
     def clear_pending_workspace_resolution(self, user_id: str) -> None:
         """清除待确认的路径候选。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -179,7 +185,7 @@ class SessionService:
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.mode = mode
@@ -187,50 +193,3 @@ class SessionService:
                 session.commit()
                 logger.info(f"用户 {user_id} 模式切换为 {mode}")
     
-    # ---------- KB检索会话管理 ----------
-    
-    def get_kb_search_session(self, user_id: str) -> Optional[KBSearchSession]:
-        """获取用户当前的知识库检索会话"""
-        with Session() as session:
-            kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-            if kb_session and kb_session.expires_at and kb_session.expires_at < datetime.now():
-                session.delete(kb_session)
-                session.commit()
-                return None
-            return kb_session
-    
-    def create_kb_search_session(self, user_id: str, original_query: str,
-                                  waiting_for: str, candidates: List[Dict],
-                                  current_filter: str = ""):
-        """创建知识库检索会话"""
-        with Session() as session:
-            try:
-                old_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-                if old_session:
-                    session.delete(old_session)
-
-                kb_session = KBSearchSession(
-                    user_id=user_id,
-                    original_query=original_query,
-                    current_filter=current_filter,
-                    waiting_for=waiting_for,
-                    candidates=json.dumps(candidates, ensure_ascii=False),
-                    expires_at=datetime.now() + timedelta(minutes=self.kb_session_timeout)
-                )
-                session.add(kb_session)
-                session.commit()
-            except Exception as e:
-                logger.error(f"创建KB检索会话失败: {e}")
-                session.rollback()
-    
-    def clear_kb_search_session(self, user_id: str):
-        """清除知识库检索会话"""
-        with Session() as session:
-            try:
-                kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-                if kb_session:
-                    session.delete(kb_session)
-                    session.commit()
-            except Exception as e:
-                logger.error(f"清除KB检索会话失败: {e}")
-                session.rollback()

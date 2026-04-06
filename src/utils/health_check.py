@@ -137,11 +137,11 @@ async def check_database() -> HealthCheckResult:
     """检查数据库连接"""
     start = time.time()
     try:
-        from src.services.database import Session
+        from src.services.db_session import new_session
         from sqlalchemy import text
         
         # 尝试执行简单查询
-        with Session() as session:
+        with new_session() as session:
             session.execute(text("SELECT 1"))
             session.commit()
         

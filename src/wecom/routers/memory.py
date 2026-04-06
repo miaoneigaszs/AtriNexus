@@ -7,7 +7,8 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 
-from src.services.database import Session, MemorySnapshot, ConversationCounter
+from src.services.database import MemorySnapshot, ConversationCounter
+from src.services.db_session import new_session
 from src.utils.async_utils import run_sync
 from src.wecom.deps import (
     message_handler, logger, validate_user_id, load_template
@@ -281,7 +282,7 @@ async def api_memory_vector_delete(user_id: str, avatar_name: str = "default", m
 
 
 def _build_memory_stats(user_id: str = None, avatar_name: str = None):
-    with Session() as session:
+    with new_session() as session:
         stats = {
             "total_short_memories": 0,
             "total_core_memories": 0,
@@ -310,7 +311,7 @@ def _build_memory_stats(user_id: str = None, avatar_name: str = None):
 
 
 def _delete_memory_snapshot(user_id: str, avatar_name: str, memory_type: str) -> bool:
-    with Session() as session:
+    with new_session() as session:
         snapshot = session.query(MemorySnapshot).filter_by(
             user_id=user_id,
             avatar_name=avatar_name,

@@ -8,10 +8,17 @@ It is designed for a real long-running personal usage scenario rather than a gen
 
 - WeCom as the chat entrypoint
 - FastAPI as the service layer
-- SQLite for conversation, memory, and diary data
+- PostgreSQL for conversation, memory, and diary data
 - Qdrant for vector memory storage
 - `atrinexus-rag-sdk` for knowledge-base retrieval
 - LangChain for the lightweight agent/tool layer
+
+The current runtime is no longer a simple "chat + attached tools" stack. It now centers on:
+
+- `PromptManager` for layered prompt assembly
+- `ToolProfile` for session-stable tool exposure
+- `FastPathRouter` for deterministic file/tool requests
+- middleware-based agent control for model/tool governance
 
 ## What It Does
 
@@ -48,7 +55,7 @@ The project keeps multiple memory layers:
 
 Current storage split:
 
-- SQLite stores conversation history, short-term memory, core memory, and diaries
+- PostgreSQL stores conversation history, short-term memory, core memory, and diaries
 - Qdrant stores vector memory
 
 ### 3. RAG with SDK-first design
@@ -70,6 +77,11 @@ The assistant can perform basic workspace actions from chat:
 - search files
 - write files
 - replace text in files
+
+Workspace modifications follow a preview-first flow:
+
+- generate a preview / diff first
+- require explicit confirmation before applying changes
 
 This is intentionally lightweight. The goal is not to be a full AI IDE or a general-purpose autonomous agent platform.
 
@@ -95,6 +107,8 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 - `src/wecom/handlers/message_handler.py`
 - `src/wecom/processors/context_builder.py`
 - `src/services/agent/langchain_agent_service.py`
+- `src/services/prompt_manager.py`
+- `src/wecom/processors/fast_path_router.py`
 
 ### Memory and diary
 
@@ -106,6 +120,11 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 ### RAG
 
 - `src/services/rag_service.py`
+
+Knowledge-base retrieval is now agent-driven:
+
+- normal messages no longer go through front-loaded KB retrieval
+- the agent uses KB tools on demand
 
 ### Vector storage
 
@@ -122,7 +141,7 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 - Python 3.12
 - FastAPI
 - LangChain 1.x
-- SQLite
+- PostgreSQL
 - Qdrant
 - `atrinexus-rag-sdk`
 - WeCom / `wechatpy`
@@ -153,6 +172,7 @@ AtriNexus/
 ├── data/
 │   ├── config/
 │   ├── database/
+│   ├── vectordb_qdrant/
 │   └── tasks.json
 ├── deployment/
 └── docs/
@@ -168,7 +188,26 @@ The repository only keeps a sanitized template:
 
 - `data/config/config.json.template`
 
-The project expects WeCom, model, embedding, and other runtime settings to be configured there.
+The project expects non-sensitive runtime settings to remain in `config.json`.
+
+Sensitive values now support environment-variable overrides:
+
+- `ATRINEXUS_DATABASE_URL`
+- `ATRINEXUS_LLM_API_KEY`
+- `ATRINEXUS_VISION_API_KEY`
+- `ATRINEXUS_NETWORK_SEARCH_API_KEY`
+- `ATRINEXUS_INTENT_API_KEY`
+- `ATRINEXUS_EMBEDDING_API_KEY`
+- `ATRINEXUS_WECOM_SECRET`
+- `ATRINEXUS_WECOM_TOKEN`
+- `ATRINEXUS_WECOM_ENCODING_AES_KEY`
+- `ATRINEXUS_ADMIN_PASSWORD`
+
+For local development, copy:
+
+- `.env.example -> .env`
+
+Production should prefer systemd `Environment=` / `EnvironmentFile=` instead of relying on a checked-out `.env`.
 
 ## Running Locally
 
@@ -195,6 +234,8 @@ cp data/config/config.json.template data/config/config.json
 ```
 
 Then fill in your real settings.
+
+Optional: copy `.env.example` to `.env` and place secrets there instead of writing them back into `config.json`.
 
 ### 3. Start the service
 
@@ -223,8 +264,11 @@ Typical production layout includes:
 ## Important Notes
 
 - The runtime path is now centered on Qdrant, `atrinexus-rag-sdk`, and LangChain.
-- SQLite remains the source of truth for conversation history, short-term memory, core memory, and diaries.
+- PostgreSQL is now the source of truth for conversation history, short-term memory, core memory, and diaries.
+- Qdrant local state under `data/vectordb_qdrant/` is runtime data and is not tracked in git.
+- KB lookup is now exposed as agent tools instead of a front-routed retrieval step on every normal message.
 - The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
+- When the runtime structure changes, update `README.md` and `README.zh-CN.md` in the same change to keep architecture notes in sync.
 
 ## Who This Is For
 

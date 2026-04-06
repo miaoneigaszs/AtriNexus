@@ -4,7 +4,8 @@
 """
 
 import logging
-from src.services.database import Session, ChatMessage
+from src.services.database import ChatMessage
+from src.services.db_session import new_session
 
 logger = logging.getLogger('wecom')
 
@@ -23,6 +24,6 @@ class DedupMiddleware:
         Returns:
             bool: 是否重复
         """
-        with Session() as session:
+        with new_session() as session:
             exists = session.query(ChatMessage).filter_by(wecom_msg_id=msg_id).first()
             return exists is not None

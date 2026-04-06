@@ -1,11 +1,10 @@
 """
 上下文构建器
-负责构建各种上下文（记忆、知识库、系统提示词等）
+负责构建主聊天链路所需的记忆与模式上下文
 """
 
 import logging
-import re
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 
 from src.services.memory_manager import MemoryManager
 from src.services.prompt_manager import PromptManager
@@ -20,22 +19,6 @@ class ContextBuilder:
 
     MAX_RELEVANT_MEMORY_ITEMS = 2
     MAX_RELEVANT_MEMORY_ITEM_CHARS = 180
-
-    @staticmethod
-    def _normalize_kb_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
-        """兼容不同来源的检索结果结构。"""
-        metadata = dict(result.get("metadata") or {})
-        if metadata:
-            return metadata
-
-        heading_path = result.get("heading_path") or []
-        normalized = {
-            "file_name": result.get("source_file", "") or result.get("file_name", ""),
-            "category": result.get("category", ""),
-        }
-        for idx, title in enumerate(heading_path[:3], start=1):
-            normalized[f"H{idx}"] = title
-        return normalized
 
     def __init__(self, memory_manager: MemoryManager, session_service: SessionService, root_dir: str):
         """
@@ -123,86 +106,6 @@ class ContextBuilder:
         """构建当前轮的模式提示词。"""
         return self.prompt_manager.build_persona_prompt(avatar_name, current_mode)
 
-    def build_kb_context(self, kb_results: List[Dict], include_headers: bool = True) -> str:
-        """
-        构建知识库上下文，为每个片段分配编号供LLM引用
-
-        Args:
-            kb_results: 检索结果列表
-            include_headers: 是否包含标题结构
-
-        Returns:
-            str: 知识库上下文文本
-        """
-        if not kb_results:
-            return ""
-
-        kb_context = self._build_kb_context_header()
-
-        for i, res in enumerate(kb_results):
-            kb_context += self._format_kb_item(i + 1, res, include_headers)
-
-        return kb_context
-
-    def _build_kb_context_header(self) -> str:
-        return (
-            "[从知识库中检索到的参考资料]：\n"
-            "【引用说明】如果你在回复中使用了某个参考片段，请在相关句子末尾用 [1][2][3] 等标注来源编号。\n"
-            "如果所有片段都与问题无关，请完全忽略它们，自然回复即可。\n\n"
-        )
-
-    def _format_kb_item(self, ref_num: int, result: Dict[str, Any], include_headers: bool) -> str:
-        meta = self._normalize_kb_metadata(result)
-        lines = [f"[{ref_num}] 来源：《{meta.get('file_name', '未知文件')}》"]
-        category = meta.get('category', '')
-        if category:
-            lines[0] += f" ({category})"
-
-        if include_headers:
-            titles = [meta.get(f"H{j}") for j in range(1, 4) if meta.get(f"H{j}")]
-            if titles:
-                lines.append(f"    章节：{' > '.join(titles)}")
-
-        lines.append(f"    内容：{result['content']}")
-        return "\n".join(lines) + "\n\n"
-
-    def format_kb_references(self, kb_results: List[Dict], used_indices: List[int] = None) -> str:
-        """
-        格式化参考来源标注，只展示被使用的片段
-
-        Args:
-            kb_results: 检索结果列表
-            used_indices: 被使用的片段索引列表（从1开始），None则展示所有
-
-        Returns:
-            str: 参考来源文本
-        """
-        if not kb_results:
-            return ""
-
-        # 如果指定了使用的片段，只展示这些
-        if used_indices is not None:
-            kb_results = [r for i, r in enumerate(kb_results, 1) if i in used_indices]
-
-        if not kb_results:
-            return ""
-
-        references = []
-        for res in kb_results:
-            meta = self._normalize_kb_metadata(res)
-            file_name = meta.get('file_name', '')
-            h1 = meta.get('H1', '')
-            if file_name:
-                ref = f"《{file_name}》"
-                if h1:
-                    ref += f"({h1})"
-                if ref not in references:
-                    references.append(ref)
-
-        if references:
-            return f"\n\n🔍 **参考依据**: " + ", ".join(references)
-        return ""
-
     def _check_companion_trigger(self, content: str) -> bool:
         """检查是否触发陪伴模式"""
         triggers = config.companion_mode.triggers
@@ -210,38 +113,4 @@ class ContextBuilder:
             if trigger.lower() in content.lower():
                 return True
         return False
-
-    def extract_and_clean_references(self, reply: str) -> Tuple[str, List[int]]:
-        """
-        从回复中提取引用标记并清理
-
-        Args:
-            reply: LLM 回复文本
-
-        Returns:
-            Tuple[str, List[int]]: (清理后的文本, 引用的片段编号列表)
-        """
-        # 匹配 [1], [2], [3] 等引用标记（可能是连续的如 [1][2]）
-        pattern = r'\[(\d+)\]'
-        matches = re.findall(pattern, reply)
-
-        # 提取唯一的引用编号
-        used_indices = list(set(int(m) for m in matches))
-
-        cleaned_reply = re.sub(pattern, '', reply)
-        cleaned_reply = self._normalize_reply_spacing(cleaned_reply)
-
-        if used_indices:
-            logger.info(f"[RAG引用] LLM使用了知识片段: {sorted(used_indices)}")
-
-        return cleaned_reply, sorted(used_indices)
-
-    def _normalize_reply_spacing(self, text: str) -> str:
-        normalized_lines = [
-            re.sub(r'[ \t]{2,}', ' ', line).rstrip()
-            for line in text.splitlines()
-        ]
-        normalized = "\n".join(normalized_lines)
-        normalized = re.sub(r'\n{3,}', '\n\n', normalized)
-        return normalized.strip()
 
