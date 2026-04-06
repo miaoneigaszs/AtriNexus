@@ -26,7 +26,7 @@ class FastPathRouter:
     )
     READ_FILE_PATTERNS = (
         re.compile(
-            r"(?:帮我|麻烦|请)?(?:看看|看下|查看|读一下|读取|打开)\s*(?P<path>[A-Za-z0-9_./\\-]+)\s*(?:写的什么|写了什么|内容是什么|里有什么|里有哪些)?",
+            r"(?:那你)?(?:帮我|麻烦|请)?(?:看看|看下|看一下|查看|读一下|读取|打开)\s*(?P<path>[A-Za-z0-9_./\\-]+)\s*(?:写的什么|写了什么|写了啥|写啥|内容是什么|里有什么|里有哪些)?(?:吧)?",
             re.IGNORECASE,
         ),
         re.compile(
@@ -42,7 +42,7 @@ class FastPathRouter:
             re.IGNORECASE,
         ),
         re.compile(
-            r"(?P<path>[^\s，。！？]+)\s*(?:写的什么|写了什么|内容是什么|里有什么|里有哪些)",
+            r"(?P<path>[^\s，。！？]+)\s*(?:写的什么|写了什么|写了啥|写啥|内容是什么|里有什么|里有哪些)(?:吧)?",
             re.IGNORECASE,
         ),
     )
@@ -126,15 +126,16 @@ class FastPathRouter:
 
         self._current_user_id = user_id
         self._pending_resolution_reply = None
-        self._upgrade_tool_profile(user_id, message)
+        normalized_message = self._normalize_request_text(message)
+        self._upgrade_tool_profile(user_id, normalized_message)
 
-        if self.TOOL_OVERVIEW_PATTERN.search(message):
-            return self._handle_tool_overview(user_id, message)
+        if self.TOOL_OVERVIEW_PATTERN.search(normalized_message):
+            return self._handle_tool_overview(user_id, normalized_message)
 
-        if self.PROFILE_OVERVIEW_PATTERN.search(message):
-            return self._handle_profile_overview(user_id, message)
+        if self.PROFILE_OVERVIEW_PATTERN.search(normalized_message):
+            return self._handle_profile_overview(user_id, normalized_message)
 
-        block_rewrite_request = self._extract_block_rewrite_request(message)
+        block_rewrite_request = self._extract_block_rewrite_request(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if block_rewrite_request:
@@ -142,7 +143,7 @@ class FastPathRouter:
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self._handle_block_rewrite(user_id, path, target, instruction)
 
-        replace_request = self._extract_replace_request(message)
+        replace_request = self._extract_replace_request(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if replace_request:
@@ -155,7 +156,7 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
 
-        rewrite_request = self._extract_rewrite_request(message)
+        rewrite_request = self._extract_rewrite_request(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if rewrite_request:
@@ -167,7 +168,7 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
 
-        append_request = self._extract_append_request(message)
+        append_request = self._extract_append_request(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if append_request:
@@ -180,7 +181,7 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
 
-        rename_paths = self._extract_rename_paths(message)
+        rename_paths = self._extract_rename_paths(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if rename_paths:
@@ -190,7 +191,7 @@ class FastPathRouter:
                 self.session_service.set_last_workspace_target(user_id, target_path, "file")
             return reply
 
-        read_line_request = self._extract_read_file_line_request(message)
+        read_line_request = self._extract_read_file_line_request(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if read_line_request:
@@ -200,12 +201,12 @@ class FastPathRouter:
                 self.session_service.set_last_workspace_target(user_id, path, "file")
             return reply
 
-        search_request = self._extract_search_request(message)
+        search_request = self._extract_search_request(normalized_message)
         if search_request:
             query, path = search_request
             return self.tool_catalog.runtime.search_files(query, path)
 
-        file_path = self._extract_read_file_path(message)
+        file_path = self._extract_read_file_path(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if file_path:
@@ -214,7 +215,7 @@ class FastPathRouter:
                 self.session_service.set_last_workspace_target(user_id, file_path, "file")
             return reply
 
-        dir_path = self._extract_directory_path(message)
+        dir_path = self._extract_directory_path(normalized_message)
         if self._pending_resolution_reply:
             return self._pending_resolution_reply
         if dir_path:
@@ -223,7 +224,7 @@ class FastPathRouter:
                 self.session_service.set_last_workspace_target(user_id, dir_path, "dir")
             return reply
 
-        followup_reply = self._handle_followup_reference(user_id, message)
+        followup_reply = self._handle_followup_reference(user_id, normalized_message)
         if followup_reply:
             return followup_reply
 
@@ -597,6 +598,13 @@ class FastPathRouter:
         normalized = re.sub(r"\s+", "", normalized)
         normalized = re.sub(r"/{2,}", "/", normalized)
         return normalized.strip("/")
+
+    def _normalize_request_text(self, message: str) -> str:
+        normalized = (message or "").strip()
+        normalized = re.sub(r"^(那你|那就|那|你先|你就|你)\s*", "", normalized)
+        normalized = re.sub(r"^(帮我|麻烦你|麻烦|请你|请)\s*", "", normalized)
+        normalized = re.sub(r"^(看一下|看下|看看|查看|读一下|读取|打开)\s*", "", normalized)
+        return normalized.strip()
 
     def _resolve_existing_path_hint(
         self,
