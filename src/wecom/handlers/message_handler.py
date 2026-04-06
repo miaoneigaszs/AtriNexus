@@ -31,6 +31,9 @@ from src.wecom.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
 
+GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定"}
+GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过"}
+
 
 class MessageHandler:
     """企业微信消息处理器 - 重构版"""
@@ -169,7 +172,7 @@ class MessageHandler:
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
-        if content in {"审批通过", "通过", "确认", "同意"}:
+        if content in GENERIC_APPROVAL_WORDS:
             latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
             if latest_change_id:
                 return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
@@ -178,11 +181,20 @@ class MessageHandler:
                 return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
             return "当前没有待审批的命令或修改。"
 
-        confirm_match = re.fullmatch(r"确认执行\s+([A-Za-z0-9_-]+)", content)
+        if content in GENERIC_REJECTION_WORDS:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
+            return "当前没有待处理的命令或修改。"
+
+        confirm_match = re.fullmatch(r"(?:确认|确定)执行\s+([A-Za-z0-9_-]+)", content)
         if confirm_match:
             return await run_sync(self.reply_service.confirm_pending_command, confirm_match.group(1), user_id)
 
-        if content == "确认执行":
+        if content in {"确认执行", "确定执行"}:
             latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
             if latest_command_id:
                 return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
@@ -198,11 +210,11 @@ class MessageHandler:
                 return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
             return "当前没有待取消的命令。"
 
-        apply_change_match = re.fullmatch(r"确认修改\s+([A-Za-z0-9_-]+)", content)
+        apply_change_match = re.fullmatch(r"(?:确认|确定)修改\s+([A-Za-z0-9_-]+)", content)
         if apply_change_match:
             return await run_sync(self.reply_service.apply_pending_change, apply_change_match.group(1), user_id)
 
-        if content == "确认修改":
+        if content in {"确认修改", "确定修改"}:
             latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
             if latest_change_id:
                 return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
