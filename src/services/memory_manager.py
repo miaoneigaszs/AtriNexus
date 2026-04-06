@@ -1,9 +1,9 @@
 """
 记忆管理器模块
 三层记忆架构：
-- 短期记忆（最近 N 轮对话，SQLite JSON Blob）
+- 短期记忆（最近 N 轮对话，数据库 JSON Blob）
 - 中期记忆（向量检索）— 语义相关的历史对话摘要
-- 核心记忆（LLM 自动摘要的永久关键信息，SQLite）
+- 核心记忆（LLM 自动摘要的永久关键信息，数据库）
 """
 
 import logging
@@ -43,9 +43,9 @@ class MemoryManager:
     三层记忆管理器
 
     架构：
-    1. 短期记忆（SQLite）：最近 max_groups 轮对话原文
+    1. 短期记忆（数据库）：最近 max_groups 轮对话原文
     2. 中期记忆（向量存储）：对话摘要的向量检索，按语义相关度召回
-    3. 核心记忆（SQLite）：LLM 定期摘要的永久关键信息（用户身份、偏好等）
+    3. 核心记忆（数据库）：LLM 定期摘要的永久关键信息（用户身份、偏好等）
 
     上下文构建优先级：核心记忆 > 语义相关中期记忆 > 最近短期记忆
     """
@@ -190,11 +190,11 @@ class MemoryManager:
     # ---------- 短期记忆 ----------
 
     def get_short_memory(self, user_id: str, avatar_name: str) -> list:
-        """从 SQLite 加载短期记忆"""
+        """从数据库加载短期记忆"""
         return load_short_memory(user_id, avatar_name)
 
     def save_short_memory(self, user_id: str, avatar_name: str, memory: list):
-        """保存短期记忆到 SQLite"""
+        """保存短期记忆到数据库"""
         ok = persist_short_memory(user_id, avatar_name, memory)
         if not ok:
             return
@@ -237,7 +237,7 @@ class MemoryManager:
     # ---------- 核心记忆 ----------
 
     def get_core_memory(self, user_id: str, avatar_name: str) -> str:
-        """从 SQLite 加载核心记忆"""
+        """从数据库加载核心记忆"""
         return load_core_memory(user_id, avatar_name)
 
     def save_core_memory(self, user_id: str, avatar_name: str, content: str):

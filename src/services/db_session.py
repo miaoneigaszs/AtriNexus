@@ -23,5 +23,5 @@ def session_scope(**kwargs) -> Iterator:
 
 
 def get_async_session_factory():
-    """返回异步 session factory；当前未配置 PostgreSQL 时返回 None。"""
+    """返回 PostgreSQL 异步 session factory。"""
     return AsyncSessionLocal

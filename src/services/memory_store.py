@@ -1,4 +1,4 @@
-"""MemoryManager 使用的 SQLite/计数器/上下文辅助函数。"""
+"""MemoryManager 使用的数据库存储与上下文辅助函数。"""
 
 from __future__ import annotations
 
@@ -185,16 +185,4 @@ def _get_or_create_counter(session, user_id: str, avatar_name: str):
         )
         session.add(counter)
         session.flush()
-
-    if not hasattr(counter, "vector_count") or counter.vector_count is None:
-        try:
-            from sqlalchemy import text
-
-            session.execute(
-                text("ALTER TABLE conversation_counters ADD COLUMN vector_count INTEGER DEFAULT 0")
-            )
-            session.commit()
-            counter.vector_count = 0
-        except Exception:
-            counter.vector_count = 0
     return counter
