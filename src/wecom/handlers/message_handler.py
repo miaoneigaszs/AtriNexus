@@ -7,12 +7,14 @@ import logging
 import os
 import re
 
+from sqlalchemy.exc import IntegrityError
+
 from src.services.ai.llm_service import LLMService
-from src.services.agent import LangChainAgentService
+from src.services.agent.langchain_agent_service import LangChainAgentService
+from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.services.memory_manager import MemoryManager
 from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
-from src.services.intent_service import IntentService
 from src.services.vector_store import QdrantVectorStore
 from src.services.database import Session, ChatMessage
 from src.utils.async_utils import run_sync
@@ -23,11 +25,14 @@ from data.config import config
 from src.wecom.handlers.command_handler import CommandHandler
 from src.wecom.handlers.image_handler import ImageHandler
 from src.wecom.processors.context_builder import ContextBuilder
-from src.wecom.processors.rag_processor import RAGProcessor
+from src.wecom.processors.fast_path_router import FastPathRouter
 from src.wecom.processors.reply_cleaner import ReplyCleaner
 from src.wecom.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
+
+GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定", "1"}
+GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了", "2"}
 
 
 class MessageHandler:
@@ -64,15 +69,19 @@ class MessageHandler:
             model=config.llm.model,
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
+            rag_service=self.rag,
         )
         self.session_service = SessionService(kb_session_timeout=5)
-        self.intent_service = IntentService(rag_service=self.rag)
 
         # ========== 初始化处理器（使用拆分后的组件）==========
         self.command_handler = CommandHandler(self.rag)
         self.image_handler = ImageHandler(self.client)
         self.context_builder = ContextBuilder(self.memory, self.session_service, self.root_dir)
-        self.rag_processor = RAGProcessor(self.rag, self.intent_service, self.session_service)
+        self.fast_path_router = FastPathRouter(
+            self.reply_service.tool_catalog,
+            self.session_service,
+            self.llm_service,
+        )
 
         logger.info(
             f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, "
@@ -146,38 +155,94 @@ class MessageHandler:
             await self.client.send_text_async(user_id, confirm_reply)
             return
 
-        # 2. 检查是否是命令
+        # 2. 快路径：能力查询、读文件、列目录、重命名
+        fast_path_reply = await run_sync(self.fast_path_router.try_handle, user_id, content_trim)
+        if fast_path_reply is not None:
+            await self.client.send_text_async(user_id, fast_path_reply)
+            return
+
+        # 3. 检查是否是命令
         if self.command_handler.is_command(content_trim):
             reply = await run_sync(self.command_handler.handle_command, user_id, content_trim)
             if reply:
                 await self.client.send_text_async(user_id, reply)
             return
 
-        # 3. 正常消息处理流程
+        # 4. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
-        confirm_match = re.fullmatch(r"确认执行\s+([A-Za-z0-9_-]+)", content)
+        if content in GENERIC_APPROVAL_WORDS:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
+            return "当前没有待审批的命令或修改。"
+
+        if content in GENERIC_REJECTION_WORDS:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
+            return "当前没有待处理的命令或修改。"
+
+        confirm_match = re.fullmatch(r"(?:确认|确定)执行\s+([A-Za-z0-9_-]+)", content)
         if confirm_match:
             return await run_sync(self.reply_service.confirm_pending_command, confirm_match.group(1), user_id)
+
+        if content in {"确认执行", "确定执行"}:
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
+            return "当前没有待确认执行的命令。"
 
         discard_match = re.fullmatch(r"取消执行\s+([A-Za-z0-9_-]+)", content)
         if discard_match:
             return await run_sync(self.reply_service.discard_pending_command, discard_match.group(1), user_id)
 
-        apply_change_match = re.fullmatch(r"确认修改\s+([A-Za-z0-9_-]+)", content)
+        if content == "取消执行":
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if latest_command_id:
+                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
+            return "当前没有待取消的命令。"
+
+        apply_change_match = re.fullmatch(r"(?:确认|确定)修改\s+([A-Za-z0-9_-]+)", content)
         if apply_change_match:
             return await run_sync(self.reply_service.apply_pending_change, apply_change_match.group(1), user_id)
+
+        if content in {"确认修改", "确定修改"}:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
+            return "当前没有待确认的修改。"
 
         discard_change_match = re.fullmatch(r"取消修改\s+([A-Za-z0-9_-]+)", content)
         if discard_change_match:
             return await run_sync(self.reply_service.discard_pending_change, discard_change_match.group(1), user_id)
 
+        if content == "取消修改":
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            if latest_change_id:
+                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
+            return "当前没有待取消的修改。"
+
+        workspace_resolution_reply = await run_sync(
+            self.fast_path_router.try_handle_pending_resolution,
+            user_id,
+            content,
+        )
+        if workspace_resolution_reply is not None:
+            return workspace_resolution_reply
+
         return None
 
     async def _execute_kb_search(self, user_id: str, content: str, msg_id: str,
                                   category_filter: str = None):
-        """执行知识库检索和回复生成（流程编排）"""
+        """执行普通消息回复生成。KB 检索改为 agent 按需工具调用。"""
 
         # 1. 构建上下文
         ctx = await run_sync(
@@ -188,59 +253,39 @@ class MessageHandler:
         current_mode = ctx["current_mode"]
         previous_context = ctx["previous_context"]
 
-        # 2. 执行 RAG 检索
-        kb_results, _, need_search = await run_sync(
-            self.rag_processor.execute_rag_retrieval,
-            user_id, content, previous_context, category_filter
-        )
-
-        # 3. 构建知识库上下文
-        kb_context = ""
-        if kb_results:
-            logger.info(f"==>[RAG Trace] 已将 {len(kb_results)} 个知识切片注入 Prompt 上下文。")
-            try:
-                kb_context = self.context_builder.build_kb_context(kb_results)
-            except Exception:
-                logger.exception("[RAG Trace] 构建知识库上下文失败")
-                raise
-
-        # 4. 构建记忆上下文
+        # 2. 构建记忆上下文
         core_memory = self.context_builder.build_merged_memory_context(ctx["mem_ctx"])
 
-        # 5. 构建系统提示词
+        # 3. 构建系统提示词
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
-        # 6. 调用 LLM 生成回复
+        inferred_profile = self.reply_service.tool_catalog.infer_tool_profile(content)
+        current_profile = self.session_service.get_tool_profile(user_id)
+        tool_profile = merge_tool_profile(current_profile, inferred_profile)
+        if tool_profile != normalize_tool_profile(current_profile):
+            self.session_service.set_tool_profile(user_id, tool_profile)
+        # 4. 调用 LLM 生成回复
         try:
             reply = await self.reply_service.generate_reply_async(
                 message=content,
                 user_id=user_id,
                 system_prompt=system_prompt,
+                tool_profile=tool_profile,
                 previous_context=previous_context,
                 core_memory=core_memory,
-                kb_context=kb_context if kb_context else None
+                kb_context=None,
             )
 
             # 清理回复
             reply = ReplyCleaner.clean_reply(reply)
 
-            # 处理知识库引用：提取使用的片段并清理标记
-            used_indices = []
-            if need_search and kb_results:
-                reply, used_indices = self.context_builder.extract_and_clean_references(reply)
-                # 只添加被使用的片段作为参考
-                if used_indices:
-                    references = self.context_builder.format_kb_references(kb_results, used_indices)
-                    if references:
-                        reply += references
-
         except Exception as e:
             logger.error(f"LLM 调用失败: {e}")
             reply = "抱歉，我暂时无法处理您的消息，请稍后再试。"
 
-        # 7. 保存对话记录
+        # 5. 保存对话记录
         await run_sync(self._save_chat_message, user_id, content, reply, msg_id)
 
-        # 8. 发送回复
+        # 6. 发送回复
         if reply.strip():
             await self.client.send_text_async(user_id, reply)
         else:
@@ -249,7 +294,7 @@ class MessageHandler:
 
         logger.info(f"消息已发送给用户，准备进行后台记忆更新: user={user_id}, reply_len={len(reply)}")
 
-        # 9. 更新记忆
+        # 7. 更新记忆
         try:
             await self.memory.after_reply_async(user_id, avatar_name, content, reply)
         except Exception as e:
@@ -270,6 +315,9 @@ class MessageHandler:
                 )
                 session.add(chat_msg)
                 session.commit()
+            except IntegrityError:
+                session.rollback()
+                logger.info(f"聊天记录已存在，跳过重复保存: msg_id={msg_id}")
             except Exception as e:
                 logger.error(f"保存聊天记录失败: {e}")
                 session.rollback()

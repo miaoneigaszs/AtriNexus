@@ -464,6 +464,48 @@ class MemoryManager:
         """将短期记忆转换为 LLM 上下文格式"""
         return build_context_from_short_memory(short_memory)
 
+    def _should_recall_vector_memories(self, current_message: str) -> bool:
+        """只在明显需要跨轮回忆时才做向量记忆召回。"""
+        normalized = (current_message or "").strip().lower()
+        if len(normalized) < 4:
+            return False
+
+        action_hints = (
+            "readme",
+            "目录",
+            "文件",
+            "重命名",
+            "改成",
+            "改为",
+            "追加",
+            "执行",
+            "git ",
+            "知识库",
+            "文档",
+            "资料",
+        )
+        if any(hint in normalized for hint in action_hints):
+            return False
+
+        memory_hints = (
+            "还记得",
+            "记得",
+            "记不记得",
+            "之前",
+            "上次",
+            "刚才",
+            "前面",
+            "提过",
+            "说过",
+            "聊过",
+            "以前",
+            "喜欢",
+            "不喜欢",
+            "偏好",
+            "习惯",
+        )
+        return any(hint in normalized for hint in memory_hints)
+
     def build_full_context(self, user_id: str, avatar_name: str,
                            current_message: str) -> dict:
         """
@@ -480,9 +522,11 @@ class MemoryManager:
         core_memory = self.get_core_memory(user_id, avatar_name)
 
         # 2. 中期记忆（语义检索）
-        relevant_memories = self.search_relevant_memories(
-            user_id, avatar_name, current_message, top_k=3
-        )
+        relevant_memories: List[str] = []
+        if self._should_recall_vector_memories(current_message):
+            relevant_memories = self.search_relevant_memories(
+                user_id, avatar_name, current_message, top_k=3
+            )
 
         # 3. 短期记忆（最近对话）
         short_memory = self.get_short_memory(user_id, avatar_name)
@@ -630,9 +674,10 @@ class MemoryManager:
         """
         # 并行执行三个独立的 I/O 操作
         core_memory_task = run_sync(self.get_core_memory, user_id, avatar_name)
-        relevant_memories_task = run_sync(
-            self.search_relevant_memories,
-            user_id, avatar_name, current_message, 3
+        relevant_memories_task = (
+            run_sync(self.search_relevant_memories, user_id, avatar_name, current_message, 3)
+            if self._should_recall_vector_memories(current_message)
+            else asyncio.sleep(0, result=[])
         )
         short_memory_task = run_sync(self.get_short_memory, user_id, avatar_name)
         

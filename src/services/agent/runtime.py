@@ -113,8 +113,10 @@ class WorkspaceRuntime:
                 f"这是高风险命令，暂不直接执行。\n"
                 f"确认 ID: {confirm_id}\n"
                 f"命令: {command}\n\n"
-                f"如需继续，请回复：确认执行 {confirm_id}\n"
-                f"如需取消，请回复：取消执行 {confirm_id}"
+                "请选择：\n"
+                f"1. 确认执行 {confirm_id}\n"
+                f"2. 取消执行 {confirm_id}\n\n"
+                "也可以直接回复：1 / 2 / 确定 / 取消"
             )
 
         return self._execute_command(command, timeout_seconds, plan)
@@ -227,6 +229,25 @@ class WorkspaceRuntime:
             suffix = ""
         return f"文件: {self._to_relative(target)}\n\n{text}{suffix}"
 
+    def read_file_line(self, path: str, position: str = "last") -> str:
+        """读取文件首行或末行，适合简单、确定性的文件提问。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        lines = target.read_text(encoding="utf-8", errors="ignore").splitlines()
+        if not lines:
+            return f"文件: {self._to_relative(target)}\n\n[文件为空]"
+
+        normalized = "first" if position == "first" else "last"
+        line = lines[0] if normalized == "first" else lines[-1]
+        label = "首行" if normalized == "first" else "末行"
+        return f"文件: {self._to_relative(target)}\n{label}: {line}"
+
     def search_files(self, query: str, path: str = ".") -> str:
         query = query.strip()
         if not query:
@@ -268,6 +289,62 @@ class WorkspaceRuntime:
 
         change_id = self._store_pending_change(target, old_text, content, owner_user_id)
         diff = self._build_diff(target, old_text, content)
+        return self._format_preview(change_id, target, diff)
+
+    def preview_append_file(
+        self,
+        path: str,
+        content: str,
+        position: str = "end",
+        owner_user_id: Optional[str] = None,
+    ) -> str:
+        """预览在文件头部或尾部追加内容。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        old_text = target.read_text(encoding="utf-8", errors="ignore")
+        normalized_position = position.strip().lower()
+        if normalized_position not in {"start", "end"}:
+            return "追加位置无效，只支持 start 或 end"
+
+        if normalized_position == "start":
+            new_text = content + old_text
+        else:
+            new_text = old_text + content
+
+        change_id = self._store_pending_change(target, old_text, new_text, owner_user_id)
+        diff = self._build_diff(target, old_text, new_text)
+        return self._format_preview(change_id, target, diff)
+
+    def preview_replace_span(
+        self,
+        path: str,
+        start_index: int,
+        end_index: int,
+        replacement_text: str,
+        owner_user_id: Optional[str] = None,
+    ) -> str:
+        """预览按字符范围替换文件中的一段内容。"""
+        target, error = self._resolve_path_or_error(path)
+        if error:
+            return error
+        if not target.exists():
+            return f"文件不存在: {path}"
+        if not target.is_file():
+            return f"目标不是文件: {path}"
+
+        old_text = target.read_text(encoding="utf-8", errors="ignore")
+        if start_index < 0 or end_index < start_index or end_index > len(old_text):
+            return "替换范围无效"
+
+        new_text = old_text[:start_index] + replacement_text + old_text[end_index:]
+        change_id = self._store_pending_change(target, old_text, new_text, owner_user_id)
+        diff = self._build_diff(target, old_text, new_text)
         return self._format_preview(change_id, target, diff)
 
     def preview_edit_file(
@@ -340,6 +417,14 @@ class WorkspaceRuntime:
             return owner_error
         del self._pending_changes[change_id]
         return f"已丢弃变更: {change_id}"
+
+    def get_latest_pending_change_id(self, owner_user_id: Optional[str] = None) -> Optional[str]:
+        """返回当前用户最近一次待确认修改的 ID。"""
+        return self._get_latest_pending_id(self._pending_changes, owner_user_id)
+
+    def get_latest_pending_command_id(self, owner_user_id: Optional[str] = None) -> Optional[str]:
+        """返回当前用户最近一次待确认命令的 ID。"""
+        return self._get_latest_pending_id(self._pending_commands, owner_user_id)
 
     def _resolve_path(self, raw_path: str) -> Path:
         candidate = (self.workspace_root / raw_path).resolve()
@@ -432,6 +517,20 @@ class WorkspaceRuntime:
             return f"该待确认{action_name}不属于当前用户"
         return None
 
+    def _get_latest_pending_id(
+        self,
+        store: Dict[str, Dict[str, str]],
+        owner_user_id: Optional[str],
+    ) -> Optional[str]:
+        for pending_id, payload in reversed(list(store.items())):
+            pending_owner = payload.get("owner_user_id", "")
+            if owner_user_id and pending_owner and pending_owner != owner_user_id:
+                continue
+            if owner_user_id and not pending_owner:
+                continue
+            return pending_id
+        return None
+
     def _build_diff(self, target: Path, old_text: str, new_text: str) -> str:
         diff_lines = difflib.unified_diff(
             old_text.splitlines(),
@@ -448,5 +547,8 @@ class WorkspaceRuntime:
             f"待审批变更 ID: {change_id}\n"
             f"目标文件: {self._to_relative(target)}\n\n"
             f"{diff}\n\n"
-            f"如需真正落盘，后续必须显式审批并应用该变更。"
+            "请选择：\n"
+            f"1. 确认修改 {change_id}\n"
+            f"2. 取消修改 {change_id}\n\n"
+            "也可以直接回复：1 / 2 / 确定 / 取消。"
         )

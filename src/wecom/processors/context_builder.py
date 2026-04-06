@@ -4,11 +4,11 @@
 """
 
 import logging
-import os
 import re
 from typing import Dict, Any, List, Tuple
 
 from src.services.memory_manager import MemoryManager
+from src.services.prompt_manager import PromptManager
 from src.services.session_service import SessionService
 from data.config import config
 
@@ -17,6 +17,9 @@ logger = logging.getLogger('wecom')
 
 class ContextBuilder:
     """上下文构建器"""
+
+    MAX_RELEVANT_MEMORY_ITEMS = 2
+    MAX_RELEVANT_MEMORY_ITEM_CHARS = 180
 
     @staticmethod
     def _normalize_kb_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -47,6 +50,7 @@ class ContextBuilder:
         self.session_service = session_service
         self.root_dir = root_dir
         self.avatar_dir = config.behavior.context.avatar_dir
+        self.prompt_manager = PromptManager(root_dir)
 
     def build_search_context(self, user_id: str, content: str) -> Dict[str, Any]:
         """
@@ -96,7 +100,11 @@ class ContextBuilder:
         core_memory = mem_ctx["core_memory"]
 
         if mem_ctx["relevant_memories"]:
-            relevant_text = "\n".join(f"- {m}" for m in mem_ctx["relevant_memories"])
+            trimmed_memories = [
+                self._truncate_text(m, self.MAX_RELEVANT_MEMORY_ITEM_CHARS)
+                for m in mem_ctx["relevant_memories"][: self.MAX_RELEVANT_MEMORY_ITEMS]
+            ]
+            relevant_text = "\n".join(f"- {m}" for m in trimmed_memories)
             if core_memory:
                 core_memory = f"{core_memory}\n\n【相关历史对话记忆】\n{relevant_text}"
             else:
@@ -104,25 +112,16 @@ class ContextBuilder:
 
         return core_memory
 
+    @staticmethod
+    def _truncate_text(text: str, max_chars: int) -> str:
+        normalized = (text or "").strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max_chars - 17].rstrip() + " [内容已截断]"
+
     def build_system_prompt(self, avatar_name: str, current_mode: str) -> str:
-        """
-        构建系统提示词
-
-        Args:
-            avatar_name: 人设名称
-            current_mode: 当前模式
-
-        Returns:
-            str: 系统提示词
-        """
-        # 加载人设提示词
-        system_prompt = self._load_avatar_prompt(avatar_name)
-
-        # 添加模式提示
-        if current_mode == 'work' and system_prompt:
-            system_prompt += "\n\n【当前模式：工作模式】请以专业、简洁、高效的方式回应。"
-
-        return system_prompt
+        """构建当前轮的模式提示词。"""
+        return self.prompt_manager.build_persona_prompt(avatar_name, current_mode)
 
     def build_kb_context(self, kb_results: List[Dict], include_headers: bool = True) -> str:
         """
@@ -203,20 +202,6 @@ class ContextBuilder:
         if references:
             return f"\n\n🔍 **参考依据**: " + ", ".join(references)
         return ""
-
-    def _load_avatar_prompt(self, avatar_name: str) -> str:
-        """加载人设提示词（纯粹读取用户定义角色，不干扰额外世界设定）"""
-        prompt = ""
-
-        # 加载角色专属人设
-        avatar_path = os.path.join(self.root_dir, 'data', 'avatars', avatar_name, 'avatar.md')
-        try:
-            with open(avatar_path, 'r', encoding='utf-8') as f:
-                prompt += f.read()
-        except FileNotFoundError:
-            logger.warning(f"人设文件不存在: {avatar_path}，当前无预设人设")
-
-        return prompt
 
     def _check_companion_trigger(self, content: str) -> bool:
         """检查是否触发陪伴模式"""

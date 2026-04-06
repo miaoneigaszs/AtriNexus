@@ -11,12 +11,7 @@ memory/
 
 
 # ============ 用户数据 ============
-# ============ 用户数据 ============
-# 忽略 avatars 下除了 ATRI 之外的所有内容
-data/avatars/**/*
-!data/avatars/ATRI/
-!data/avatars/ATRI/**
-
+data/avatars/
 data/voices/
 
 # ============ 日志文件 ============
@@ -42,6 +37,8 @@ data/mode/
 
 # 向量数据库
 data/vectordb/
+data/vectordb_qdrant/
+data/rag_sdk_qdrant/
 
 # 用户知识库
 data/knowledge/
@@ -196,3 +193,6 @@ src/autoupdate/cloud/*
 !/项目技术文档.md
 !LICENSE
 !avatar.md
+!src/base/prompts/
+!src/base/prompts/**/
+!src/base/prompts/**/*.md
