@@ -6,7 +6,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from src.services.agent.tool_profiles import default_tool_profile_for_mode
 from src.services.database import SessionState
