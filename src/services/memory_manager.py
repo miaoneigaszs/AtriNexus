@@ -14,8 +14,8 @@ import asyncio
 from datetime import datetime
 from typing import List, Optional
 
-from src.services.database import Session
 from src.services.ai.embedding_service import EmbeddingService
+from src.services.memory_context import MemoryContextBuilder
 from src.services.memory_store import (
     append_short_memory_entry,
     build_context_from_short_memory,
@@ -92,6 +92,13 @@ class MemoryManager:
         else:
             self._decay_rate = 0.98
             self._decay_min = 0.5
+
+        self.context_builder = MemoryContextBuilder(
+            get_core_memory=self.get_core_memory,
+            get_short_memory=self.get_short_memory,
+            search_relevant_memories=self.search_relevant_memories,
+            build_context_from_memory=self.build_context_from_memory,
+        )
 
         logger.info("MemoryManager 初始化完成（三层记忆架构）")
 
@@ -464,79 +471,10 @@ class MemoryManager:
         """将短期记忆转换为 LLM 上下文格式"""
         return build_context_from_short_memory(short_memory)
 
-    def _should_recall_vector_memories(self, current_message: str) -> bool:
-        """只在明显需要跨轮回忆时才做向量记忆召回。"""
-        normalized = (current_message or "").strip().lower()
-        if len(normalized) < 4:
-            return False
-
-        action_hints = (
-            "readme",
-            "目录",
-            "文件",
-            "重命名",
-            "改成",
-            "改为",
-            "追加",
-            "执行",
-            "git ",
-            "知识库",
-            "文档",
-            "资料",
-        )
-        if any(hint in normalized for hint in action_hints):
-            return False
-
-        memory_hints = (
-            "还记得",
-            "记得",
-            "记不记得",
-            "之前",
-            "上次",
-            "刚才",
-            "前面",
-            "提过",
-            "说过",
-            "聊过",
-            "以前",
-            "喜欢",
-            "不喜欢",
-            "偏好",
-            "习惯",
-        )
-        return any(hint in normalized for hint in memory_hints)
-
     def build_full_context(self, user_id: str, avatar_name: str,
                            current_message: str) -> dict:
-        """
-        构建包含三层记忆的完整上下文
-
-        返回:
-            dict: {
-                "core_memory": str,          # 核心记忆文本
-                "relevant_memories": list,   # 语义相关的中期记忆
-                "previous_context": list,    # 最近对话历史（LLM message 格式）
-            }
-        """
-        # 1. 核心记忆（永久关键信息）
-        core_memory = self.get_core_memory(user_id, avatar_name)
-
-        # 2. 中期记忆（语义检索）
-        relevant_memories: List[str] = []
-        if self._should_recall_vector_memories(current_message):
-            relevant_memories = self.search_relevant_memories(
-                user_id, avatar_name, current_message, top_k=3
-            )
-
-        # 3. 短期记忆（最近对话）
-        short_memory = self.get_short_memory(user_id, avatar_name)
-        previous_context = self.build_context_from_memory(short_memory)
-
-        return {
-            "core_memory": core_memory,
-            "relevant_memories": relevant_memories,
-            "previous_context": previous_context,
-        }
+        """构建包含三层记忆的完整上下文。"""
+        return self.context_builder.build_full_context(user_id, avatar_name, current_message)
 
     # ---------- 对话后记忆更新 ----------
 
@@ -667,33 +605,12 @@ class MemoryManager:
         avatar_name: str,
         current_message: str
     ) -> dict:
-        """
-        异步构建完整上下文
-        
-        并行执行核心记忆读取、中期记忆检索和短期记忆加载。
-        """
-        # 并行执行三个独立的 I/O 操作
-        core_memory_task = run_sync(self.get_core_memory, user_id, avatar_name)
-        relevant_memories_task = (
-            run_sync(self.search_relevant_memories, user_id, avatar_name, current_message, 3)
-            if self._should_recall_vector_memories(current_message)
-            else asyncio.sleep(0, result=[])
+        """异步构建完整上下文。"""
+        return await self.context_builder.build_full_context_async(
+            user_id,
+            avatar_name,
+            current_message,
         )
-        short_memory_task = run_sync(self.get_short_memory, user_id, avatar_name)
-        
-        # 等待所有任务完成
-        core_memory, relevant_memories, short_memory = await asyncio.gather(
-            core_memory_task, relevant_memories_task, short_memory_task
-        )
-        
-        # 构建上下文（CPU 操作，无需异步）
-        previous_context = self.build_context_from_memory(short_memory)
-        
-        return {
-            "core_memory": core_memory,
-            "relevant_memories": relevant_memories,
-            "previous_context": previous_context,
-        }
 
     async def after_reply_async(
         self, 
