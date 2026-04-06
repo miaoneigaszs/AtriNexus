@@ -18,6 +18,9 @@ logger = logging.getLogger('wecom')
 class ContextBuilder:
     """上下文构建器"""
 
+    MAX_RELEVANT_MEMORY_ITEMS = 2
+    MAX_RELEVANT_MEMORY_ITEM_CHARS = 180
+
     @staticmethod
     def _normalize_kb_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
         """兼容不同来源的检索结果结构。"""
@@ -97,13 +100,24 @@ class ContextBuilder:
         core_memory = mem_ctx["core_memory"]
 
         if mem_ctx["relevant_memories"]:
-            relevant_text = "\n".join(f"- {m}" for m in mem_ctx["relevant_memories"])
+            trimmed_memories = [
+                self._truncate_text(m, self.MAX_RELEVANT_MEMORY_ITEM_CHARS)
+                for m in mem_ctx["relevant_memories"][: self.MAX_RELEVANT_MEMORY_ITEMS]
+            ]
+            relevant_text = "\n".join(f"- {m}" for m in trimmed_memories)
             if core_memory:
                 core_memory = f"{core_memory}\n\n【相关历史对话记忆】\n{relevant_text}"
             else:
                 core_memory = f"【相关历史对话记忆】\n{relevant_text}"
 
         return core_memory
+
+    @staticmethod
+    def _truncate_text(text: str, max_chars: int) -> str:
+        normalized = (text or "").strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max_chars - 17].rstrip() + " [内容已截断]"
 
     def build_system_prompt(self, avatar_name: str, current_mode: str) -> str:
         """构建当前轮的模式提示词。"""

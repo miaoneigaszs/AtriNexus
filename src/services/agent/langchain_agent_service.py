@@ -40,6 +40,8 @@ MAX_TOOL_RESULT_CHARS = 4000
 MAX_TOOL_ARG_CHARS = 500
 MAX_TOOL_REPEAT_COUNT = 2
 MAX_TOOL_HISTORY = 30
+MAX_HISTORY_MESSAGES = 8
+MAX_HISTORY_MESSAGE_CHARS = 800
 WORKSPACE_PATH_TOOL_KEYS = {"path", "source_path", "target_path"}
 RUN_COMMAND_TOOL_NAME = "run_command"
 TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.ContextVar(
@@ -266,9 +268,10 @@ class LangChainAgentService:
         previous_context: Optional[List[Dict[str, Any]]],
     ) -> List[Dict[str, str]]:
         messages: List[Dict[str, str]] = []
-        for item in previous_context or []:
+        history_items = list(previous_context or [])[-MAX_HISTORY_MESSAGES:]
+        for item in history_items:
             role = str(item.get("role", "")).strip()
-            content = str(item.get("content", "")).strip()
+            content = self._truncate_message_content(str(item.get("content", "")).strip())
             if role and content:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
@@ -730,12 +733,18 @@ class LangChainAgentService:
             return 0
 
         total_chars = 0
-        for item in messages:
-            total_chars += len(str(item.get("content", "")).strip())
+        for item in list(messages)[-MAX_HISTORY_MESSAGES:]:
+            content = self._truncate_message_content(str(item.get("content", "")).strip())
+            total_chars += len(content)
 
         if total_chars <= 0:
             return 0
         return max(1, total_chars // 4)
+
+    def _truncate_message_content(self, content: str) -> str:
+        if len(content) <= MAX_HISTORY_MESSAGE_CHARS:
+            return content
+        return content[: MAX_HISTORY_MESSAGE_CHARS - 17].rstrip() + "\n[内容已截断]"
 
     def _model_lacks_tool_support(self) -> bool:
         model_name = self.model.lower()

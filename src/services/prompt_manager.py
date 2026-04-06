@@ -12,6 +12,10 @@ logger = logging.getLogger("wecom")
 class PromptManager:
     """读取并组装系统 prompt 文件。"""
 
+    MAX_RUNTIME_TOOL_SUMMARY_CHARS = 1200
+    MAX_RUNTIME_CORE_MEMORY_CHARS = 1400
+    MAX_RUNTIME_KB_CONTEXT_CHARS = 1800
+
     SYSTEM_FILE_ORDER = (
         ("身份定位", "identity.md"),
         ("人格基调", "soul.md"),
@@ -90,16 +94,22 @@ class PromptManager:
         if tool_profiles:
             sections.append(f"【当前工具组】\n{', '.join(tool_profiles)}")
         if tool_summary:
-            sections.append(f"【当前可用工具摘要】\n{tool_summary}")
+            sections.append(
+                f"【当前可用工具摘要】\n"
+                f"{self._truncate_text(tool_summary, self.MAX_RUNTIME_TOOL_SUMMARY_CHARS)}"
+            )
         if current_persona_prompt:
             sections.append(f"【当前会话风格】\n{current_persona_prompt}")
 
         if core_memory:
-            sections.append(f"【核心记忆】\n{core_memory}")
+            sections.append(
+                f"【核心记忆】\n"
+                f"{self._truncate_text(core_memory, self.MAX_RUNTIME_CORE_MEMORY_CHARS)}"
+            )
         if kb_context:
             sections.append(
                 "【参考资料】\n"
-                f"{kb_context}\n"
+                f"{self._truncate_text(kb_context, self.MAX_RUNTIME_KB_CONTEXT_CHARS)}\n"
                 "必须结合上述参考资料，并严格保持当前会话风格来回答用户的问题。"
                 "如果参考资料无相关性，请忽略资料，自然回复即可。"
             )
@@ -128,3 +138,9 @@ class PromptManager:
         except Exception as exc:
             logger.warning("读取 Prompt 文件失败 %s: %s", path, exc)
             return ""
+
+    def _truncate_text(self, text: str, max_chars: int) -> str:
+        normalized = (text or "").strip()
+        if len(normalized) <= max_chars:
+            return normalized
+        return normalized[: max_chars - 17].rstrip() + "\n[内容已截断]"
