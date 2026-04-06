@@ -101,13 +101,21 @@ class ToolCatalog:
         profiles: List[str] = ["core", profile]
         summary_lines: List[str] = []
 
+        def add_section(label: str, lines: List[str]) -> None:
+            if not lines:
+                return
+            if summary_lines:
+                summary_lines.append("")
+            summary_lines.append(f"[{label}]")
+            summary_lines.extend(lines)
+
         @tool
         def get_current_time() -> str:
             """Read the current local date and time."""
             return self.time_tool.execute()
 
         tools.append(get_current_time)
-        summary_lines.append("- get_current_time: 读取当前本地日期和时间。")
+        add_section("基础", ["- get_current_time: 读当前本地时间。"])
 
         if include_workspace_reads:
             profiles.append("workspace-read")
@@ -135,12 +143,13 @@ class ToolCatalog:
                 return runtime.search_files(query, path)
 
             tools.extend([list_directory, read_file, search_files])
-            summary_lines.extend(
+            add_section(
+                "文件读取",
                 [
-                    "- list_directory: 列出目录内容。",
-                    "- read_file: 读取文件内容。",
-                    "- search_files: 按关键词搜索文件内容。",
-                ]
+                    "- list_directory: 列目录。",
+                    "- read_file: 读文件。",
+                    "- search_files: 按关键词搜文件内容。",
+                ],
             )
 
         if include_write_preview:
@@ -173,12 +182,13 @@ class ToolCatalog:
                 return runtime.preview_append_file(path, content, position=position, owner_user_id=user_id)
 
             tools.extend([preview_write_file, preview_edit_file, preview_append_file])
-            summary_lines.extend(
+            add_section(
+                "文件修改",
                 [
-                    "- preview_write_file: 预览整文件写入或重写。",
-                    "- preview_edit_file: 预览精确局部修改。",
-                    "- preview_append_file: 预览在文件头部或尾部追加内容。",
-                ]
+                    "- preview_write_file: 预览整文件重写。",
+                    "- preview_edit_file: 预览精确替换。",
+                    "- preview_append_file: 预览头尾追加。",
+                ],
             )
 
         if include_rename:
@@ -193,7 +203,7 @@ class ToolCatalog:
                 return runtime.rename_path(source_path, target_path)
 
             tools.append(rename_path)
-            summary_lines.append("- rename_path: 重命名或移动 workspace 内的文件/目录。")
+            add_section("文件整理", ["- rename_path: 重命名或移动文件/目录。"])
 
         if include_command:
             profiles.append("command")
@@ -207,7 +217,7 @@ class ToolCatalog:
                 return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
             tools.append(run_command)
-            summary_lines.append("- run_command: 执行命令。安全命令直接执行，复杂或高风险命令进入确认流程。")
+            add_section("运行环境", ["- run_command: 跑命令；复杂或高风险命令先确认。"])
 
         if include_kb:
             profiles.append("kb")
@@ -235,11 +245,12 @@ class ToolCatalog:
                 )
 
             tools.extend([kb_list_assets, kb_search])
-            summary_lines.extend(
+            add_section(
+                "知识库",
                 [
-                    "- kb_list_assets: 查看当前知识库里有哪些文档、分类和标题摘要。",
-                    "- kb_search: 在知识库中搜索相关内容，可选限定文档或分类。",
-                ]
+                    "- kb_list_assets: 看知识库里有哪些文档和分类。",
+                    "- kb_search: 查知识库内容，可限定文档或分类。",
+                ],
             )
 
         if include_web:
@@ -254,7 +265,7 @@ class ToolCatalog:
                 return search_tool.execute(query=query)
 
             tools.append(web_search)
-            summary_lines.append("- web_search: 搜索互联网，获取最新信息。")
+            add_section("联网", ["- web_search: 搜索互联网最新信息。"])
 
         return ToolBundle(tools=tools, profiles=profiles, summary_lines=summary_lines)
 

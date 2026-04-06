@@ -120,6 +120,62 @@ class SessionService:
             state.variables = json.dumps(variables, ensure_ascii=False)
             state.last_active = datetime.now()
             session.commit()
+
+    def get_pending_workspace_resolution(self, user_id: str) -> Dict[str, Any]:
+        """读取待确认的路径候选。"""
+        variables = self.get_session_variables(user_id)
+        value = variables.get("pending_workspace_resolution", {})
+        return value if isinstance(value, dict) else {}
+
+    def set_pending_workspace_resolution(
+        self,
+        user_id: str,
+        *,
+        action: str,
+        original_input: str,
+        candidates: List[Dict[str, Any]],
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """保存待确认的路径候选，等待用户回复“是/不是/序号”。"""
+        with Session() as session:
+            state = session.query(SessionState).filter_by(user_id=user_id).first()
+            if not state:
+                return
+
+            try:
+                variables = json.loads(state.variables or "{}")
+            except json.JSONDecodeError:
+                variables = {}
+
+            variables["pending_workspace_resolution"] = {
+                "action": action,
+                "original_input": original_input,
+                "candidates": candidates,
+                "payload": payload or {},
+            }
+            state.variables = json.dumps(variables, ensure_ascii=False)
+            state.last_active = datetime.now()
+            session.commit()
+
+    def clear_pending_workspace_resolution(self, user_id: str) -> None:
+        """清除待确认的路径候选。"""
+        with Session() as session:
+            state = session.query(SessionState).filter_by(user_id=user_id).first()
+            if not state:
+                return
+
+            try:
+                variables = json.loads(state.variables or "{}")
+            except json.JSONDecodeError:
+                variables = {}
+
+            if "pending_workspace_resolution" not in variables:
+                return
+
+            variables.pop("pending_workspace_resolution", None)
+            state.variables = json.dumps(variables, ensure_ascii=False)
+            state.last_active = datetime.now()
+            session.commit()
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""

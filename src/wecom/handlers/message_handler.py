@@ -218,6 +218,14 @@ class MessageHandler:
                 return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
             return "当前没有待取消的修改。"
 
+        workspace_resolution_reply = await run_sync(
+            self.fast_path_router.try_handle_pending_resolution,
+            user_id,
+            content,
+        )
+        if workspace_resolution_reply is not None:
+            return workspace_resolution_reply
+
         return None
 
     async def _execute_kb_search(self, user_id: str, content: str, msg_id: str,
