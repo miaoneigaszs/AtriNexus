@@ -31,8 +31,8 @@ from src.wecom.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
 
-GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定"}
-GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过"}
+GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定", "1"}
+GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了", "2"}
 
 
 class MessageHandler:

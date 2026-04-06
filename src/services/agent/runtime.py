@@ -113,8 +113,10 @@ class WorkspaceRuntime:
                 f"这是高风险命令，暂不直接执行。\n"
                 f"确认 ID: {confirm_id}\n"
                 f"命令: {command}\n\n"
-                f"如需继续，请回复：确认执行 {confirm_id}\n"
-                f"如需取消，请回复：取消执行 {confirm_id}"
+                "请选择：\n"
+                f"1. 确认执行 {confirm_id}\n"
+                f"2. 取消执行 {confirm_id}\n\n"
+                "也可以直接回复：1 / 2 / 确定 / 取消"
             )
 
         return self._execute_command(command, timeout_seconds, plan)
@@ -545,5 +547,8 @@ class WorkspaceRuntime:
             f"待审批变更 ID: {change_id}\n"
             f"目标文件: {self._to_relative(target)}\n\n"
             f"{diff}\n\n"
-            f"如需真正落盘，后续必须显式审批并应用该变更。"
+            "请选择：\n"
+            f"1. 确认修改 {change_id}\n"
+            f"2. 取消修改 {change_id}\n\n"
+            "也可以直接回复：1 / 2 / 确定 / 取消。"
         )
