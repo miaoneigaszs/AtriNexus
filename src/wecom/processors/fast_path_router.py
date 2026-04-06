@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import difflib
-import os
 import re
 from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
@@ -10,6 +8,7 @@ from src.services.agent.tool_catalog import ToolCatalog
 from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.services.prompt_manager import PromptManager
 from src.services.session_service import SessionService
+from src.wecom.processors.fast_path_resolution import WorkspacePathResolver
 
 if TYPE_CHECKING:
     from src.services.ai.llm_service import LLMService
@@ -116,17 +115,15 @@ class FastPathRouter:
         self.session_service = session_service
         self.llm_service = llm_service
         self.prompt_manager = PromptManager(str(self.tool_catalog.runtime.workspace_root))
-        self._current_user_id = ""
-        self._pending_resolution_reply: Optional[str] = None
+        self.path_resolver = WorkspacePathResolver(self.tool_catalog.runtime, self.session_service)
 
     def try_handle(self, user_id: str, message: str) -> Optional[str]:
         message = (message or "").strip()
         if not message:
             return None
 
-        self._current_user_id = user_id
-        self._pending_resolution_reply = None
-        normalized_message = self._normalize_request_text(message)
+        self.path_resolver.begin(user_id)
+        normalized_message = self.path_resolver.normalize_request_text(message)
         self._upgrade_tool_profile(user_id, normalized_message)
 
         if self.TOOL_OVERVIEW_PATTERN.search(normalized_message):
@@ -136,16 +133,18 @@ class FastPathRouter:
             return self._handle_profile_overview(user_id, normalized_message)
 
         block_rewrite_request = self._extract_block_rewrite_request(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if block_rewrite_request:
             path, target, instruction = block_rewrite_request
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self._handle_block_rewrite(user_id, path, target, instruction)
 
         replace_request = self._extract_replace_request(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if replace_request:
             path, find_text, replace_text = replace_request
             self.session_service.set_last_workspace_target(user_id, path, "file")
@@ -157,8 +156,9 @@ class FastPathRouter:
             )
 
         rewrite_request = self._extract_rewrite_request(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if rewrite_request:
             path, content = rewrite_request
             self.session_service.set_last_workspace_target(user_id, path, "file")
@@ -169,8 +169,9 @@ class FastPathRouter:
             )
 
         append_request = self._extract_append_request(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if append_request:
             path, content, position = append_request
             self.session_service.set_last_workspace_target(user_id, path, "file")
@@ -182,8 +183,9 @@ class FastPathRouter:
             )
 
         rename_paths = self._extract_rename_paths(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if rename_paths:
             source_path, target_path = rename_paths
             reply = self.tool_catalog.runtime.rename_path(source_path, target_path)
@@ -192,8 +194,9 @@ class FastPathRouter:
             return reply
 
         read_line_request = self._extract_read_file_line_request(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if read_line_request:
             path, position = read_line_request
             reply = self.tool_catalog.runtime.read_file_line(path, position)
@@ -207,8 +210,9 @@ class FastPathRouter:
             return self.tool_catalog.runtime.search_files(query, path)
 
         file_path = self._extract_read_file_path(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if file_path:
             reply = self.tool_catalog.runtime.read_file(file_path)
             if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
@@ -216,8 +220,9 @@ class FastPathRouter:
             return reply
 
         dir_path = self._extract_directory_path(normalized_message)
-        if self._pending_resolution_reply:
-            return self._pending_resolution_reply
+        pending_reply = self.path_resolver.take_pending_reply()
+        if pending_reply:
+            return pending_reply
         if dir_path:
             reply = self.tool_catalog.runtime.list_directory(dir_path)
             if not reply.startswith(("路径不存在", "目标不是目录", "路径不允许访问")):
@@ -235,7 +240,7 @@ class FastPathRouter:
         if not pending:
             return None
 
-        choice = self._parse_resolution_choice(message)
+        choice = self.path_resolver.parse_resolution_choice(message)
         if choice is None:
             return None
 
@@ -324,13 +329,13 @@ class FastPathRouter:
             match = pattern.search(message)
             if not match:
                 continue
-            normalized = self._normalize_path_fragment(match.group("path"))
-            normalized = self._resolve_existing_path_hint(
+            normalized = self.path_resolver.normalize_path_fragment(match.group("path"))
+            normalized = self.path_resolver.resolve_existing_path_hint(
                 normalized,
                 expect_file=True,
                 action="read_file",
             )
-            if normalized and self._looks_like_existing_file(normalized):
+            if normalized and self.path_resolver.looks_like_existing_file(normalized):
                 return normalized
         return None
 
@@ -339,13 +344,13 @@ class FastPathRouter:
             match = pattern.search(message)
             if not match:
                 continue
-            normalized = self._normalize_path_fragment(match.group("path"))
-            normalized = self._resolve_existing_path_hint(
+            normalized = self.path_resolver.normalize_path_fragment(match.group("path"))
+            normalized = self.path_resolver.resolve_existing_path_hint(
                 normalized,
                 expect_dir=True,
                 action="list_directory",
             )
-            if normalized and self._looks_like_existing_dir(normalized):
+            if normalized and self.path_resolver.looks_like_existing_dir(normalized):
                 return normalized
         return None
 
@@ -355,7 +360,7 @@ class FastPathRouter:
             if not match:
                 continue
             query = (match.group("query") or "").strip()
-            path = self._normalize_path_fragment(match.groupdict().get("path", "") or ".")
+            path = self.path_resolver.normalize_path_fragment(match.groupdict().get("path", "") or ".")
             query = query.strip("`'\"“”‘’")
             if not query:
                 continue
@@ -369,8 +374,8 @@ class FastPathRouter:
                 continue
             raw_position = match.group("position")
             position = "first" if raw_position in {"第一行", "首行", "第1行"} else "last"
-            path = self._normalize_path_fragment(match.group("path"))
-            path = self._resolve_existing_path_hint(
+            path = self.path_resolver.normalize_path_fragment(match.group("path"))
+            path = self.path_resolver.resolve_existing_path_hint(
                 path,
                 expect_file=True,
                 action="read_file_line",
@@ -387,8 +392,8 @@ class FastPathRouter:
                 continue
             find_text = match.group("find")
             replace_text = match.group("replace")
-            path = self._normalize_path_fragment(match.group("path"))
-            path = self._resolve_existing_path_hint(
+            path = self.path_resolver.normalize_path_fragment(match.group("path"))
+            path = self.path_resolver.resolve_existing_path_hint(
                 path,
                 expect_file=True,
                 action="preview_edit_file",
@@ -407,8 +412,8 @@ class FastPathRouter:
             if not match:
                 continue
             content = match.group("content")
-            path = self._normalize_path_fragment(match.group("path"))
-            path = self._resolve_existing_path_hint(
+            path = self.path_resolver.normalize_path_fragment(match.group("path"))
+            path = self.path_resolver.resolve_existing_path_hint(
                 path,
                 expect_file=True,
                 action="preview_write_file",
@@ -425,8 +430,8 @@ class FastPathRouter:
                 continue
             target = match.group("target").strip()
             instruction = match.group("instruction").strip()
-            path = self._normalize_path_fragment(match.group("path"))
-            path = self._resolve_existing_path_hint(
+            path = self.path_resolver.normalize_path_fragment(match.group("path"))
+            path = self.path_resolver.resolve_existing_path_hint(
                 path,
                 expect_file=True,
                 action="rewrite_block",
@@ -447,8 +452,8 @@ class FastPathRouter:
             content = match.group("content")
             raw_position = match.group("position")
             position = "start" if raw_position in {"开头", "前面"} else "end"
-            path = self._normalize_path_fragment(match.group("path"))
-            path = self._resolve_existing_path_hint(
+            path = self.path_resolver.normalize_path_fragment(match.group("path"))
+            path = self.path_resolver.resolve_existing_path_hint(
                 path,
                 expect_file=True,
                 action="preview_append_file",
@@ -539,9 +544,9 @@ class FastPathRouter:
             if not match:
                 continue
 
-            source = self._normalize_path_fragment(match.group("source"))
-            target = self._normalize_path_fragment(match.group("target"))
-            source = self._resolve_existing_path_hint(
+            source = self.path_resolver.normalize_path_fragment(match.group("source"))
+            target = self.path_resolver.normalize_path_fragment(match.group("target"))
+            source = self.path_resolver.resolve_existing_path_hint(
                 source,
                 action="rename_path",
                 payload={"target_path": target},
@@ -563,7 +568,7 @@ class FastPathRouter:
         if not match:
             return None
 
-        last_target = self.session_service.get_last_workspace_target(self._current_user_id)
+        last_target = self.session_service.get_last_workspace_target(self.path_resolver.current_user_id)
         if str(last_target.get("type", "")).strip() != "file":
             return None
 
@@ -571,7 +576,7 @@ class FastPathRouter:
         if not source:
             return None
 
-        target = self._normalize_path_fragment(match.group("target"))
+        target = self.path_resolver.normalize_path_fragment(match.group("target"))
         if not target:
             return None
 
@@ -581,128 +586,6 @@ class FastPathRouter:
             if str(source_parent) != ".":
                 target = str(source_parent / target_path.name)
         return source, target
-
-    def _normalize_path_fragment(self, fragment: str) -> str:
-        normalized = (fragment or "").strip()
-        if not normalized:
-            return ""
-
-        normalized = normalized.strip("`'\"“”‘’")
-        normalized = normalized.replace("下的", "/")
-        normalized = normalized.replace("下面的", "/")
-        normalized = normalized.replace("目录里的", "/")
-        normalized = normalized.replace("目录下的", "/")
-        normalized = normalized.replace("目录", "")
-        normalized = normalized.replace("文件", "")
-        normalized = normalized.replace("\\", "/")
-        normalized = re.sub(r"\s+", "", normalized)
-        normalized = re.sub(r"/{2,}", "/", normalized)
-        return normalized.strip("/")
-
-    def _normalize_request_text(self, message: str) -> str:
-        normalized = (message or "").strip()
-        normalized = re.sub(r"^(那你|那就|那|你先|你就|你)\s*", "", normalized)
-        normalized = re.sub(r"^(帮我|麻烦你|麻烦|请你|请)\s*", "", normalized)
-        normalized = re.sub(r"^(看一下|看下|看看|查看|读一下|读取|打开)\s*", "", normalized)
-        return normalized.strip()
-
-    def _resolve_existing_path_hint(
-        self,
-        path: str,
-        *,
-        expect_file: bool = False,
-        expect_dir: bool = False,
-        action: str = "",
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        if not path:
-            return path
-
-        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
-        if not error and candidate and candidate.exists():
-            if expect_file and candidate.is_file():
-                return path
-            if expect_dir and candidate.is_dir():
-                return path
-            if not expect_file and not expect_dir:
-                return path
-
-        lowered = path.lower()
-        normalized_key = self._normalize_lookup_key(path)
-        if lowered == "readme":
-            return "README.md"
-
-        last_target = self.session_service.get_last_workspace_target(self._current_user_id)
-        last_path = str(last_target.get("path", "")).strip()
-        last_type = str(last_target.get("type", "")).strip()
-        if last_path and "/" not in path:
-            base_dir = PurePosixPath(last_path) if last_type == "dir" else PurePosixPath(last_path).parent
-            candidate_path = str(base_dir / path) if str(base_dir) != "." else path
-            candidate, candidate_error = self.tool_catalog.runtime._resolve_path_or_error(candidate_path)
-            if not candidate_error and candidate and candidate.exists():
-                if expect_file and candidate.is_file():
-                    return candidate_path
-                if expect_dir and candidate.is_dir():
-                    return candidate_path
-                if not expect_file and not expect_dir:
-                    return candidate_path
-
-        if "/" in path:
-            self._maybe_store_path_resolution(
-                path,
-                expect_file=expect_file,
-                expect_dir=expect_dir,
-                action=action,
-                payload=payload,
-            )
-            return None if self._pending_resolution_reply else path
-
-        exact_file_matches: List[str] = []
-        for file_path in self.tool_catalog.runtime._iter_files(self.tool_catalog.runtime.workspace_root):
-            file_name = file_path.name.lower()
-            if file_name != lowered and self._normalize_lookup_key(file_name) != normalized_key:
-                continue
-            exact_file_matches.append(self.tool_catalog.runtime._to_relative(file_path))
-            if len(exact_file_matches) > 1:
-                break
-        if len(exact_file_matches) == 1:
-            return exact_file_matches[0]
-
-        if expect_dir:
-            exact_dir_matches: List[str] = []
-            for current_root, dirnames, _ in os.walk(self.tool_catalog.runtime.workspace_root):
-                dirnames[:] = [name for name in dirnames if name not in self.tool_catalog.runtime.SKIP_DIRS]
-                for dirname in dirnames:
-                    if dirname.lower() != lowered:
-                        continue
-                    dir_path = PurePosixPath(os.path.relpath(os.path.join(current_root, dirname), self.tool_catalog.runtime.workspace_root))
-                    exact_dir_matches.append(str(dir_path))
-                    if len(exact_dir_matches) > 1:
-                        break
-                if len(exact_dir_matches) > 1:
-                    break
-            if len(exact_dir_matches) == 1:
-                return exact_dir_matches[0]
-
-        self._maybe_store_path_resolution(
-            path,
-            expect_file=expect_file,
-            expect_dir=expect_dir,
-            action=action,
-            payload=payload,
-        )
-        return None if self._pending_resolution_reply else path
-
-    def _normalize_lookup_key(self, value: str) -> str:
-        return re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", value.lower())
-
-    def _looks_like_existing_file(self, path: str) -> bool:
-        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
-        return not error and bool(candidate and candidate.exists() and candidate.is_file())
-
-    def _looks_like_existing_dir(self, path: str) -> bool:
-        candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)
-        return not error and bool(candidate and candidate.exists() and candidate.is_dir())
 
     def _handle_followup_reference(self, user_id: str, message: str) -> Optional[str]:
         last_target = self.session_service.get_last_workspace_target(user_id)
@@ -718,132 +601,6 @@ class FastPathRouter:
                 position = "first" if any(keyword in message for keyword in ("第一行", "首行")) else "last"
                 return self.tool_catalog.runtime.read_file_line(path, position)
 
-        return None
-
-    def _maybe_store_path_resolution(
-        self,
-        original_input: str,
-        *,
-        expect_file: bool,
-        expect_dir: bool,
-        action: str,
-        payload: Optional[Dict[str, Any]],
-    ) -> None:
-        candidates = self._find_path_candidates(
-            original_input,
-            expect_file=expect_file,
-            expect_dir=expect_dir,
-        )
-        if not candidates:
-            return
-
-        self.session_service.set_pending_workspace_resolution(
-            self._current_user_id,
-            action=action,
-            original_input=original_input,
-            candidates=candidates,
-            payload=payload or {},
-        )
-        self._pending_resolution_reply = self._format_resolution_prompt(
-            original_input=original_input,
-            candidates=candidates,
-            expect_dir=expect_dir,
-        )
-
-    def _find_path_candidates(
-        self,
-        original_input: str,
-        *,
-        expect_file: bool,
-        expect_dir: bool,
-        limit: int = 3,
-    ) -> List[Dict[str, Any]]:
-        query = self._normalize_path_fragment(original_input)
-        query_name = PurePosixPath(query).name
-        query_key = self._normalize_lookup_key(query_name)
-        if not query_key:
-            return []
-
-        candidates: List[Dict[str, Any]] = []
-
-        if not expect_dir:
-            for file_path in self.tool_catalog.runtime._iter_files(self.tool_catalog.runtime.workspace_root):
-                relative_path = self.tool_catalog.runtime._to_relative(file_path)
-                score = self._score_path_candidate(query_key, file_path.name, relative_path)
-                if score < 0.62:
-                    continue
-                candidates.append({"path": relative_path, "type": "file", "score": score})
-
-        if expect_dir or not expect_file:
-            for current_root, dirnames, _ in os.walk(self.tool_catalog.runtime.workspace_root):
-                dirnames[:] = [name for name in dirnames if name not in self.tool_catalog.runtime.SKIP_DIRS]
-                for dirname in dirnames:
-                    relative_path = str(
-                        PurePosixPath(
-                            os.path.relpath(
-                                os.path.join(current_root, dirname),
-                                self.tool_catalog.runtime.workspace_root,
-                            )
-                        )
-                    )
-                    score = self._score_path_candidate(query_key, dirname, relative_path)
-                    if score < 0.62:
-                        continue
-                    candidates.append({"path": relative_path, "type": "dir", "score": score})
-
-        unique_by_path: Dict[str, Dict[str, Any]] = {}
-        for candidate in candidates:
-            existing = unique_by_path.get(candidate["path"])
-            if existing is None or candidate["score"] > existing["score"]:
-                unique_by_path[candidate["path"]] = candidate
-
-        ordered = sorted(
-            unique_by_path.values(),
-            key=lambda item: (-float(item["score"]), len(str(item["path"]))),
-        )
-        return ordered[:limit]
-
-    def _score_path_candidate(self, query_key: str, name: str, relative_path: str) -> float:
-        name_key = self._normalize_lookup_key(name)
-        path_key = self._normalize_lookup_key(relative_path)
-        score = max(
-            difflib.SequenceMatcher(None, query_key, name_key).ratio(),
-            difflib.SequenceMatcher(None, query_key, path_key).ratio(),
-        )
-        if query_key == name_key:
-            return 1.0
-        if name_key.startswith(query_key):
-            score = max(score, 0.9)
-        if query_key in name_key:
-            score = max(score, 0.85)
-        return score
-
-    def _format_resolution_prompt(
-        self,
-        *,
-        original_input: str,
-        candidates: List[Dict[str, Any]],
-        expect_dir: bool,
-    ) -> str:
-        target_label = "目录" if expect_dir else "文件"
-        lines = [f"没找到精确匹配的{target_label}：{original_input}", "", "你是不是指："]
-        for index, candidate in enumerate(candidates, start=1):
-            suffix = " [目录]" if candidate.get("type") == "dir" else ""
-            lines.append(f"{index}. {candidate.get('path', '')}{suffix}")
-        lines.append("")
-        lines.append("回复“是”默认采用第 1 个，也可以回复序号选择，回复“不是”取消。")
-        return "\n".join(lines)
-
-    def _parse_resolution_choice(self, message: str) -> Optional[int]:
-        normalized = (message or "").strip().lower()
-        if normalized in {"是", "对", "嗯", "嗯嗯", "好", "好的", "确认", "同意", "就这个", "就是这个"}:
-            return 1
-        if normalized in {"不是", "不对", "取消", "都不是", "算了"}:
-            return 0
-
-        match = re.fullmatch(r"(?:第)?([1-9])(?:个)?", normalized)
-        if match:
-            return int(match.group(1))
         return None
 
     def _execute_resolved_action(

@@ -8,7 +8,6 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,7 +17,16 @@ from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 
 from data.config import config
+from src.services.agent.agent_context import AgentRunContext
 from src.services.agent.tool_catalog import ToolCatalog
+from src.services.agent.agent_usage import (
+    MAX_HISTORY_MESSAGES,
+    collect_usage_metadata,
+    estimate_message_tokens,
+    estimate_tokens,
+    extract_text,
+    truncate_message_content,
+)
 from src.services.prompt_manager import PromptManager
 from src.services.token_monitor import token_monitor
 from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
@@ -40,8 +48,6 @@ MAX_TOOL_RESULT_CHARS = 4000
 MAX_TOOL_ARG_CHARS = 500
 MAX_TOOL_REPEAT_COUNT = 2
 MAX_TOOL_HISTORY = 30
-MAX_HISTORY_MESSAGES = 8
-MAX_HISTORY_MESSAGE_CHARS = 800
 WORKSPACE_PATH_TOOL_KEYS = {"path", "source_path", "target_path"}
 RUN_COMMAND_TOOL_NAME = "run_command"
 READ_FILE_TOOL_NAME = "read_file"
@@ -55,18 +61,6 @@ TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.Con
     "tool_loop_state",
     default=None,
 )
-
-
-@dataclass
-class AgentRunContext:
-    """单轮 agent 调用的动态上下文。"""
-
-    persona_prompt: str
-    core_memory: Optional[str]
-    kb_context: Optional[str]
-    tool_profile: Optional[str]
-    tool_profiles: List[str]
-    tool_summary: str
 
 
 class LangChainAgentService:
@@ -184,7 +178,7 @@ class LangChainAgentService:
                 previous_context=previous_context,
                 user_message=message,
             )
-            return self._extract_text(result) or ""
+            return extract_text(result) or ""
         except Exception as e:
             logger.error(f"LangChain agent 调用失败: {e}", exc_info=True)
             return USER_VISIBLE_AGENT_ERROR
@@ -278,7 +272,7 @@ class LangChainAgentService:
         history_items = list(previous_context or [])[-MAX_HISTORY_MESSAGES:]
         for item in history_items:
             role = str(item.get("role", "")).strip()
-            content = self._truncate_message_content(str(item.get("content", "")).strip())
+            content = truncate_message_content(str(item.get("content", "")).strip())
             if role and content:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
@@ -792,20 +786,6 @@ class LangChainAgentService:
             lines.extend(tool_bundle.detailed_summary_lines)
         return "\n".join(lines)
 
-    def _extract_text(self, result: Any) -> str:
-        if isinstance(result, dict):
-            messages = result.get("messages") or []
-            for message in reversed(messages):
-                if getattr(message, "type", "") != "ai":
-                    continue
-                content = getattr(message, "content", "")
-                if isinstance(content, str):
-                    return content.strip()
-                if isinstance(content, list):
-                    parts = [item.get("text", "") for item in content if isinstance(item, dict)]
-                    return "\n".join(part for part in parts if part).strip()
-        return str(result).strip()
-
     def _record_token_usage(
         self,
         *,
@@ -817,7 +797,7 @@ class LangChainAgentService:
         previous_context: Optional[List[Dict[str, Any]]],
         user_message: str,
     ) -> None:
-        usage = self._collect_usage_metadata(result)
+        usage = collect_usage_metadata(result)
         if not usage:
             logger.debug("LangChain agent 未返回 token usage 元数据")
             return
@@ -833,100 +813,12 @@ class LangChainAgentService:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             request_type="agent",
-            system_prompt_tokens=self._estimate_tokens(system_prompt),
-            core_memory_tokens=self._estimate_tokens(core_memory),
-            kb_context_tokens=self._estimate_tokens(kb_context),
-            chat_history_tokens=self._estimate_message_tokens(previous_context),
-            user_message_tokens=self._estimate_tokens(user_message),
+            system_prompt_tokens=estimate_tokens(system_prompt),
+            core_memory_tokens=estimate_tokens(core_memory),
+            kb_context_tokens=estimate_tokens(kb_context),
+            chat_history_tokens=estimate_message_tokens(previous_context),
+            user_message_tokens=estimate_tokens(user_message),
         )
-
-    def _collect_usage_metadata(self, result: Any) -> Optional[Dict[str, int]]:
-        if not isinstance(result, dict):
-            return None
-
-        total_prompt = 0
-        total_completion = 0
-        found_usage = False
-
-        for message in result.get("messages") or []:
-            if getattr(message, "type", "") != "ai":
-                continue
-
-            usage = self._normalize_usage_dict(message)
-            if not usage:
-                continue
-
-            total_prompt += usage["prompt_tokens"]
-            total_completion += usage["completion_tokens"]
-            found_usage = True
-
-        if not found_usage:
-            return None
-
-        return {
-            "prompt_tokens": total_prompt,
-            "completion_tokens": total_completion,
-        }
-
-    def _normalize_usage_dict(self, message: Any) -> Optional[Dict[str, int]]:
-        usage_sources = [
-            getattr(message, "usage_metadata", None),
-            getattr(message, "response_metadata", None),
-        ]
-
-        for usage_source in usage_sources:
-            usage = self._extract_usage_fields(usage_source)
-            if usage:
-                return usage
-        return None
-
-    def _extract_usage_fields(self, source: Any) -> Optional[Dict[str, int]]:
-        if not isinstance(source, dict):
-            return None
-
-        if "prompt_tokens" in source or "completion_tokens" in source:
-            return {
-                "prompt_tokens": int(source.get("prompt_tokens", 0)),
-                "completion_tokens": int(source.get("completion_tokens", 0)),
-            }
-
-        if "input_tokens" in source or "output_tokens" in source:
-            return {
-                "prompt_tokens": int(source.get("input_tokens", 0)),
-                "completion_tokens": int(source.get("output_tokens", 0)),
-            }
-
-        token_usage = source.get("token_usage")
-        if isinstance(token_usage, dict):
-            return {
-                "prompt_tokens": int(token_usage.get("prompt_tokens", 0)),
-                "completion_tokens": int(token_usage.get("completion_tokens", 0)),
-            }
-
-        return None
-
-    def _estimate_tokens(self, text: Optional[str]) -> int:
-        if not text:
-            return 0
-        return max(1, len(text) // 4)
-
-    def _estimate_message_tokens(self, messages: Optional[List[Dict[str, Any]]]) -> int:
-        if not messages:
-            return 0
-
-        total_chars = 0
-        for item in list(messages)[-MAX_HISTORY_MESSAGES:]:
-            content = self._truncate_message_content(str(item.get("content", "")).strip())
-            total_chars += len(content)
-
-        if total_chars <= 0:
-            return 0
-        return max(1, total_chars // 4)
-
-    def _truncate_message_content(self, content: str) -> str:
-        if len(content) <= MAX_HISTORY_MESSAGE_CHARS:
-            return content
-        return content[: MAX_HISTORY_MESSAGE_CHARS - 17].rstrip() + "\n[内容已截断]"
 
     def _model_lacks_tool_support(self) -> bool:
         model_name = self.model.lower()
