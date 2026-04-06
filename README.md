@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AtriNexus is a WeCom-based personal AI assistant for persistent conversation, memory, retrieval-augmented responses, and lightweight workspace actions.
+AtriNexus is a WeCom-based personal AI assistant for persistent conversation, memory, knowledge-base tooling, and lightweight workspace actions.
 
 It is designed for a real long-running personal usage scenario rather than a generic chatbot demo. The current runtime path is:
 
@@ -10,8 +10,8 @@ It is designed for a real long-running personal usage scenario rather than a gen
 - FastAPI as the service layer
 - SQLite for conversation, memory, and diary data
 - Qdrant for vector memory storage
-- `atrinexus-rag-sdk` for RAG
-- LangChain for the lightweight agent reply/tool layer
+- `atrinexus-rag-sdk` for knowledge-base retrieval
+- LangChain for the lightweight agent/tool layer
 
 ## What It Does
 
@@ -35,7 +35,7 @@ It supports:
 - image recognition integration
 - scheduled messages
 - memory-aware replies
-- knowledge-grounded replies
+- knowledge-base lookup through agent tools
 
 ### 2. Memory system
 
@@ -94,7 +94,6 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 
 - `src/wecom/handlers/message_handler.py`
 - `src/wecom/processors/context_builder.py`
-- `src/wecom/processors/rag_processor.py`
 - `src/services/agent/langchain_agent_service.py`
 
 ### Memory and diary
@@ -144,7 +143,6 @@ AtriNexus/
 │   │   ├── vector_store/
 │   │   ├── database.py
 │   │   ├── diary_service.py
-│   │   ├── intent_service.py
 │   │   ├── llm_service.py
 │   │   ├── memory_manager.py
 │   │   ├── memory_store.py
@@ -153,10 +151,8 @@ AtriNexus/
 │   ├── utils/
 │   └── wecom/
 ├── data/
-│   ├── avatars/
 │   ├── config/
 │   ├── database/
-│   ├── prompts/
 │   └── tasks.json
 ├── deployment/
 └── docs/

@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对话、记忆、检索增强回复，以及轻量级工作区执行能力。
+AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对话、记忆、知识库工具调用，以及轻量级工作区执行能力。
 
 它不是一个泛化聊天机器人 Demo，而是一个服务于真实长期个人使用场景的项目。当前默认运行路径是：
 
@@ -10,8 +10,8 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - FastAPI 作为服务层
 - SQLite 存储对话、记忆和日记数据
 - Qdrant 存储向量记忆
-- `atrinexus-rag-sdk` 负责 RAG
-- LangChain 负责轻量级回复与工具调用层
+- `atrinexus-rag-sdk` 负责知识库检索
+- LangChain 负责轻量级 agent 与工具调用层
 
 ## 项目能做什么
 
@@ -35,7 +35,7 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - 图像识别接入
 - 定时消息
 - 基于记忆的回复
-- 基于知识库的回复
+- 基于知识库工具的按需查询
 
 ### 2. 记忆系统
 
@@ -94,7 +94,6 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 - `src/wecom/handlers/message_handler.py`
 - `src/wecom/processors/context_builder.py`
-- `src/wecom/processors/rag_processor.py`
 - `src/services/agent/langchain_agent_service.py`
 
 ### 记忆与日记
@@ -144,7 +143,6 @@ AtriNexus/
 │   │   ├── vector_store/
 │   │   ├── database.py
 │   │   ├── diary_service.py
-│   │   ├── intent_service.py
 │   │   ├── llm_service.py
 │   │   ├── memory_manager.py
 │   │   ├── memory_store.py
@@ -153,10 +151,8 @@ AtriNexus/
 │   ├── utils/
 │   └── wecom/
 ├── data/
-│   ├── avatars/
 │   ├── config/
 │   ├── database/
-│   ├── prompts/
 │   └── tasks.json
 ├── deployment/
 └── docs/
