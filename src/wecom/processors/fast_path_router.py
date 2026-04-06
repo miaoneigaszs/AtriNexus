@@ -36,6 +36,10 @@ class FastPathRouter:
             r"(?P<path>[^\s，。！？]+(?:\.[A-Za-z0-9_-]+|README(?:\.md)?))\s*里(?:有什么|有哪些)",
             re.IGNORECASE,
         ),
+        re.compile(
+            r"(?P<path>[^\s，。！？]+)\s*(?:写的什么|写了什么|内容是什么|里有什么|里有哪些)",
+            re.IGNORECASE,
+        ),
     )
     READ_FILE_LINE_PATTERNS = (
         re.compile(
@@ -510,6 +514,7 @@ class FastPathRouter:
                 return path
 
         lowered = path.lower()
+        normalized_key = self._normalize_lookup_key(path)
         if lowered == "readme":
             return "README.md"
 
@@ -533,7 +538,8 @@ class FastPathRouter:
 
         matches = []
         for file_path in self.tool_catalog.runtime._iter_files(self.tool_catalog.runtime.workspace_root):
-            if file_path.name.lower() != lowered:
+            file_name = file_path.name.lower()
+            if file_name != lowered and self._normalize_lookup_key(file_name) != normalized_key:
                 continue
             matches.append(self.tool_catalog.runtime._to_relative(file_path))
             if len(matches) > 1:
@@ -558,6 +564,9 @@ class FastPathRouter:
                 return dir_matches[0]
 
         return path
+
+    def _normalize_lookup_key(self, value: str) -> str:
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", value.lower())
 
     def _looks_like_existing_file(self, path: str) -> bool:
         candidate, error = self.tool_catalog.runtime._resolve_path_or_error(path)

@@ -20,17 +20,9 @@ class PromptManager:
         ("记忆策略", "memory_policy.md"),
     )
 
-    RUNTIME_FILE_ORDER = (
-        ("用户黑板", "user.md"),
-        ("偏好黑板", "preferences.md"),
-        ("会话黑板", "session_memory.md"),
-        ("工作备注", "working_notes.md"),
-    )
-
     def __init__(self, root_dir: str) -> None:
         self.root_dir = Path(root_dir)
         self.system_dir = self.root_dir / "src" / "base" / "prompts" / "system"
-        self.runtime_dir = self.root_dir / "src" / "base" / "prompts" / "runtime"
 
     def build_agent_static_prompt(self) -> str:
         """组装稳定前缀。
@@ -102,10 +94,6 @@ class PromptManager:
         if current_persona_prompt:
             sections.append(f"【当前会话风格】\n{current_persona_prompt}")
 
-        blackboard = self._build_runtime_blackboard()
-        if blackboard:
-            sections.append(f"【可写黑板】\n{blackboard}")
-
         if core_memory:
             sections.append(f"【核心记忆】\n{core_memory}")
         if kb_context:
@@ -131,15 +119,6 @@ class PromptManager:
             return f"{static_prompt}\n\n{rewrite_rules}"
         return rewrite_rules
 
-    def _build_runtime_blackboard(self) -> str:
-        sections: List[str] = []
-        for title, filename in self.RUNTIME_FILE_ORDER:
-            content = self._read_markdown(self.runtime_dir / filename)
-            if not content or self._is_placeholder(content):
-                continue
-            sections.append(f"【{title}】\n{content}")
-        return "\n\n".join(sections)
-
     def _read_markdown(self, path: Path) -> str:
         try:
             return path.read_text(encoding="utf-8").strip()
@@ -149,7 +128,3 @@ class PromptManager:
         except Exception as exc:
             logger.warning("读取 Prompt 文件失败 %s: %s", path, exc)
             return ""
-
-    def _is_placeholder(self, content: str) -> bool:
-        stripped = content.strip()
-        return stripped.startswith("<!--") and stripped.endswith("-->")
