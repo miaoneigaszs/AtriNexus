@@ -1,25 +1,16 @@
-"""同步数据库入口。当前默认 SQLite，已为 PostgreSQL 迁移预留 URL 入口。"""
+"""同步数据库入口。当前主运行数据库为 PostgreSQL。"""
 
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, event, UniqueConstraint
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from src.services.database_config import build_sync_database_url, build_sync_engine_kwargs, is_sqlite_url
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, UniqueConstraint
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+from src.services.database_config import build_sync_database_url, build_sync_engine_kwargs
 
 # 创建基类
 Base = declarative_base()
 
 DATABASE_URL = build_sync_database_url()
-engine = create_engine(DATABASE_URL, **build_sync_engine_kwargs(DATABASE_URL))
-
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    """仅在 SQLite 下启用 WAL。PostgreSQL 不走这条逻辑。"""
-    if not is_sqlite_url(DATABASE_URL):
-        return
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.close()
+engine = create_engine(DATABASE_URL, **build_sync_engine_kwargs())
 
 Session = sessionmaker(bind=engine, future=True)
 
@@ -75,7 +66,6 @@ class ConversationCounter(Base):
     # 联合唯一约束：确保每个用户+人设组合只有一条记录
     __table_args__ = (
         UniqueConstraint('user_id', 'avatar_name', name='uix_user_avatar_counter'),
-        {'sqlite_autoincrement': True},
     )
 
 
@@ -94,7 +84,6 @@ class Diary(Base):
     # 联合唯一约束：确保每个用户+人设+日期只有一条日记
     __table_args__ = (
         UniqueConstraint('user_id', 'avatar_name', 'date', name='uix_user_avatar_date'),
-        {'sqlite_autoincrement': True},
     )
 
 
