@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any, Optional, Tuple
 
 
@@ -50,16 +49,32 @@ class FastPathRewriteHelper:
         return self.find_first_paragraph_span(text)
 
     def find_first_heading_span(self, text: str) -> Optional[Tuple[int, int]]:
-        match = re.search(r"^(#.+)$", text, re.MULTILINE)
-        if not match:
-            return None
-        return match.start(1), match.end(1)
+        cursor = 0
+        for line in text.splitlines(keepends=True):
+            stripped = line.strip()
+            if stripped.startswith("#") and len(stripped) > 1:
+                end = cursor + len(line.rstrip("\r\n"))
+                return cursor, end
+            cursor += len(line)
+        return None
 
     def find_first_paragraph_span(self, text: str) -> Optional[Tuple[int, int]]:
-        match = re.search(r"\S(?:[\s\S]*?)(?:\n\s*\n|$)", text)
-        if not match:
+        start = None
+        index = 0
+        length = len(text)
+        while index < length:
+            line_end = text.find("\n", index)
+            if line_end == -1:
+                line_end = length
+            line = text[index:line_end]
+            if start is None and line.strip():
+                start = index
+            elif start is not None and not line.strip():
+                return start, index
+            index = line_end + 1
+        if start is None:
             return None
-        return match.start(), match.end()
+        return start, length
 
     def rewrite_block_with_llm(self, path: str, target: str, instruction: str, original_block: str) -> str:
         messages = [

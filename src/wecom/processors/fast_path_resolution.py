@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import difflib
 import os
-import re
 from pathlib import PurePosixPath
 from typing import Any, Dict, List, Optional
 
@@ -42,15 +41,16 @@ class WorkspacePathResolver:
         normalized = normalized.replace("目录", "")
         normalized = normalized.replace("文件", "")
         normalized = normalized.replace("\\", "/")
-        normalized = re.sub(r"\s+", "", normalized)
-        normalized = re.sub(r"/{2,}", "/", normalized)
+        normalized = "".join(ch for ch in normalized if not ch.isspace())
+        while "//" in normalized:
+            normalized = normalized.replace("//", "/")
         return normalized.strip("/")
 
     def normalize_request_text(self, message: str) -> str:
         normalized = (message or "").strip()
-        normalized = re.sub(r"^(那你|那就|那|你先|你就|你)\s*", "", normalized)
-        normalized = re.sub(r"^(帮我|麻烦你|麻烦|请你|请)\s*", "", normalized)
-        normalized = re.sub(r"^(看一下|看下|看看|查看|读一下|读取|打开)\s*", "", normalized)
+        for prefix in ("那你", "那就", "那", "你先", "你就", "你", "帮我", "麻烦你", "麻烦", "请你", "请", "看一下", "看下", "看看", "查看", "读一下", "读取", "打开"):
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):].lstrip()
         return normalized.strip()
 
     def resolve_existing_path_hint(
@@ -155,9 +155,9 @@ class WorkspacePathResolver:
         if normalized in {"不是", "不对", "取消", "都不是", "算了"}:
             return 0
 
-        match = re.fullmatch(r"(?:第)?([1-9])(?:个)?", normalized)
-        if match:
-            return int(match.group(1))
+        for candidate in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
+            if normalized in {candidate, f"第{candidate}", f"{candidate}个", f"第{candidate}个"}:
+                return int(candidate)
         return None
 
     def _maybe_store_path_resolution(
@@ -275,4 +275,4 @@ class WorkspacePathResolver:
         return "\n".join(lines)
 
     def _normalize_lookup_key(self, value: str) -> str:
-        return re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", value.lower())
+        return "".join(ch for ch in value.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
