@@ -13,6 +13,13 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - `atrinexus-rag-sdk` 负责知识库检索
 - LangChain 负责轻量级 agent 与工具调用层
 
+当前运行时已经不再是简单的“聊天 + 挂几个工具”，而是围绕以下骨架组织：
+
+- `PromptManager` 负责分层 prompt 组装
+- `ToolProfile` 负责会话级稳定工具暴露
+- `FastPathRouter` 负责确定性文件/工具请求直达
+- middleware 负责模型与工具调用治理
+
 ## 项目能做什么
 
 - 企业微信对话处理
@@ -71,6 +78,11 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - 写文件
 - 替换文件中的文本
 
+文件修改默认走 preview-first 流程：
+
+- 先生成预览 / diff
+- 再等待用户明确确认后落盘
+
 这部分是刻意保持轻量的。目标不是把项目做成 AI IDE 或通用 autonomous agent 平台。
 
 ### 5. 运行可观测性
@@ -95,6 +107,8 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - `src/wecom/handlers/message_handler.py`
 - `src/wecom/processors/context_builder.py`
 - `src/services/agent/langchain_agent_service.py`
+- `src/services/prompt_manager.py`
+- `src/wecom/processors/fast_path_router.py`
 
 ### 记忆与日记
 
@@ -106,6 +120,11 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 ### RAG
 
 - `src/services/rag_service.py`
+
+知识库路径现在已经改成 agent 按需调用：
+
+- 普通消息不再前置跑 KB 检索
+- 由 agent 在需要时调用知识库工具
 
 ### 向量存储
 
@@ -153,6 +172,7 @@ AtriNexus/
 ├── data/
 │   ├── config/
 │   ├── database/
+│   ├── vectordb_qdrant/
 │   └── tasks.json
 ├── deployment/
 └── docs/
@@ -224,6 +244,8 @@ curl http://127.0.0.1:8080/health
 
 - 当前运行主路径已经统一到 Qdrant、`atrinexus-rag-sdk` 和 LangChain。
 - SQLite 仍然是对话历史、短期记忆、核心记忆和日记的事实来源。
+- `data/vectordb_qdrant/` 属于本地运行状态数据，不纳入 Git 跟踪。
+- 知识库查询已经从“每条普通消息前置检索”收口为 agent 工具按需调用。
 - 项目刻意保持轻量，不朝通用 Agent 平台方向膨胀。
 
 ## 适合谁

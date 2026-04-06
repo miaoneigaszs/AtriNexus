@@ -13,6 +13,13 @@ It is designed for a real long-running personal usage scenario rather than a gen
 - `atrinexus-rag-sdk` for knowledge-base retrieval
 - LangChain for the lightweight agent/tool layer
 
+The current runtime is no longer a simple "chat + attached tools" stack. It now centers on:
+
+- `PromptManager` for layered prompt assembly
+- `ToolProfile` for session-stable tool exposure
+- `FastPathRouter` for deterministic file/tool requests
+- middleware-based agent control for model/tool governance
+
 ## What It Does
 
 - WeCom conversation handling
@@ -71,6 +78,11 @@ The assistant can perform basic workspace actions from chat:
 - write files
 - replace text in files
 
+Workspace modifications follow a preview-first flow:
+
+- generate a preview / diff first
+- require explicit confirmation before applying changes
+
 This is intentionally lightweight. The goal is not to be a full AI IDE or a general-purpose autonomous agent platform.
 
 ### 5. Operational visibility
@@ -95,6 +107,8 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 - `src/wecom/handlers/message_handler.py`
 - `src/wecom/processors/context_builder.py`
 - `src/services/agent/langchain_agent_service.py`
+- `src/services/prompt_manager.py`
+- `src/wecom/processors/fast_path_router.py`
 
 ### Memory and diary
 
@@ -106,6 +120,11 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 ### RAG
 
 - `src/services/rag_service.py`
+
+Knowledge-base retrieval is now agent-driven:
+
+- normal messages no longer go through front-loaded KB retrieval
+- the agent uses KB tools on demand
 
 ### Vector storage
 
@@ -153,6 +172,7 @@ AtriNexus/
 ├── data/
 │   ├── config/
 │   ├── database/
+│   ├── vectordb_qdrant/
 │   └── tasks.json
 ├── deployment/
 └── docs/
@@ -224,6 +244,8 @@ Typical production layout includes:
 
 - The runtime path is now centered on Qdrant, `atrinexus-rag-sdk`, and LangChain.
 - SQLite remains the source of truth for conversation history, short-term memory, core memory, and diaries.
+- Qdrant local state under `data/vectordb_qdrant/` is runtime data and is not tracked in git.
+- KB lookup is now exposed as agent tools instead of a front-routed retrieval step on every normal message.
 - The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
 
 ## Who This Is For
