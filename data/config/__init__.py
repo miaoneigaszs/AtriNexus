@@ -7,7 +7,42 @@ import re
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
+from dotenv import load_dotenv
+
 logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+
+SECRET_ENV_MAP = {
+    "llm.api_key": "ATRINEXUS_LLM_API_KEY",
+    "media.image_recognition.api_key": "ATRINEXUS_VISION_API_KEY",
+    "network_search.api_key": "ATRINEXUS_NETWORK_SEARCH_API_KEY",
+    "intent_recognition.api_key": "ATRINEXUS_INTENT_API_KEY",
+    "embedding.api_key": "ATRINEXUS_EMBEDDING_API_KEY",
+    "wecom.secret": "ATRINEXUS_WECOM_SECRET",
+    "wecom.token": "ATRINEXUS_WECOM_TOKEN",
+    "wecom.encoding_aes_key": "ATRINEXUS_WECOM_ENCODING_AES_KEY",
+    "auth.admin_password": "ATRINEXUS_ADMIN_PASSWORD",
+}
+
+
+def get_env_override(key: str, fallback: str = "") -> str:
+    """Read a sensitive setting from environment first, with config file fallback."""
+    env_name = SECRET_ENV_MAP.get(key)
+    if not env_name:
+        return fallback
+
+    env_value = os.getenv(env_name)
+    if env_value is None:
+        return fallback
+
+    value = env_value.strip()
+    if not value:
+        return fallback
+
+    logger.debug("敏感配置已由环境变量覆盖: %s", env_name)
+    return value
 
 
 def validate_api_key(api_key: str, key_name: str = "API Key") -> bool:
@@ -509,7 +544,7 @@ class Config:
                     fallback_models_data = []
 
                 self.llm = LLMSettings(
-                    api_key=llm_data['api_key'].get('value', ''),
+                    api_key=get_env_override('llm.api_key', llm_data['api_key'].get('value', '')),
                     base_url=llm_data['base_url'].get('value', ''),
                     model=llm_data['model'].get('value', ''),
                     max_tokens=int(llm_data['max_tokens'].get('value', 0)),
@@ -524,7 +559,10 @@ class Config:
 
                 self.media = MediaSettings(
                     image_recognition=ImageRecognitionSettings(
-                        api_key=image_recognition_data['api_key'].get('value', ''),
+                        api_key=get_env_override(
+                            'media.image_recognition.api_key',
+                            image_recognition_data['api_key'].get('value', ''),
+                        ),
                         base_url=image_recognition_data['base_url'].get('value', ''),
                         temperature=float(image_recognition_data['temperature'].get('value', 0)),
                         model=image_recognition_data['model'].get('value', '')
@@ -591,7 +629,10 @@ class Config:
                 # 认证设置
                 auth_data = categories.get('auth_settings', {}).get('settings', {})
                 self.auth = AuthSettings(
-                    admin_password=auth_data.get('admin_password', {}).get('value', '')
+                    admin_password=get_env_override(
+                        'auth.admin_password',
+                        auth_data.get('admin_password', {}).get('value', ''),
+                    )
                 )
 
                 # 网络搜索设置（使用安全的默认值）
@@ -600,7 +641,10 @@ class Config:
                     self.network_search = NetworkSearchSettings(
                         search_enabled=network_search_data.get('search_enabled', {}).get('value', False),
                         weblens_enabled=network_search_data.get('weblens_enabled', {}).get('value', False),
-                        api_key=network_search_data.get('api_key', {}).get('value', ''),
+                        api_key=get_env_override(
+                            'network_search.api_key',
+                            network_search_data.get('api_key', {}).get('value', ''),
+                        ),
                         base_url=network_search_data.get('base_url', {}).get('value', 'https://api.kourichat.com/v1'),
                         search_provider=network_search_data.get('search_provider', {}).get('value', 'kourichat')
                     )
@@ -618,7 +662,10 @@ class Config:
                 try:
                     intent_recognition_data = categories.get('intent_recognition_settings', {}).get('settings', {})
                     self.intent_recognition = IntentRecognitionSettings(
-                        api_key=intent_recognition_data.get('api_key', {}).get('value', ''),
+                        api_key=get_env_override(
+                            'intent_recognition.api_key',
+                            intent_recognition_data.get('api_key', {}).get('value', ''),
+                        ),
                         base_url=intent_recognition_data.get('base_url', {}).get('value', 'https://api.siliconflow.cn/v1'),
                         model=intent_recognition_data.get('model', {}).get('value', 'Qwen/Qwen2.5-7B-Instruct'),
                         temperature=float(intent_recognition_data.get('temperature', {}).get('value', 0.1))
@@ -636,7 +683,10 @@ class Config:
                 try:
                     embedding_data = categories.get('embedding_settings', {}).get('settings', {})
                     self.embedding = EmbeddingSettings(
-                        api_key=embedding_data.get('api_key', {}).get('value', ''),
+                        api_key=get_env_override(
+                            'embedding.api_key',
+                            embedding_data.get('api_key', {}).get('value', ''),
+                        ),
                         base_url=embedding_data.get('base_url', {}).get('value', 'https://api.siliconflow.cn/v1'),
                         model=embedding_data.get('model', {}).get('value', 'BAAI/bge-m3'),
                         reranker_model=embedding_data.get('reranker_model', {}).get('value', 'BAAI/bge-reranker-v2-m3')
@@ -656,9 +706,12 @@ class Config:
                 self.wecom = WeComSettings(
                     corp_id=wecom_data.get('corp_id', {}).get('value', ''),
                     agent_id=wecom_data.get('agent_id', {}).get('value', ''),
-                    secret=wecom_data.get('secret', {}).get('value', ''),
-                    token=wecom_data.get('token', {}).get('value', ''),
-                    encoding_aes_key=wecom_data.get('encoding_aes_key', {}).get('value', '')
+                    secret=get_env_override('wecom.secret', wecom_data.get('secret', {}).get('value', '')),
+                    token=get_env_override('wecom.token', wecom_data.get('token', {}).get('value', '')),
+                    encoding_aes_key=get_env_override(
+                        'wecom.encoding_aes_key',
+                        wecom_data.get('encoding_aes_key', {}).get('value', ''),
+                    ),
                 )
 
                 # 陪伴模式设置
@@ -746,7 +799,7 @@ class Config:
         if has_invalid_key:
             logger.warning(
                 "⚠️ 检测到无效的 API Key 配置！服务可能无法正常工作。"
-                "请检查 data/config/config.json 中的配置。"
+                "请检查环境变量覆盖或 data/config/config.json 中的配置。"
             )
 
     # 更新管理员密码
