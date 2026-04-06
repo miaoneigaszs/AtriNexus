@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from typing import Iterator
+
+from src.services.database import Session
+from src.services.database_async import AsyncSessionLocal
+
+
+def new_session(**kwargs):
+    """统一的同步会话入口，便于后续替换底层 session factory。"""
+    return Session(**kwargs)
+
+
+@contextmanager
+def session_scope(**kwargs) -> Iterator:
+    """提供统一的同步会话上下文。"""
+    session = Session(**kwargs)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def get_async_session_factory():
+    """返回异步 session factory；当前未配置 PostgreSQL 时返回 None。"""
+    return AsyncSessionLocal

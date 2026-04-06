@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy import and_
 from sqlalchemy.orm import Session as DBSession
 
-from src.services.database import Session, Diary, ChatMessage
+from src.services.database import Diary, ChatMessage
+from src.services.db_session import new_session
 from src.services.ai.llm_service import LLMService
 from src.services.memory_manager import MemoryManager
 from data.config import config
@@ -84,7 +85,7 @@ class DiaryService:
         Returns:
             DiaryEntry 或 None
         """
-        with Session() as session:
+        with new_session() as session:
             diary = session.query(Diary).filter(
                 and_(
                     Diary.user_id == user_id,
@@ -126,7 +127,7 @@ class DiaryService:
         Returns:
             日记列表（按日期倒序）
         """
-        with Session() as session:
+        with new_session() as session:
             diaries = session.query(Diary).filter(
                 and_(
                     Diary.user_id == user_id,
@@ -168,7 +169,7 @@ class DiaryService:
         Returns:
             日期字符串列表 ['2024-01-01', '2024-01-02', ...]
         """
-        with Session() as session:
+        with new_session() as session:
             start_date = f"{year:04d}-{month:02d}-01"
             if month == 12:
                 end_date = f"{year + 1:04d}-01-01"
@@ -201,7 +202,7 @@ class DiaryService:
         Returns:
             对话记录列表
         """
-        with Session() as session:
+        with new_session() as session:
             # 解析日期
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             next_date = target_date + timedelta(days=1)
@@ -295,7 +296,7 @@ class DiaryService:
             diary_content = diary_content.strip()
             
             # 保存日记
-            with Session() as session:
+            with new_session() as session:
                 # 先删除旧的（如果强制重新生成）
                 if force_regenerate:
                     session.query(Diary).filter(
@@ -351,7 +352,7 @@ class DiaryService:
             date_str = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
         
         # 查找当天有对话的用户
-        with Session() as session:
+        with new_session() as session:
             target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             next_date = target_date + timedelta(days=1)
             
@@ -403,7 +404,7 @@ class DiaryService:
     
     def delete_diary(self, user_id: str, avatar_name: str, date_str: str) -> bool:
         """删除指定日记"""
-        with Session() as session:
+        with new_session() as session:
             deleted = session.query(Diary).filter(
                 and_(
                     Diary.user_id == user_id,
@@ -416,7 +417,7 @@ class DiaryService:
     
     def get_stats(self, user_id: str = None) -> Dict[str, Any]:
         """获取日记统计信息"""
-        with Session() as session:
+        with new_session() as session:
             query = session.query(Diary)
             if user_id:
                 query = query.filter(Diary.user_id == user_id)

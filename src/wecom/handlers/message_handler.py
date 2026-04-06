@@ -16,7 +16,8 @@ from src.services.memory_manager import MemoryManager
 from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
 from src.services.vector_store import QdrantVectorStore
-from src.services.database import Session, ChatMessage
+from src.services.database import ChatMessage
+from src.services.db_session import new_session
 from src.utils.async_utils import run_sync
 from src.wecom.client import WeComClient
 from data.config import config
@@ -304,7 +305,7 @@ class MessageHandler:
 
     def _save_chat_message(self, user_id: str, content: str, reply: str, msg_id: str):
         """保存聊天记录到数据库"""
-        with Session() as session:
+        with new_session() as session:
             try:
                 chat_msg = ChatMessage(
                     sender_id=user_id,

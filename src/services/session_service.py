@@ -8,7 +8,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
-from src.services.database import Session, SessionState, KBSearchSession
+from src.services.database import SessionState, KBSearchSession
+from src.services.db_session import new_session
 
 logger = logging.getLogger('wecom')
 
@@ -29,7 +30,7 @@ class SessionService:
     
     def get_session(self, user_id: str) -> SessionState:
         """获取或创建用户会话状态"""
-        with Session(expire_on_commit=False) as session:
+        with new_session(expire_on_commit=False) as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 state = SessionState(user_id=user_id, mode='work')
@@ -43,7 +44,7 @@ class SessionService:
     
     def update_session_variables(self, user_id: str, variables: dict):
         """更新用户会话上下文变量"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.variables = json.dumps(variables, ensure_ascii=False)
@@ -77,7 +78,7 @@ class SessionService:
 
     def set_tool_profile(self, user_id: str, tool_profile: str) -> None:
         """更新当前会话绑定的工具 profile。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -103,7 +104,7 @@ class SessionService:
         if target_type not in {"file", "dir"}:
             return
 
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -137,7 +138,7 @@ class SessionService:
         payload: Optional[Dict[str, Any]] = None,
     ) -> None:
         """保存待确认的路径候选，等待用户回复“是/不是/序号”。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -159,7 +160,7 @@ class SessionService:
 
     def clear_pending_workspace_resolution(self, user_id: str) -> None:
         """清除待确认的路径候选。"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if not state:
                 return
@@ -179,7 +180,7 @@ class SessionService:
     
     def update_session_mode(self, user_id: str, mode: str):
         """更新用户模式"""
-        with Session() as session:
+        with new_session() as session:
             state = session.query(SessionState).filter_by(user_id=user_id).first()
             if state:
                 state.mode = mode
@@ -191,7 +192,7 @@ class SessionService:
     
     def get_kb_search_session(self, user_id: str) -> Optional[KBSearchSession]:
         """获取用户当前的知识库检索会话"""
-        with Session() as session:
+        with new_session() as session:
             kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
             if kb_session and kb_session.expires_at and kb_session.expires_at < datetime.now():
                 session.delete(kb_session)
@@ -203,7 +204,7 @@ class SessionService:
                                   waiting_for: str, candidates: List[Dict],
                                   current_filter: str = ""):
         """创建知识库检索会话"""
-        with Session() as session:
+        with new_session() as session:
             try:
                 old_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
                 if old_session:
@@ -225,7 +226,7 @@ class SessionService:
     
     def clear_kb_search_session(self, user_id: str):
         """清除知识库检索会话"""
-        with Session() as session:
+        with new_session() as session:
             try:
                 kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
                 if kb_session:
