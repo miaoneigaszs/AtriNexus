@@ -39,7 +39,7 @@ TOOL_OVERVIEW_HINTS = (
 MAX_TOOL_RESULT_CHARS = 4000
 MAX_TOOL_ARG_CHARS = 500
 MAX_TOOL_REPEAT_COUNT = 2
-MAX_TOOL_HISTORY = 8
+MAX_TOOL_HISTORY = 30
 WORKSPACE_PATH_TOOL_KEYS = {"path", "source_path", "target_path"}
 RUN_COMMAND_TOOL_NAME = "run_command"
 TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.ContextVar(
@@ -81,7 +81,10 @@ class LangChainAgentService:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.max_iterations = max(2, int(os.getenv("ATRINEXUS_AGENT_MAX_ITERATIONS", "8")))
+        # OpenClaw 的默认策略不是用很小的总轮数硬截停，而是给 loop detection
+        # 留足历史窗口。这里把默认 recursion_limit 提高到 12，避免简单文件任务在
+        # 完成最后一次 read/search 后还没来得及收尾就被截断。
+        self.max_iterations = max(2, int(os.getenv("ATRINEXUS_AGENT_MAX_ITERATIONS", "12")))
         self.workspace_root = str(Path(__file__).resolve().parents[3])
         search_cfg = config.network_search
         search_api_key = search_cfg.api_key if search_cfg.search_enabled and search_cfg.api_key else None
