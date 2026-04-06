@@ -79,20 +79,6 @@ class ConversationCounter(Base):
     )
 
 
-class KBSearchSession(Base):
-    """知识库检索会话 - 支持多轮检索对话"""
-    __tablename__ = 'kb_search_sessions'
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(String(100), nullable=False)               # 企微UserID
-    original_query = Column(String(500))                        # 原始查询
-    current_filter = Column(String(200))                        # 当前过滤条件
-    waiting_for = Column(String(50))                            # 等待类型: category/header/clarify
-    candidates = Column(Text, default='[]')                     # 候选选项 (JSON)
-    created_at = Column(DateTime, default=datetime.now)
-    expires_at = Column(DateTime)                               # 过期时间
-
-
 class Diary(Base):
     """日记数据模型 - 每日对话回忆"""
     __tablename__ = 'diaries'

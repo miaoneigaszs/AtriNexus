@@ -1,15 +1,15 @@
 """
 会话状态管理服务
-统一管理用户会话状态和KB检索会话
+统一管理用户会话状态
 """
 
 import json
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from datetime import datetime
+from typing import Dict, Any, List
 
 from src.services.agent.tool_profiles import default_tool_profile_for_mode
-from src.services.database import SessionState, KBSearchSession
+from src.services.database import SessionState
 from src.services.db_session import new_session
 
 logger = logging.getLogger('wecom')
@@ -18,14 +18,8 @@ logger = logging.getLogger('wecom')
 class SessionService:
     """会话状态管理服务"""
     
-    def __init__(self, kb_session_timeout: int = 5):
-        """
-        初始化会话服务
-        
-        Args:
-            kb_session_timeout: KB检索会话超时时间（分钟）
-        """
-        self.kb_session_timeout = kb_session_timeout
+    def __init__(self):
+        """初始化会话服务。"""
     
     # ---------- 用户会话状态管理 ----------
     
@@ -199,50 +193,3 @@ class SessionService:
                 session.commit()
                 logger.info(f"用户 {user_id} 模式切换为 {mode}")
     
-    # ---------- KB检索会话管理 ----------
-    
-    def get_kb_search_session(self, user_id: str) -> Optional[KBSearchSession]:
-        """获取用户当前的知识库检索会话"""
-        with new_session() as session:
-            kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-            if kb_session and kb_session.expires_at and kb_session.expires_at < datetime.now():
-                session.delete(kb_session)
-                session.commit()
-                return None
-            return kb_session
-    
-    def create_kb_search_session(self, user_id: str, original_query: str,
-                                  waiting_for: str, candidates: List[Dict],
-                                  current_filter: str = ""):
-        """创建知识库检索会话"""
-        with new_session() as session:
-            try:
-                old_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-                if old_session:
-                    session.delete(old_session)
-
-                kb_session = KBSearchSession(
-                    user_id=user_id,
-                    original_query=original_query,
-                    current_filter=current_filter,
-                    waiting_for=waiting_for,
-                    candidates=json.dumps(candidates, ensure_ascii=False),
-                    expires_at=datetime.now() + timedelta(minutes=self.kb_session_timeout)
-                )
-                session.add(kb_session)
-                session.commit()
-            except Exception as e:
-                logger.error(f"创建KB检索会话失败: {e}")
-                session.rollback()
-    
-    def clear_kb_search_session(self, user_id: str):
-        """清除知识库检索会话"""
-        with new_session() as session:
-            try:
-                kb_session = session.query(KBSearchSession).filter_by(user_id=user_id).first()
-                if kb_session:
-                    session.delete(kb_session)
-                    session.commit()
-            except Exception as e:
-                logger.error(f"清除KB检索会话失败: {e}")
-                session.rollback()

@@ -11,7 +11,6 @@ from src.services.database import (
     ChatMessage,
     ConversationCounter,
     Diary,
-    KBSearchSession,
     MemorySnapshot,
     SessionState,
 )
@@ -27,7 +26,6 @@ MODEL_ORDER = [
     SessionState,
     MemorySnapshot,
     ConversationCounter,
-    KBSearchSession,
     ChatMessage,
     Diary,
 ]

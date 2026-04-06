@@ -70,7 +70,7 @@ class MessageHandler:
             max_tokens=config.llm.max_tokens,
             rag_service=self.rag,
         )
-        self.session_service = SessionService(kb_session_timeout=5)
+        self.session_service = SessionService()
 
         # ========== 初始化处理器（使用拆分后的组件）==========
         self.command_handler = CommandHandler(self.rag)

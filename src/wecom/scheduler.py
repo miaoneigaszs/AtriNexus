@@ -4,12 +4,12 @@
 """
 
 import os
-import json
 import logging
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from src.services.agent.tool_profiles import default_tool_profile_for_mode
 from src.wecom.deps import ROOT_DIR, message_handler, get_diary_service
 
 logger = logging.getLogger('wecom')
@@ -46,7 +46,7 @@ def save_tasks_file(tasks: list) -> bool:
 
 def execute_scheduled_task(task: dict):
     """
-    执行定时任务：加载人设+记忆 → 调 LLM 生成消息 → 发送给用户
+    执行定时任务：加载模式提示+记忆 -> 走主 agent 回复链 -> 发送给用户
     
     Args:
         task: 任务配置字典，包含 task_id, chat_id, content 等
@@ -64,11 +64,13 @@ def execute_scheduled_task(task: dict):
     logger.info(f"[定时任务] 开始执行: {task_id} -> 用户 {chat_id}")
     
     try:
-        # 1. 构建系统提示词（通过 ContextBuilder）
-        avatar_name = 'ATRI'  # 默认人设
+        # 1. 构建模式提示词与会话上下文
+        state = message_handler.session_service.get_session(chat_id)
+        avatar_name = state.avatar_name or 'ATRI'
+        current_mode = 'companion'
         system_prompt = message_handler.context_builder.build_system_prompt(
             avatar_name=avatar_name,
-            current_mode='companion'
+            current_mode=current_mode,
         )
         
         # 2. 加载核心记忆和近期上下文
@@ -84,18 +86,15 @@ def execute_scheduled_task(task: dict):
         except Exception as mem_err:
             logger.warning(f"[定时任务] 加载记忆/上下文失败: {mem_err}")
         
-        # 3. 调用 LLM 生成消息
-        prompt_parts = [system_prompt]
-        if core_memory:
-            prompt_parts.append(f"【核心记忆】\n{core_memory}")
-        if previous_context:
-            prompt_parts.append(f"【近期上下文】\n{json.dumps(previous_context, ensure_ascii=False)}")
-
-        reply = message_handler.llm_service.chat(
-            [
-                {"role": "system", "content": "\n\n".join(part for part in prompt_parts if part)},
-                {"role": "user", "content": content},
-            ]
+        # 3. 复用主 Agent 运行时骨架生成回复，避免定时任务链路与主聊天链路漂移
+        reply = message_handler.reply_service.generate_reply(
+            message=content,
+            user_id=chat_id,
+            system_prompt=system_prompt,
+            tool_profile=default_tool_profile_for_mode(current_mode),
+            previous_context=previous_context,
+            core_memory=core_memory,
+            kb_context=None,
         )
         
         # 4. 清理回复

@@ -268,6 +268,7 @@ Typical production layout includes:
 - Qdrant local state under `data/vectordb_qdrant/` is runtime data and is not tracked in git.
 - KB lookup is now exposed as agent tools instead of a front-routed retrieval step on every normal message.
 - The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
+- When the runtime structure changes, update `README.md` and `README.zh-CN.md` in the same change to keep architecture notes in sync.
 
 ## Who This Is For
 
