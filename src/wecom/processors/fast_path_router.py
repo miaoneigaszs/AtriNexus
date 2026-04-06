@@ -283,10 +283,10 @@ class FastPathRouter:
         ]
         for tool in tool_bundle.tools:
             lines.append(f"- {tool.name}")
-        if tool_bundle.summary_lines:
+        if tool_bundle.detailed_summary_lines:
             lines.append("")
             lines.append("这些工具当前分别能做：")
-            lines.extend(tool_bundle.summary_lines)
+            lines.extend(tool_bundle.detailed_summary_lines)
         return "\n".join(lines)
 
     def _handle_profile_overview(self, user_id: str, message: str) -> str:
@@ -306,10 +306,10 @@ class FastPathRouter:
             "当前工具组：",
             "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无",
         ]
-        if tool_bundle.summary_lines:
+        if tool_bundle.compact_summary_lines:
             lines.append("")
             lines.append("当前能力边界：")
-            lines.extend(tool_bundle.summary_lines)
+            lines.extend(tool_bundle.compact_summary_lines)
         return "\n".join(lines)
 
     def _upgrade_tool_profile(self, user_id: str, message: str) -> None:

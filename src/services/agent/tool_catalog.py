@@ -24,13 +24,20 @@ from src.services.tools.time_tool import TimeTool
 class ToolBundle:
     tools: List[BaseTool]
     profiles: List[str]
-    summary_lines: List[str]
+    compact_summary_lines: List[str]
+    detailed_summary_lines: List[str]
 
     @property
     def summary(self) -> str:
-        if not self.summary_lines:
+        if not self.compact_summary_lines:
             return "- 当前无需额外工具。"
-        return "\n".join(self.summary_lines)
+        return "\n".join(self.compact_summary_lines)
+
+    @property
+    def detailed_summary(self) -> str:
+        if not self.detailed_summary_lines:
+            return "- 当前无需额外工具。"
+        return "\n".join(self.detailed_summary_lines)
 
 
 class ToolCatalog:
@@ -84,7 +91,12 @@ class ToolCatalog:
         tool_profile: Optional[str] = None,
     ) -> ToolBundle:
         if not allow_tools:
-            return ToolBundle(tools=[], profiles=[], summary_lines=[])
+            return ToolBundle(
+                tools=[],
+                profiles=[],
+                compact_summary_lines=[],
+                detailed_summary_lines=[],
+            )
 
         runtime = self.runtime
         message = message or ""
@@ -99,15 +111,19 @@ class ToolCatalog:
 
         tools: List[BaseTool] = []
         profiles: List[str] = ["core", profile]
-        summary_lines: List[str] = []
+        compact_summary_lines: List[str] = []
+        detailed_summary_lines: List[str] = []
 
-        def add_section(label: str, lines: List[str]) -> None:
-            if not lines:
+        def add_section(label: str, compact_line: str, detailed_lines: List[str]) -> None:
+            if not compact_line and not detailed_lines:
                 return
-            if summary_lines:
-                summary_lines.append("")
-            summary_lines.append(f"[{label}]")
-            summary_lines.extend(lines)
+            if compact_line:
+                compact_summary_lines.append(f"[{label}] {compact_line}")
+            if detailed_lines:
+                if detailed_summary_lines:
+                    detailed_summary_lines.append("")
+                detailed_summary_lines.append(f"[{label}]")
+                detailed_summary_lines.extend(detailed_lines)
 
         @tool
         def get_current_time() -> str:
@@ -115,7 +131,11 @@ class ToolCatalog:
             return self.time_tool.execute()
 
         tools.append(get_current_time)
-        add_section("基础", ["- get_current_time: 读当前本地时间。"])
+        add_section(
+            "基础",
+            "读当前本地时间。",
+            ["- get_current_time: 读当前本地时间。"],
+        )
 
         if include_workspace_reads:
             profiles.append("workspace-read")
@@ -145,6 +165,7 @@ class ToolCatalog:
             tools.extend([list_directory, read_file, search_files])
             add_section(
                 "文件读取",
+                "列目录、读文件、搜内容。",
                 [
                     "- list_directory: 列目录。",
                     "- read_file: 读文件。",
@@ -184,6 +205,7 @@ class ToolCatalog:
             tools.extend([preview_write_file, preview_edit_file, preview_append_file])
             add_section(
                 "文件修改",
+                "预览重写、精确替换、头尾追加。",
                 [
                     "- preview_write_file: 预览整文件重写。",
                     "- preview_edit_file: 预览精确替换。",
@@ -203,7 +225,11 @@ class ToolCatalog:
                 return runtime.rename_path(source_path, target_path)
 
             tools.append(rename_path)
-            add_section("文件整理", ["- rename_path: 重命名或移动文件/目录。"])
+            add_section(
+                "文件整理",
+                "重命名或移动文件/目录。",
+                ["- rename_path: 重命名或移动文件/目录。"],
+            )
 
         if include_command:
             profiles.append("command")
@@ -217,7 +243,11 @@ class ToolCatalog:
                 return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
             tools.append(run_command)
-            add_section("运行环境", ["- run_command: 跑命令；复杂或高风险命令先确认。"])
+            add_section(
+                "运行环境",
+                "执行命令；高风险命令先确认。",
+                ["- run_command: 跑命令；复杂或高风险命令先确认。"],
+            )
 
         if include_kb:
             profiles.append("kb")
@@ -247,6 +277,7 @@ class ToolCatalog:
             tools.extend([kb_list_assets, kb_search])
             add_section(
                 "知识库",
+                "看资产目录、查知识库内容。",
                 [
                     "- kb_list_assets: 看知识库里有哪些文档和分类。",
                     "- kb_search: 查知识库内容，可限定文档或分类。",
@@ -265,9 +296,18 @@ class ToolCatalog:
                 return search_tool.execute(query=query)
 
             tools.append(web_search)
-            add_section("联网", ["- web_search: 搜索互联网最新信息。"])
+            add_section(
+                "联网",
+                "搜索互联网最新信息。",
+                ["- web_search: 搜索互联网最新信息。"],
+            )
 
-        return ToolBundle(tools=tools, profiles=profiles, summary_lines=summary_lines)
+        return ToolBundle(
+            tools=tools,
+            profiles=profiles,
+            compact_summary_lines=compact_summary_lines,
+            detailed_summary_lines=detailed_summary_lines,
+        )
 
     def infer_tool_profile(self, message: str) -> str:
         message = message or ""

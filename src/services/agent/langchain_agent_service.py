@@ -44,6 +44,13 @@ MAX_HISTORY_MESSAGES = 8
 MAX_HISTORY_MESSAGE_CHARS = 800
 WORKSPACE_PATH_TOOL_KEYS = {"path", "source_path", "target_path"}
 RUN_COMMAND_TOOL_NAME = "run_command"
+READ_FILE_TOOL_NAME = "read_file"
+LIST_DIRECTORY_TOOL_NAME = "list_directory"
+SEARCH_FILES_TOOL_NAME = "search_files"
+EXPLORATION_TOOL_NAMES = {LIST_DIRECTORY_TOOL_NAME, SEARCH_FILES_TOOL_NAME}
+MAX_LIST_DIRECTORY_LINES = 40
+MAX_SEARCH_RESULT_LINES = 20
+MAX_READ_FILE_CHARS = 2500
 TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.ContextVar(
     "tool_loop_state",
     default=None,
@@ -308,6 +315,20 @@ class LangChainAgentService:
                 request.tool_call["args"] = repaired_args
             tool_args = request.tool_call.get("args", {})
 
+            validation_error = self._validate_tool_args(tool_name, tool_args)
+            if validation_error:
+                logger.warning(
+                    "Tool call blocked by validation: name=%s args=%s error=%s",
+                    tool_name,
+                    self._summarize_tool_args(tool_args),
+                    validation_error,
+                )
+                return ToolMessage(
+                    content=validation_error,
+                    tool_call_id=request.tool_call["id"],
+                    status="error",
+                )
+
             loop_guard_message = self._check_tool_loop(tool_name, tool_args)
             if loop_guard_message:
                 logger.warning("Tool call blocked by loop guard: name=%s args=%s", tool_name, self._summarize_tool_args(tool_args))
@@ -338,6 +359,9 @@ class LangChainAgentService:
                 return response
 
             content = self._extract_tool_message_text(response)
+            content = self._shape_tool_result(tool_name, tool_args, content)
+            response = self._replace_tool_message_content(response, content)
+            self._record_tool_outcome(tool_name, tool_args, response.status, content)
             logger.info(
                 "Tool call end: name=%s status=%s content_chars=%s",
                 tool_name,
@@ -541,9 +565,10 @@ class LangChainAgentService:
         counts = loop_state.setdefault("counts", {})
         recent = loop_state.setdefault("recent", [])
         counts[signature] = int(counts.get(signature, 0)) + 1
-        recent.append(signature)
-        if len(recent) > MAX_TOOL_HISTORY:
-            del recent[0]
+        recent_signatures = loop_state.setdefault("recent_signatures", [])
+        recent_signatures.append(signature)
+        if len(recent_signatures) > MAX_TOOL_HISTORY:
+            del recent_signatures[0]
 
         if counts[signature] > MAX_TOOL_REPEAT_COUNT:
             return (
@@ -551,13 +576,170 @@ class LangChainAgentService:
                 "改用别的工具、直接给出结论，或先向用户确认目标。"
             )
 
-        if len(recent) >= 4 and recent[-1] == recent[-3] and recent[-2] == recent[-4]:
+        if len(recent_signatures) >= 4 and recent_signatures[-1] == recent_signatures[-3] and recent_signatures[-2] == recent_signatures[-4]:
             return (
                 f"工具链出现来回循环：{tool_name}。请不要继续重复试探，"
                 "直接总结当前已知信息，或先向用户确认下一步。"
             )
 
+        if self._is_no_progress_tool_call(tool_name, tool_args, recent):
+            return (
+                f"工具 {tool_name} 继续试探也不会有新进展。"
+                "请直接根据现有结果回答，或向用户确认具体目标。"
+            )
+
         return None
+
+    def _record_tool_outcome(self, tool_name: str, tool_args: Any, status: str, content: str) -> None:
+        loop_state = TOOL_LOOP_STATE.get()
+        if loop_state is None:
+            return
+
+        recent = loop_state.setdefault("recent", [])
+        recent.append(
+            {
+                "tool_name": tool_name,
+                "signature": self._build_tool_signature(tool_name, tool_args),
+                "status": status,
+                "path": self._extract_primary_path(tool_args),
+                "content_hash": hash(content),
+            }
+        )
+        if len(recent) > MAX_TOOL_HISTORY:
+            del recent[0]
+
+    def _is_no_progress_tool_call(
+        self,
+        tool_name: str,
+        tool_args: Any,
+        recent: List[Dict[str, Any]],
+    ) -> bool:
+        if tool_name not in EXPLORATION_TOOL_NAMES or not recent:
+            return False
+
+        recent_successes = [
+            item
+            for item in reversed(recent)
+            if item.get("status") != "error"
+        ]
+        if not recent_successes:
+            return False
+
+        if any(item.get("tool_name") == READ_FILE_TOOL_NAME for item in recent_successes[:3]):
+            return True
+
+        recent_explorations = [
+            item for item in recent_successes[:4] if item.get("tool_name") in EXPLORATION_TOOL_NAMES
+        ]
+        if len(recent_explorations) < 3:
+            return False
+
+        current_path = self._extract_primary_path(tool_args)
+        previous_paths = {
+            str(item.get("path", "")).strip()
+            for item in recent_explorations
+            if str(item.get("path", "")).strip()
+        }
+        if current_path and current_path in previous_paths:
+            return True
+        return False
+
+    def _validate_tool_args(self, tool_name: str, tool_args: Any) -> Optional[str]:
+        if not isinstance(tool_args, dict):
+            return None
+
+        if tool_name == SEARCH_FILES_TOOL_NAME:
+            query = str(tool_args.get("query", "")).strip()
+            normalized = "".join(ch for ch in query.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+            if not query:
+                return "search_files 缺少搜索关键词。"
+            if len(normalized) < 2 and "." not in query and "/" not in query and "\\" not in query:
+                return "search_files 的关键词太短，请给更具体一点的内容。"
+
+        if tool_name in {LIST_DIRECTORY_TOOL_NAME, READ_FILE_TOOL_NAME, "preview_write_file", "preview_edit_file", "preview_append_file"}:
+            path = str(tool_args.get("path", "")).strip()
+            if not path:
+                return f"{tool_name} 缺少路径参数。"
+
+        if tool_name == "rename_path":
+            source_path = str(tool_args.get("source_path", "")).strip()
+            target_path = str(tool_args.get("target_path", "")).strip()
+            if not source_path or not target_path:
+                return "rename_path 需要同时提供 source_path 和 target_path。"
+            if source_path == target_path:
+                return "rename_path 的源路径和目标路径相同，不需要重复执行。"
+
+        if tool_name == "preview_edit_file":
+            find_text = str(tool_args.get("find_text", ""))
+            replace_text = str(tool_args.get("replace_text", ""))
+            if not find_text.strip():
+                return "preview_edit_file 缺少待替换文本。"
+            if find_text == replace_text:
+                return "preview_edit_file 的替换前后文本相同，不需要执行。"
+
+        return None
+
+    def _extract_primary_path(self, tool_args: Any) -> str:
+        if not isinstance(tool_args, dict):
+            return ""
+        for key in ("path", "source_path", "target_path"):
+            value = str(tool_args.get(key, "")).strip()
+            if value:
+                return value
+        return ""
+
+    def _shape_tool_result(self, tool_name: str, tool_args: Any, content: str) -> str:
+        if tool_name == LIST_DIRECTORY_TOOL_NAME:
+            return self._shape_directory_result(content)
+        if tool_name == SEARCH_FILES_TOOL_NAME:
+            return self._shape_search_result(content)
+        if tool_name == READ_FILE_TOOL_NAME:
+            return self._shape_read_file_result(content, self._extract_primary_path(tool_args))
+        return content
+
+    def _shape_directory_result(self, content: str) -> str:
+        lines = content.splitlines()
+        if len(lines) <= MAX_LIST_DIRECTORY_LINES:
+            return content
+        kept = lines[:MAX_LIST_DIRECTORY_LINES]
+        omitted = max(0, len(lines) - len(kept))
+        kept.append(f"... 其余 {omitted} 项已省略")
+        return "\n".join(kept)
+
+    def _shape_search_result(self, content: str) -> str:
+        lines = content.splitlines()
+        if len(lines) <= MAX_SEARCH_RESULT_LINES:
+            return content
+        kept = lines[:MAX_SEARCH_RESULT_LINES]
+        kept.append(f"[匹配结果较多，仅保留前 {MAX_SEARCH_RESULT_LINES} 条；如需继续，请缩小路径或关键词]")
+        return "\n".join(kept)
+
+    def _shape_read_file_result(self, content: str, path: str) -> str:
+        if len(content) <= MAX_READ_FILE_CHARS:
+            return content
+
+        header, separator, body = content.partition("\n\n")
+        if not separator:
+            return self._truncate_tool_text(content)
+
+        trimmed_body = body[: MAX_READ_FILE_CHARS - len(header) - 120].rstrip()
+        hint_path = path or "文件"
+        return (
+            f"{header}\n\n{trimmed_body}\n\n"
+            f"[文件内容较长，已只保留前半段。若要继续，请指定更小范围，例如“{hint_path}最后一行”或“{hint_path} 某段内容”。]"
+        )
+
+    def _replace_tool_message_content(self, message: ToolMessage, content: str) -> ToolMessage:
+        if message.content == content:
+            return message
+        return ToolMessage(
+            content=content,
+            tool_call_id=message.tool_call_id,
+            status=message.status,
+            artifact=message.artifact,
+            name=message.name,
+            id=message.id,
+        )
 
     def _build_tool_signature(self, tool_name: str, tool_args: Any) -> str:
         try:
@@ -604,10 +786,10 @@ class LangChainAgentService:
         ]
         for name in tool_names:
             lines.append(f"- {name}")
-        if tool_bundle.summary_lines:
+        if tool_bundle.detailed_summary_lines:
             lines.append("")
             lines.append("这些工具当前分别能做：")
-            lines.extend(tool_bundle.summary_lines)
+            lines.extend(tool_bundle.detailed_summary_lines)
         return "\n".join(lines)
 
     def _extract_text(self, result: Any) -> str:
