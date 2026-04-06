@@ -1,40 +1,27 @@
-"""
-数据库服务模块
-提供数据库相关功能，包括:
-- 定义数据库模型（ChatMessage, SessionState, MemorySnapshot）
-- 创建数据库连接（SQLite + WAL模式）
-- 管理会话
-- 存储聊天记录、会话状态、记忆快照
-"""
+"""同步数据库入口。当前默认 SQLite，已为 PostgreSQL 迁移预留 URL 入口。"""
 
-import os
 from datetime import datetime
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, event, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from src.services.database_config import build_sync_database_url, build_sync_engine_kwargs, is_sqlite_url
 
 # 创建基类
 Base = declarative_base()
 
-# 获取项目根目录
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-db_path = os.path.join(project_root, 'data', 'database', 'chat_history.db')
+DATABASE_URL = build_sync_database_url()
+engine = create_engine(DATABASE_URL, **build_sync_engine_kwargs(DATABASE_URL))
 
-# 确保数据库目录存在
-os.makedirs(os.path.dirname(db_path), exist_ok=True)
-
-# 创建数据库连接
-engine = create_engine(f'sqlite:///{db_path}')
-
-# 启用 WAL 模式以提升并发性能
 @event.listens_for(engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
+    """仅在 SQLite 下启用 WAL。PostgreSQL 不走这条逻辑。"""
+    if not is_sqlite_url(DATABASE_URL):
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
 
-# 创建会话工厂
-Session = sessionmaker(bind=engine) # bind参数指定了这个Session类将使用哪个数据库引擎进行连接和操作。在这里，我们将之前创建的engine传递给Session，使得通过这个Session创建的会话对象能够与指定的SQLite数据库进行交互。
+Session = sessionmaker(bind=engine, future=True)
 
 
 class ChatMessage(Base):

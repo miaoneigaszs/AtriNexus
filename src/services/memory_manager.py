@@ -6,16 +6,15 @@
 - 核心记忆（LLM 自动摘要的永久关键信息，SQLite）
 """
 
-import json
 import logging
 import os
 import hashlib
 import asyncio
-from datetime import datetime
 from typing import List, Optional
 
 from src.services.ai.embedding_service import EmbeddingService
 from src.services.memory_context import MemoryContextBuilder
+from src.services.memory_updates import MemoryUpdateCoordinator
 from src.services.memory_store import (
     append_short_memory_entry,
     build_context_from_short_memory,
@@ -26,6 +25,7 @@ from src.services.memory_store import (
     save_core_memory as persist_core_memory,
     save_short_memory as persist_short_memory,
 )
+from src.services.memory_vector import MemoryVectorManager
 from src.services.vector_store import QdrantVectorStore, VectorCollection, VectorStore
 from src.utils.async_utils import run_sync
 from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
@@ -98,6 +98,31 @@ class MemoryManager:
             get_short_memory=self.get_short_memory,
             search_relevant_memories=self.search_relevant_memories,
             build_context_from_memory=self.build_context_from_memory,
+        )
+        self.vector_manager = MemoryVectorManager(
+            logger=logger,
+            vector_store=self._vector_store,
+            vector_store_available=self._vector_store_available,
+            decay_rate=self._decay_rate,
+            decay_min=self._decay_min,
+            get_collection=self._get_collection,
+        )
+        self.update_coordinator = MemoryUpdateCoordinator(
+            logger=logger,
+            llm_service=self.llm_service,
+            memory_prompt_path=self._memory_prompt_path,
+            zone_stable=_ZONE_STABLE,
+            zone_recent=_ZONE_RECENT,
+            get_short_memory=self.get_short_memory,
+            build_context_from_memory=self.build_context_from_memory,
+            get_core_memory=self.get_core_memory,
+            save_core_memory=self.save_core_memory,
+            add_to_vector_memory=self.add_to_vector_memory,
+            extract_zone=self._extract_zone,
+            increment_core_count=self._increment_core_count,
+            reset_core_count=self._reset_core_count,
+            increment_vector_count=self._increment_vector_count,
+            reset_vector_count=self._reset_vector_count,
         )
 
         logger.info("MemoryManager 初始化完成（三层记忆架构）")
@@ -187,225 +212,27 @@ class MemoryManager:
     # ---------- 中期记忆（向量检索）----------
 
     def add_to_vector_memory(self, user_id: str, avatar_name: str, summary: str):
-        """
-        将对话摘要写入向量库
-
-        Args:
-            user_id: 用户ID
-            avatar_name: 人设名称
-            summary: 对话摘要文本
-        """
-        collection = self._get_collection(user_id, avatar_name)
-        if not collection:
-            return
-
-        try:
-            # 生成唯一 ID
-            doc_id = f"mem_{datetime.now().strftime('%Y%m%d%H%M%S')}_{hashlib.md5(summary.encode()).hexdigest()[:8]}"
-
-            collection.add(
-                ids=[doc_id],
-                documents=[summary],
-                metadatas=[{
-                    "user_id": user_id,
-                    "avatar_name": avatar_name,
-                    "timestamp": datetime.now().isoformat(),
-                    "type": "conversation_summary"
-                }]
-            )
-            
-            # 更新 Prometheus 指标
-            if PROMETHEUS_AVAILABLE and Metrics.memory_vector_entries:
-                count = collection.count()
-                Metrics.memory_vector_entries.labels(
-                    user_id=user_id, avatar_name=avatar_name
-                ).set(count)
-            
-            if PROMETHEUS_AVAILABLE and Metrics.memory_operations_total:
-                Metrics.memory_operations_total.labels(
-                    operation='add', memory_type='vector'
-                ).inc()
-            
-            logger.info(f"对话摘要已写入向量库: {summary[:50]}...")
-        except Exception as e:
-            logger.error(f"写入向量库失败: {e}")
+        """将对话摘要写入向量库。"""
+        self.vector_manager.add_summary(user_id, avatar_name, summary)
 
     def search_relevant_memories(self, user_id: str, avatar_name: str,
                                   query: str, top_k: int = 3) -> List[str]:
-        """
-        语义搜索相关记忆（支持时间衰减重排）
-
-        Args:
-            user_id: 用户ID
-            avatar_name: 人设名称
-            query: 搜索查询（当前用户消息）
-            top_k: 返回最相关的 N 条记忆
-
-        Returns:
-            List[str]: 相关记忆文本列表
-        """
-        collection = self._get_collection(user_id, avatar_name)
-        if not collection:
-            return []
-
-        try:
-            # 检查 collection 是否有数据
-            count = collection.count()
-            if count == 0:
-                return []
-
-            # 查询更多候选以便时间衰减重排 (取 top_k * 3 或至少 10 条)
-            candidate_k = min(max(top_k * 3, 10), count)
-
-            results = collection.query(
-                query_texts=[query],
-                n_results=candidate_k
-            )
-
-            if results and results['documents'] and results['documents'][0]:
-                memories = results['documents'][0]
-                metadatas = results['metadatas'][0] if results.get('metadatas') else [{}] * len(memories)
-                distances = results['distances'][0] if results.get('distances') else [0] * len(memories)
-
-                # 开始重排（时间衰减 + 相关度结合）
-                scored_memories = []
-                now = datetime.now()
-                for mem, meta, dist in zip(memories, metadatas, distances):
-                    # 基准相似度：L2距离越小越好
-                    sim_score = 1.0 / (1.0 + dist)
-
-                    # 时间衰减：越久远的记忆权重越低（使用配置化参数）
-                    time_str = meta.get('timestamp')
-                    decay = 1.0
-                    if time_str:
-                        try:
-                            mem_time = datetime.fromisoformat(time_str)
-                            hours_diff = (now - mem_time).total_seconds() / 3600
-                            # 使用配置的衰减率和最低权重
-                            decay = max(self._decay_min, self._decay_rate ** (hours_diff / 24.0))
-                        except Exception:
-                            pass
-
-                    # 综合得分
-                    final_score = sim_score * decay
-                    scored_memories.append((final_score, mem, dist, decay))
-
-                # 按综合得分降序排序
-                scored_memories.sort(key=lambda x: x[0], reverse=True)
-                
-                # 取前 top_k
-                top_memories = scored_memories[:top_k]
-
-                logger.info(f"向量检索: 查询='{query[:30]}...', 候选={len(memories)}条，返回={len(top_memories)}条")
-                for i, (score, mem, dist, decay) in enumerate(top_memories):
-                    logger.debug(f"  [{i}] 综合={score:.3f} (距={dist:.3f}, 衰减={decay:.3f}): {mem[:50]}...")
-                    
-                return [item[1] for item in top_memories]
-
-            return []
-        except Exception as e:
-            logger.error(f"向量检索失败: {e}")
-            return []
+        """语义搜索相关记忆（支持时间衰减重排）。"""
+        return self.vector_manager.search(user_id, avatar_name, query, top_k)
 
     # ---------- 向量记忆公共接口 ----------
 
     def get_vector_memories(self, user_id: str, avatar_name: str, limit: int = 20) -> dict:
-        """
-        获取用户的向量记忆（中期记忆）
-
-        Args:
-            user_id: 用户ID
-            avatar_name: 人设名称
-            limit: 返回条数
-
-        Returns:
-            dict: {
-                'collection': collection 对象或 None,
-                'memories': [{'id': ..., 'content': ..., 'metadata': ...}],
-                'total': 总数
-            }
-        """
-        collection = self._get_collection(user_id, avatar_name)
-        if not collection:
-            return {'collection': None, 'memories': [], 'total': 0}
-
-        try:
-            results = collection.get(limit=limit, include=["documents", "metadatas"])
-
-            memories = []
-            if results and results['ids']:
-                for i, doc_id in enumerate(results['ids']):
-                    memories.append({
-                        "id": doc_id,
-                        "content": results['documents'][i] if results.get('documents') else None,
-                        "metadata": results['metadatas'][i] if results.get('metadatas') else {}
-                    })
-
-            return {
-                'collection': collection,
-                'memories': memories,
-                'total': collection.count()
-            }
-        except Exception as e:
-            logger.error(f"获取向量记忆失败: {e}")
-            return {'collection': None, 'memories': [], 'total': 0}
+        """获取用户的向量记忆（中期记忆）。"""
+        return self.vector_manager.get_memories(user_id, avatar_name, limit)
 
     def get_vector_store_stats(self) -> List[dict]:
         """返回向量存储中的记忆集合统计。"""
-        if not self._vector_store_available or not self._vector_store:
-            return []
-
-        client = getattr(self._vector_store, "_client", None)
-        if client is None or not hasattr(client, "get_collections"):
-            return []
-
-        try:
-            collections = client.get_collections().collections
-            stats: List[dict] = []
-            for collection in collections:
-                name = getattr(collection, "name", "")
-                if not str(name).startswith("mem_"):
-                    continue
-                qdrant_collection = self._vector_store.get_or_create_collection(name)
-                stats.append({
-                    "name": name,
-                    "count": qdrant_collection.count(),
-                })
-            return stats
-        except Exception as e:
-            logger.error(f"获取向量存储统计失败: {e}")
-            return []
+        return self.vector_manager.get_store_stats()
 
     def delete_vector_memory(self, user_id: str, avatar_name: str, memory_id: str = None) -> bool:
-        """
-        删除向量记忆
-
-        Args:
-            user_id: 用户ID
-            avatar_name: 人设名称
-            memory_id: 记忆ID，为空则清空全部
-
-        Returns:
-            bool: 是否成功
-        """
-        collection = self._get_collection(user_id, avatar_name)
-        if not collection:
-            return True  # 空集合视为已删除
-
-        try:
-            if memory_id:
-                # 删除单条记忆
-                collection.delete(ids=[memory_id])
-                logger.info(f"向量记忆已删除: user={user_id}, id={memory_id}")
-            else:
-                # 清空全部（删除整个 collection）
-                self._vector_store.delete_collection(collection.name)
-                logger.info(f"向量记忆已清空: user={user_id}, avatar={avatar_name}")
-
-            return True
-        except Exception as e:
-            logger.error(f"删除向量记忆失败: {e}")
-            return False
+        """删除向量记忆。"""
+        return self.vector_manager.delete_memory(user_id, avatar_name, memory_id)
 
     # ---------- 核心记忆 ----------
 
@@ -496,88 +323,20 @@ class MemoryManager:
         self._update_memories_if_needed(user_id, avatar_name)
 
     def _update_memories_if_needed(self, user_id: str, avatar_name: str):
-        """
-        两套独立触发链（互不干扰，计数器分离）：
-          每10轮 -> 对话摘要写入向量库（中期记忆）
-          每15轮 -> LLM重写核心记忆双区（稳定区 + 近期区）
-        步骤A（归档近期区到向量库）已移除，消除与中期记忆的重叠。
-        """
-        # ===== 向量记忆：每10轮 =====
-        vector_count = self._increment_vector_count(user_id, avatar_name)
-        if vector_count >= 10:
-            self._reset_vector_count(user_id, avatar_name)
-            self._do_update_vector_memory(user_id, avatar_name)
-
-        # ===== 核心记忆：每15轮 =====
-        core_count = self._increment_core_count(user_id, avatar_name)
-        if core_count >= 15:
-            self._reset_core_count(user_id, avatar_name)
-            self._do_update_core_memory(user_id, avatar_name)
+        """根据计数器触发核心记忆和向量记忆更新。"""
+        self.update_coordinator.update_memories_if_needed(user_id, avatar_name)
 
     def _do_update_vector_memory(self, user_id: str, avatar_name: str):
-        """将本批对话摘要写入向量库（每10轮触发）"""
-        if not self._vector_store_available:
-            return
-        if not self.llm_service:
-            logger.warning("[VectorMemory] 未注入 LLMService，跳过向量记忆更新")
-            return
-        try:
-            short_memory = self.get_short_memory(user_id, avatar_name)
-            context = self.build_context_from_memory(short_memory)
-            summary_messages = [
-                {"role": "system", "content": (
-                    "请用2-3句话，以第三人称简洁总结以下对话的主要内容和关键信息，"
-                    "使用对话中出现的具体称呼（如人名、昵称），而不是泛称'用户'或'AI'。"
-                    "只返回总结，不要任何解释。"
-                )},
-                {"role": "user", "content": json.dumps(context, ensure_ascii=False)}
-            ]
-            summary = self.llm_service.chat(summary_messages)
-            if summary:
-                self.add_to_vector_memory(user_id, avatar_name, summary)
-                logger.info(f"[VectorMemory] 对话摘要已写入，user={user_id}: {summary[:50]}...")
-        except Exception as e:
-            logger.error(f"[VectorMemory] 生成对话摘要失败: {e}")
+        """将本批对话摘要写入向量库（每10轮触发）。"""
+        self.update_coordinator.update_vector_memory(
+            user_id,
+            avatar_name,
+            vector_store_available=self._vector_store_available,
+        )
 
     def _do_update_core_memory(self, user_id: str, avatar_name: str):
-        """LLM重写核心记忆双区格式（每15轮触发）"""
-        if not self.llm_service:
-            logger.warning("[CoreMemory] 未注入 LLMService，跳过核心记忆更新")
-            return
-        try:
-            short_memory = self.get_short_memory(user_id, avatar_name)
-            context = self.build_context_from_memory(short_memory)
-            existing_core = self.get_core_memory(user_id, avatar_name)
-
-            try:
-                with open(self._memory_prompt_path, 'r', encoding='utf-8') as f:
-                    memory_prompt = f.read()
-            except FileNotFoundError:
-                memory_prompt = (
-                    f"请根据旧核心记忆和最新对话，按以下格式重写核心记忆：\n"
-                    f"{_ZONE_STABLE}\n（稳定信息，200字内，只改变明确更新的内容）\n\n"
-                    f"{_ZONE_RECENT}\n（近期信息，200字内，根据最新对话重新提炼）\n\n"
-                    "直接输出双区格式文本，不要任何解释。"
-                )
-
-            messages = [
-                {"role": "system", "content": memory_prompt},
-                {"role": "user", "content": (
-                    f"旧核心记忆：\n{existing_core}\n\n"
-                    f"最新对话：\n{json.dumps(context, ensure_ascii=False)}"
-                )}
-            ]
-            new_core = self.llm_service.chat(messages)
-            if new_core:
-                self.save_core_memory(user_id, avatar_name, new_core)
-                stable = self._extract_zone(new_core, _ZONE_STABLE)
-                recent = self._extract_zone(new_core, _ZONE_RECENT)
-                logger.info(
-                    f"[CoreMemory] 核心记忆已更新 "
-                    f"稳定区={len(stable)}字 近期区={len(recent)}字"
-                )
-        except Exception as e:
-            logger.error(f"[CoreMemory] 更新核心记忆失败: {e}", exc_info=True)
+        """LLM重写核心记忆双区格式（每15轮触发）。"""
+        self.update_coordinator.update_core_memory(user_id, avatar_name)
 
     # ========== 异步方法（性能优化）==========
 
@@ -642,75 +401,14 @@ class MemoryManager:
             logger.error(f"异步更新记忆失败: {e}", exc_info=True)
 
     async def _update_memories_if_needed_async(self, user_id: str, avatar_name: str) -> None:
-        vector_count = await run_sync(self._increment_vector_count, user_id, avatar_name)
-        if vector_count >= 10:
-            await run_sync(self._reset_vector_count, user_id, avatar_name)
-            await self._do_update_vector_memory_async(user_id, avatar_name)
-
-        core_count = await run_sync(self._increment_core_count, user_id, avatar_name)
-        if core_count >= 15:
-            await run_sync(self._reset_core_count, user_id, avatar_name)
-            await self._do_update_core_memory_async(user_id, avatar_name)
+        await self.update_coordinator.update_memories_if_needed_async(user_id, avatar_name)
 
     async def _do_update_vector_memory_async(self, user_id: str, avatar_name: str) -> None:
-        if not self._vector_store_available:
-            return
-        if not self.llm_service:
-            logger.warning("[VectorMemory] 未注入 LLMService，跳过向量记忆更新")
-            return
-        try:
-            short_memory = await run_sync(self.get_short_memory, user_id, avatar_name)
-            context = self.build_context_from_memory(short_memory)
-            summary_messages = [
-                {"role": "system", "content": (
-                    "请用2-3句话，以第三人称简洁总结以下对话的主要内容和关键信息，"
-                    "使用对话中出现的具体称呼（如人名、昵称），而不是泛称'用户'或'AI'。"
-                    "只返回总结，不要任何解释。"
-                )},
-                {"role": "user", "content": json.dumps(context, ensure_ascii=False)}
-            ]
-            summary = await self.llm_service.chat_async(summary_messages)
-            if summary and summary != "抱歉，我暂时无法处理你的消息，请稍后再试。":
-                await run_sync(self.add_to_vector_memory, user_id, avatar_name, summary)
-                logger.info(f"[VectorMemory] 对话摘要已写入，user={user_id}: {summary[:50]}...")
-        except Exception as e:
-            logger.error(f"[VectorMemory] 异步生成对话摘要失败: {e}", exc_info=True)
+        await self.update_coordinator.update_vector_memory_async(
+            user_id,
+            avatar_name,
+            vector_store_available=self._vector_store_available,
+        )
 
     async def _do_update_core_memory_async(self, user_id: str, avatar_name: str) -> None:
-        if not self.llm_service:
-            logger.warning("[CoreMemory] 未注入 LLMService，跳过核心记忆更新")
-            return
-        try:
-            short_memory = await run_sync(self.get_short_memory, user_id, avatar_name)
-            context = self.build_context_from_memory(short_memory)
-            existing_core = await run_sync(self.get_core_memory, user_id, avatar_name)
-
-            try:
-                with open(self._memory_prompt_path, 'r', encoding='utf-8') as f:
-                    memory_prompt = f.read()
-            except FileNotFoundError:
-                memory_prompt = (
-                    f"请根据旧核心记忆和最新对话，按以下格式重写核心记忆：\n"
-                    f"{_ZONE_STABLE}\n（稳定信息，200字内，只改变明确更新的内容）\n\n"
-                    f"{_ZONE_RECENT}\n（近期信息，200字内，根据最新对话重新提炼）\n\n"
-                    "直接输出双区格式文本，不要任何解释。"
-                )
-
-            messages = [
-                {"role": "system", "content": memory_prompt},
-                {"role": "user", "content": (
-                    f"旧核心记忆：\n{existing_core}\n\n"
-                    f"最新对话：\n{json.dumps(context, ensure_ascii=False)}"
-                )}
-            ]
-            new_core = await self.llm_service.chat_async(messages)
-            if new_core and new_core != "抱歉，我暂时无法处理你的消息，请稍后再试。":
-                await run_sync(self.save_core_memory, user_id, avatar_name, new_core)
-                stable = self._extract_zone(new_core, _ZONE_STABLE)
-                recent = self._extract_zone(new_core, _ZONE_RECENT)
-                logger.info(
-                    f"[CoreMemory] 核心记忆已更新 "
-                    f"稳定区={len(stable)}字 近期区={len(recent)}字"
-                )
-        except Exception as e:
-            logger.error(f"[CoreMemory] 异步更新核心记忆失败: {e}", exc_info=True)
+        await self.update_coordinator.update_core_memory_async(user_id, avatar_name)
