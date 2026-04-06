@@ -11,7 +11,6 @@ from sqlalchemy.exc import IntegrityError
 
 from src.services.ai.llm_service import LLMService
 from src.services.agent.langchain_agent_service import LangChainAgentService
-from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.services.memory_manager import MemoryManager
 from src.services.rag_service import SdkRAGService
 from src.services.session_service import SessionService
@@ -259,11 +258,7 @@ class MessageHandler:
 
         # 3. 构建系统提示词
         system_prompt = self.context_builder.build_system_prompt(avatar_name, current_mode)
-        inferred_profile = self.reply_service.tool_catalog.infer_tool_profile(content)
-        current_profile = self.session_service.get_tool_profile(user_id)
-        tool_profile = merge_tool_profile(current_profile, inferred_profile)
-        if tool_profile != normalize_tool_profile(current_profile):
-            self.session_service.set_tool_profile(user_id, tool_profile)
+        tool_profile = self.session_service.get_tool_profile(user_id)
         # 4. 调用 LLM 生成回复
         try:
             reply = await self.reply_service.generate_reply_async(

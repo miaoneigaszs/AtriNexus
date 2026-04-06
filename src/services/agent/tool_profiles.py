@@ -9,6 +9,13 @@ PROFILE_ORDER = (
 )
 
 
+def default_tool_profile_for_mode(mode: str | None) -> str:
+    normalized = str(mode or "").strip().lower()
+    if normalized == "work":
+        return "workspace_exec"
+    return "chat"
+
+
 def normalize_tool_profile(profile: str | None) -> str:
     if not profile:
         return "chat"

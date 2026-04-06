@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
+from src.services.agent.tool_profiles import default_tool_profile_for_mode
 from src.services.database import SessionState, KBSearchSession
 from src.services.db_session import new_session
 
@@ -63,8 +64,18 @@ class SessionService:
 
     def get_tool_profile(self, user_id: str) -> str:
         """读取当前会话绑定的工具 profile。"""
-        variables = self.get_session_variables(user_id)
-        return str(variables.get("tool_profile", "chat"))
+        state = self.get_session(user_id)
+        raw = state.variables or "{}"
+        try:
+            variables = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("用户 %s 的 session variables 不是合法 JSON，已忽略", user_id)
+            variables = {}
+
+        value = str(variables.get("tool_profile", "")).strip()
+        if value:
+            return value
+        return default_tool_profile_for_mode(state.mode)
 
     def get_current_mode(self, user_id: str) -> str:
         """读取当前会话模式。"""

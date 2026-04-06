@@ -55,7 +55,6 @@ class FastPathRouter:
 
         self.path_resolver.begin(user_id)
         normalized_message = self.path_resolver.normalize_request_text(message)
-        self._upgrade_tool_profile(user_id, normalized_message)
 
         if self.TOOL_OVERVIEW_PATTERN.search(normalized_message):
             return self._handle_tool_overview(user_id, normalized_message)
@@ -69,6 +68,7 @@ class FastPathRouter:
             return pending_reply
         if block_rewrite_request:
             path, target, instruction = block_rewrite_request
+            self._promote_tool_profile(user_id, "workspace_edit")
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.rewrite_helper.handle_block_rewrite(user_id, path, target, instruction)
 
@@ -78,6 +78,7 @@ class FastPathRouter:
             return pending_reply
         if replace_request:
             path, find_text, replace_text = replace_request
+            self._promote_tool_profile(user_id, "workspace_edit")
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_edit_file(
                 path,
@@ -92,6 +93,7 @@ class FastPathRouter:
             return pending_reply
         if rewrite_request:
             path, content = rewrite_request
+            self._promote_tool_profile(user_id, "workspace_edit")
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_write_file(
                 path,
@@ -105,6 +107,7 @@ class FastPathRouter:
             return pending_reply
         if append_request:
             path, content, position = append_request
+            self._promote_tool_profile(user_id, "workspace_edit")
             self.session_service.set_last_workspace_target(user_id, path, "file")
             return self.tool_catalog.runtime.preview_append_file(
                 path,
@@ -119,6 +122,7 @@ class FastPathRouter:
             return pending_reply
         if rename_paths:
             source_path, target_path = rename_paths
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.rename_path(source_path, target_path)
             if not reply.startswith(("未找到源路径", "路径不允许访问", "目标路径无效")):
                 self.session_service.set_last_workspace_target(user_id, target_path, "file")
@@ -130,6 +134,7 @@ class FastPathRouter:
             return pending_reply
         if read_line_request:
             path, position = read_line_request
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.read_file_line(path, position)
             if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
                 self.session_service.set_last_workspace_target(user_id, path, "file")
@@ -138,6 +143,7 @@ class FastPathRouter:
         search_request = self._extract_search_request(normalized_message)
         if search_request:
             query, path = search_request
+            self._promote_tool_profile(user_id, "workspace_read")
             return self.tool_catalog.runtime.search_files(query, path)
 
         file_path = self._extract_read_file_path(normalized_message)
@@ -145,6 +151,7 @@ class FastPathRouter:
         if pending_reply:
             return pending_reply
         if file_path:
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.read_file(file_path)
             if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
                 self.session_service.set_last_workspace_target(user_id, file_path, "file")
@@ -155,6 +162,7 @@ class FastPathRouter:
         if pending_reply:
             return pending_reply
         if dir_path:
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.list_directory(dir_path)
             if not reply.startswith(("路径不存在", "目标不是目录", "路径不允许访问")):
                 self.session_service.set_last_workspace_target(user_id, dir_path, "dir")
@@ -248,8 +256,7 @@ class FastPathRouter:
             lines.extend(tool_bundle.compact_summary_lines)
         return "\n".join(lines)
 
-    def _upgrade_tool_profile(self, user_id: str, message: str) -> None:
-        inferred = self.tool_catalog.infer_tool_profile(message)
+    def _promote_tool_profile(self, user_id: str, inferred: str) -> None:
         current = self.session_service.get_tool_profile(user_id)
         merged = merge_tool_profile(current, inferred)
         if merged != normalize_tool_profile(current):
@@ -455,9 +462,11 @@ class FastPathRouter:
 
         if target_type == "file" and any(token in message for token in ("它", "这个文件")):
             if any(keyword in message for keyword in ("内容", "写的什么", "写了什么", "有什么", "有哪些")):
+                self._promote_tool_profile(user_id, "workspace_read")
                 return self.tool_catalog.runtime.read_file(path)
             if any(keyword in message for keyword in ("最后一行", "末行", "第一行", "首行")):
                 position = "first" if any(keyword in message for keyword in ("第一行", "首行")) else "last"
+                self._promote_tool_profile(user_id, "workspace_read")
                 return self.tool_catalog.runtime.read_file_line(path, position)
 
         return None
@@ -474,12 +483,16 @@ class FastPathRouter:
         payload = payload if isinstance(payload, dict) else {}
 
         if action == "read_file":
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.read_file(path)
         elif action == "read_file_line":
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.read_file_line(path, str(payload.get("position", "last")))
         elif action == "list_directory":
+            self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.list_directory(path)
         elif action == "preview_edit_file":
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.preview_edit_file(
                 path,
                 str(payload.get("find_text", "")),
@@ -487,12 +500,14 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
         elif action == "preview_write_file":
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.preview_write_file(
                 path,
                 str(payload.get("content", "")),
                 owner_user_id=user_id,
             )
         elif action == "preview_append_file":
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.preview_append_file(
                 path,
                 str(payload.get("content", "")),
@@ -500,6 +515,7 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
         elif action == "rewrite_block":
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.rewrite_helper.handle_block_rewrite(
                 user_id,
                 path,
@@ -507,6 +523,7 @@ class FastPathRouter:
                 str(payload.get("instruction", "改短一点")),
             )
         elif action == "rename_path":
+            self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.rename_path(path, str(payload.get("target_path", "")))
         else:
             return "这次文件定位候选已经失效，请重新描述一次你的请求。"
