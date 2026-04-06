@@ -8,6 +8,7 @@ from src.services.agent.tool_catalog import ToolCatalog
 from src.services.agent.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.services.prompt_manager import PromptManager
 from src.services.session_service import SessionService
+from src.wecom.processors.fast_path_rewrite import FastPathRewriteHelper
 from src.wecom.processors.fast_path_resolution import WorkspacePathResolver
 
 if TYPE_CHECKING:
@@ -116,6 +117,11 @@ class FastPathRouter:
         self.llm_service = llm_service
         self.prompt_manager = PromptManager(str(self.tool_catalog.runtime.workspace_root))
         self.path_resolver = WorkspacePathResolver(self.tool_catalog.runtime, self.session_service)
+        self.rewrite_helper = FastPathRewriteHelper(
+            self.tool_catalog.runtime,
+            self.llm_service,
+            self.prompt_manager,
+        )
 
     def try_handle(self, user_id: str, message: str) -> Optional[str]:
         message = (message or "").strip()
@@ -139,7 +145,7 @@ class FastPathRouter:
         if block_rewrite_request:
             path, target, instruction = block_rewrite_request
             self.session_service.set_last_workspace_target(user_id, path, "file")
-            return self._handle_block_rewrite(user_id, path, target, instruction)
+            return self.rewrite_helper.handle_block_rewrite(user_id, path, target, instruction)
 
         replace_request = self._extract_replace_request(normalized_message)
         pending_reply = self.path_resolver.take_pending_reply()
@@ -466,78 +472,6 @@ class FastPathRouter:
                 return path, content, position
         return None
 
-    def _handle_block_rewrite(self, user_id: str, path: str, target: str, instruction: str) -> str:
-        if not self.llm_service:
-            return "当前未接入段落改写能力，请改用精确替换或整文件预览修改。"
-
-        target_file = self.tool_catalog.runtime._resolve_path(path)
-        if not target_file.exists():
-            return f"文件不存在: {path}"
-        if not target_file.is_file():
-            return f"目标不是文件: {path}"
-
-        text = target_file.read_text(encoding="utf-8", errors="ignore")
-        span = self._locate_rewrite_block(text, target)
-        if not span:
-            return f"未找到可改写的{target}"
-
-        start_index, end_index = span
-        original_block = text[start_index:end_index]
-        rewritten_block = self._rewrite_block_with_llm(path, target, instruction, original_block)
-        if not rewritten_block or rewritten_block == original_block:
-            return "未生成有效改写结果，请改用更明确的修改指令。"
-
-        return self.tool_catalog.runtime.preview_replace_span(
-            path,
-            start_index,
-            end_index,
-            rewritten_block,
-            owner_user_id=user_id,
-        )
-
-    def _locate_rewrite_block(self, text: str, target: str) -> Optional[Tuple[int, int]]:
-        if target == "标题":
-            return self._find_first_heading_span(text)
-        return self._find_first_paragraph_span(text)
-
-    def _find_first_heading_span(self, text: str) -> Optional[Tuple[int, int]]:
-        match = re.search(r"^#+[ \t].+$", text, re.MULTILINE)
-        if match:
-            return match.start(), match.end()
-
-        first_line_match = re.search(r"^[^\n]+", text)
-        if not first_line_match:
-            return None
-        return first_line_match.start(), first_line_match.end()
-
-    def _find_first_paragraph_span(self, text: str) -> Optional[Tuple[int, int]]:
-        pattern = re.compile(r"(?:^|\n\n)(?P<block>(?!#)[^\n][\s\S]*?)(?=\n\n|$)")
-        for match in pattern.finditer(text):
-            block = match.group("block").strip()
-            if not block:
-                continue
-            return match.start("block"), match.end("block")
-        return None
-
-    def _rewrite_block_with_llm(self, path: str, target: str, instruction: str, original_block: str) -> str:
-        messages = [
-            {
-                "role": "system",
-                "content": self.prompt_manager.build_fast_path_rewrite_prompt(),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"文件路径：{path}\n"
-                    f"目标块：{target}\n"
-                    f"改写要求：{instruction}\n\n"
-                    "请只改写下面这个已经定位好的块，不要扩写其它部分。\n\n"
-                    f"原文如下：\n{original_block}"
-                ),
-            },
-        ]
-        return self.llm_service.chat(messages).strip()
-
     def _extract_rename_paths(self, message: str) -> Optional[Tuple[str, str]]:
         for pattern in self.RENAME_PATTERNS:
             match = pattern.search(message)
@@ -641,7 +575,7 @@ class FastPathRouter:
                 owner_user_id=user_id,
             )
         elif action == "rewrite_block":
-            reply = self._handle_block_rewrite(
+            reply = self.rewrite_helper.handle_block_rewrite(
                 user_id,
                 path,
                 str(payload.get("target", "第一段")),
