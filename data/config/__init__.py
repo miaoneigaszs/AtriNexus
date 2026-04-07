@@ -556,52 +556,52 @@ class Config:
                 )
 
                 # LLM设置
-                llm_data = categories['llm_settings']['settings']
+                llm_data = categories.get('llm_settings', {}).get('settings', {})
                 # fallback_models: 备用模型列表
                 fallback_models_data = llm_data.get('fallback_models', {}).get('value', [])
                 if not isinstance(fallback_models_data, list):
                     fallback_models_data = []
 
                 self.llm = LLMSettings(
-                    api_key=get_env_override('llm.api_key', llm_data['api_key'].get('value', '')),
-                    base_url=llm_data['base_url'].get('value', ''),
-                    model=llm_data['model'].get('value', ''),
-                    max_tokens=int(llm_data['max_tokens'].get('value', 0)),
-                    temperature=float(llm_data['temperature'].get('value', 0)),
-                    auto_model_switch=bool(llm_data['auto_model_switch'].get('value', False)),
+                    api_key=get_env_override('llm.api_key', llm_data.get('api_key', {}).get('value', '')),
+                    base_url=llm_data.get('base_url', {}).get('value', ''),
+                    model=llm_data.get('model', {}).get('value', ''),
+                    max_tokens=int(llm_data.get('max_tokens', {}).get('value', 0)),
+                    temperature=float(llm_data.get('temperature', {}).get('value', 0)),
+                    auto_model_switch=bool(llm_data.get('auto_model_switch', {}).get('value', False)),
                     fallback_models=fallback_models_data
                 )
 
                 # 媒体设置
-                media_data = categories['media_settings']['settings']
-                image_recognition_data = media_data['image_recognition']
+                media_data = categories.get('media_settings', {}).get('settings', {})
+                image_recognition_data = media_data.get('image_recognition', {})
 
                 self.media = MediaSettings(
                     image_recognition=ImageRecognitionSettings(
                         api_key=get_env_override(
                             'media.image_recognition.api_key',
-                            image_recognition_data['api_key'].get('value', ''),
+                            image_recognition_data.get('api_key', {}).get('value', ''),
                         ),
-                        base_url=image_recognition_data['base_url'].get('value', ''),
-                        temperature=float(image_recognition_data['temperature'].get('value', 0)),
-                        model=image_recognition_data['model'].get('value', '')
+                        base_url=image_recognition_data.get('base_url', {}).get('value', ''),
+                        temperature=float(image_recognition_data.get('temperature', {}).get('value', 0)),
+                        model=image_recognition_data.get('model', {}).get('value', '')
                     )
                 )
 
                 # 行为设置
-                behavior_data = categories['behavior_settings']['settings']
-                auto_message_data = behavior_data['auto_message']
+                behavior_data = categories.get('behavior_settings', {}).get('settings', {})
+                auto_message_data = behavior_data.get('auto_message', {})
                 auto_message_countdown = auto_message_data.get('countdown', {})
-                quiet_time_data = behavior_data['quiet_time']
-                context_data = behavior_data['context']
+                quiet_time_data = behavior_data.get('quiet_time', {})
+                context_data = behavior_data.get('context', {})
 
                 # 消息队列设置
                 message_queue_data = behavior_data.get('message_queue', {})
                 message_queue_timeout = message_queue_data.get('timeout', {}).get('value', 8)
 
                 # 确保目录路径规范化
-                avatar_dir = context_data['avatar_dir'].get('value', '')
-                if not avatar_dir.startswith('data/avatars/'):
+                avatar_dir = context_data.get('avatar_dir', {}).get('value', '')
+                if avatar_dir and not avatar_dir.startswith('data/avatars/'):
                     avatar_dir = f"data/avatars/{avatar_dir.split('/')[-1]}"
 
                 # 定时任务配置
@@ -625,16 +625,16 @@ class Config:
                 # 行为配置
                 self.behavior = BehaviorSettings(
                     auto_message=AutoMessageSettings(
-                        content=auto_message_data['content'].get('value', ''),
+                        content=auto_message_data.get('content', {}).get('value', ''),
                         min_hours=float(auto_message_countdown.get('min_hours', {}).get('value', 0)),
                         max_hours=float(auto_message_countdown.get('max_hours', {}).get('value', 0))
                     ),
                     quiet_time=QuietTimeSettings(
-                        start=quiet_time_data['start'].get('value', ''),
-                        end=quiet_time_data['end'].get('value', '')
+                        start=quiet_time_data.get('start', {}).get('value', ''),
+                        end=quiet_time_data.get('end', {}).get('value', '')
                     ),
                     context=ContextSettings(
-                        max_groups=int(context_data['max_groups'].get('value', 0)),
+                        max_groups=int(context_data.get('max_groups', {}).get('value', 0)),
                         avatar_dir=avatar_dir
                     ),
                     schedule_settings=ScheduleSettings(
