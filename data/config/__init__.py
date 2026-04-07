@@ -332,6 +332,32 @@ class Config:
             logger.error(f"备份配置文件失败: {str(e)}")
             return ""
 
+    def _read_json_file(self, path: str) -> dict:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def _resolve_readable_config_path(self) -> str:
+        """返回当前可读取的配置来源。
+
+        生产环境允许只有模板文件存在，密钥由环境变量覆盖；
+        只有在需要持久化用户修改时，才要求物化 config.json。
+        """
+        if os.path.exists(self.config_path):
+            return self.config_path
+        if os.path.exists(self.config_template_path):
+            return self.config_template_path
+        raise FileNotFoundError("配置文件和模板文件都不存在")
+
+    def _ensure_config_file_exists(self) -> None:
+        """在需要写配置时，确保 config.json 物理存在。"""
+        if os.path.exists(self.config_path):
+            return
+        if not os.path.exists(self.config_template_path):
+            raise FileNotFoundError("无法创建配置文件：模板文件不存在")
+        logger.info("配置文件不存在，基于模板创建可写配置文件")
+        shutil.copy2(self.config_template_path, self.config_path)
+        self._backup_template()
+
     def _backup_template(self, force=False):
         # 如果模板备份不存在或强制备份，创建备份
         if force or not os.path.exists(self.config_template_bak_path):
@@ -400,12 +426,12 @@ class Config:
     def save_config(self, config_data: dict) -> bool:
         # 保存配置到文件
         try:
+            self._ensure_config_file_exists()
             # 备份当前配置
             self.backup_config()
 
             # 读取现有配置
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                current_config = json.load(f)
+            current_config = self._read_json_file(self.config_path)
 
             # 合并新配置
             for key, value in config_data.items():
@@ -439,12 +465,11 @@ class Config:
                 logger.warning(f"模板配置文件不存在: {self.config_template_path}")
                 return
 
+            self._ensure_config_file_exists()
             # 读取配置文件
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                current_config = json.load(f)
+            current_config = self._read_json_file(self.config_path)
 
-            with open(self.config_template_path, 'r', encoding='utf-8') as f:
-                template_config = json.load(f)
+            template_config = self._read_json_file(self.config_template_path)
 
             # 创建备份模板
             self._backup_template()
@@ -491,22 +516,16 @@ class Config:
             if auto_migrate is None:
                 auto_migrate = self.auto_migrate
 
-            # 如果配置不存在，从模板创建
-            if not os.path.exists(self.config_path):
-                if os.path.exists(self.config_template_path):
-                    logger.info("配置文件不存在，从模板创建")
-                    shutil.copy2(self.config_template_path, self.config_path)
-                    # 顺便备份模板
-                    self._backup_template()
-                else:
-                    raise FileNotFoundError(f"配置和模板文件都不存在")
-
             # 配置迁移会写入磁盘，只在显式启用时执行
             if auto_migrate:
                 self._check_and_update_config()
 
+            config_source = self._resolve_readable_config_path()
+            if config_source == self.config_template_path:
+                logger.info("未检测到 config.json，使用配置模板并通过环境变量覆盖敏感字段")
+
             # 读取配置文件
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(config_source, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 categories = config_data['categories']
 
