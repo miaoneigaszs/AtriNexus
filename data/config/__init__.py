@@ -16,7 +16,11 @@ load_dotenv()
 
 SECRET_ENV_MAP = {
     "llm.api_key": "ATRINEXUS_LLM_API_KEY",
+    "llm.base_url": "ATRINEXUS_BASE_URL",
+    "llm.model": "ATRINEXUS_MODEL",
     "media.image_recognition.api_key": "ATRINEXUS_VISION_API_KEY",
+    "media.image_recognition.base_url": "ATRINEXUS_VISION_BASE_URL",
+    "media.image_recognition.model": "ATRINEXUS_VISION_MODEL",
     "network_search.api_key": "ATRINEXUS_NETWORK_SEARCH_API_KEY",
     "intent_recognition.api_key": "ATRINEXUS_INTENT_API_KEY",
     "embedding.api_key": "ATRINEXUS_EMBEDDING_API_KEY",
@@ -566,8 +570,8 @@ class Config:
 
                 self.llm = LLMSettings(
                     api_key=get_env_override('llm.api_key', llm_data.get('api_key', {}).get('value', '')),
-                    base_url=llm_data.get('base_url', {}).get('value', ''),
-                    model=llm_data.get('model', {}).get('value', ''),
+                    base_url=get_env_override('llm.base_url', llm_data.get('base_url', {}).get('value', '')),
+                    model=get_env_override('llm.model', llm_data.get('model', {}).get('value', '')),
                     max_tokens=int(llm_data.get('max_tokens', {}).get('value', 0)),
                     temperature=float(llm_data.get('temperature', {}).get('value', 0)),
                     auto_model_switch=bool(llm_data.get('auto_model_switch', {}).get('value', False)),
@@ -584,9 +588,15 @@ class Config:
                             'media.image_recognition.api_key',
                             image_recognition_data.get('api_key', {}).get('value', ''),
                         ),
-                        base_url=image_recognition_data.get('base_url', {}).get('value', ''),
+                        base_url=get_env_override(
+                            'media.image_recognition.base_url',
+                            image_recognition_data.get('base_url', {}).get('value', ''),
+                        ),
                         temperature=float(image_recognition_data.get('temperature', {}).get('value', 0)),
-                        model=image_recognition_data.get('model', {}).get('value', '')
+                        model=get_env_override(
+                            'media.image_recognition.model',
+                            image_recognition_data.get('model', {}).get('value', ''),
+                        )
                     )
                 )
 
