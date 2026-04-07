@@ -20,6 +20,8 @@ SECRET_ENV_MAP = {
     "network_search.api_key": "ATRINEXUS_NETWORK_SEARCH_API_KEY",
     "intent_recognition.api_key": "ATRINEXUS_INTENT_API_KEY",
     "embedding.api_key": "ATRINEXUS_EMBEDDING_API_KEY",
+    "wecom.corp_id": "ATRINEXUS_WECOM_CORP_ID",
+    "wecom.agent_id": "ATRINEXUS_WECOM_AGENT_ID",
     "wecom.secret": "ATRINEXUS_WECOM_SECRET",
     "wecom.token": "ATRINEXUS_WECOM_TOKEN",
     "wecom.encoding_aes_key": "ATRINEXUS_WECOM_ENCODING_AES_KEY",
@@ -723,8 +725,8 @@ class Config:
                 # 企业微信设置
                 wecom_data = categories.get('wecom_settings', {}).get('settings', {})
                 self.wecom = WeComSettings(
-                    corp_id=wecom_data.get('corp_id', {}).get('value', ''),
-                    agent_id=wecom_data.get('agent_id', {}).get('value', ''),
+                    corp_id=get_env_override('wecom.corp_id', wecom_data.get('corp_id', {}).get('value', '')),
+                    agent_id=get_env_override('wecom.agent_id', wecom_data.get('agent_id', {}).get('value', '')),
                     secret=get_env_override('wecom.secret', wecom_data.get('secret', {}).get('value', '')),
                     token=get_env_override('wecom.token', wecom_data.get('token', {}).get('value', '')),
                     encoding_aes_key=get_env_override(
