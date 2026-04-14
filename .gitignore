@@ -193,6 +193,8 @@ src/autoupdate/cloud/*
 !/项目技术文档.md
 !LICENSE
 !avatar.md
+!.github/
+!.github/*.md
 !src/base/prompts/
 !src/base/prompts/**/
 !src/base/prompts/**/*.md
