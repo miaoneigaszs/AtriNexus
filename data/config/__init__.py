@@ -16,10 +16,16 @@ load_dotenv()
 
 SECRET_ENV_MAP = {
     "llm.api_key": "ATRINEXUS_LLM_API_KEY",
+    "llm.base_url": "ATRINEXUS_BASE_URL",
+    "llm.model": "ATRINEXUS_MODEL",
     "media.image_recognition.api_key": "ATRINEXUS_VISION_API_KEY",
+    "media.image_recognition.base_url": "ATRINEXUS_VISION_BASE_URL",
+    "media.image_recognition.model": "ATRINEXUS_VISION_MODEL",
     "network_search.api_key": "ATRINEXUS_NETWORK_SEARCH_API_KEY",
     "intent_recognition.api_key": "ATRINEXUS_INTENT_API_KEY",
     "embedding.api_key": "ATRINEXUS_EMBEDDING_API_KEY",
+    "wecom.corp_id": "ATRINEXUS_WECOM_CORP_ID",
+    "wecom.agent_id": "ATRINEXUS_WECOM_AGENT_ID",
     "wecom.secret": "ATRINEXUS_WECOM_SECRET",
     "wecom.token": "ATRINEXUS_WECOM_TOKEN",
     "wecom.encoding_aes_key": "ATRINEXUS_WECOM_ENCODING_AES_KEY",
@@ -332,6 +338,32 @@ class Config:
             logger.error(f"备份配置文件失败: {str(e)}")
             return ""
 
+    def _read_json_file(self, path: str) -> dict:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def _resolve_readable_config_path(self) -> str:
+        """返回当前可读取的配置来源。
+
+        生产环境允许只有模板文件存在，密钥由环境变量覆盖；
+        只有在需要持久化用户修改时，才要求物化 config.json。
+        """
+        if os.path.exists(self.config_path):
+            return self.config_path
+        if os.path.exists(self.config_template_path):
+            return self.config_template_path
+        raise FileNotFoundError("配置文件和模板文件都不存在")
+
+    def _ensure_config_file_exists(self) -> None:
+        """在需要写配置时，确保 config.json 物理存在。"""
+        if os.path.exists(self.config_path):
+            return
+        if not os.path.exists(self.config_template_path):
+            raise FileNotFoundError("无法创建配置文件：模板文件不存在")
+        logger.info("配置文件不存在，基于模板创建可写配置文件")
+        shutil.copy2(self.config_template_path, self.config_path)
+        self._backup_template()
+
     def _backup_template(self, force=False):
         # 如果模板备份不存在或强制备份，创建备份
         if force or not os.path.exists(self.config_template_bak_path):
@@ -400,12 +432,12 @@ class Config:
     def save_config(self, config_data: dict) -> bool:
         # 保存配置到文件
         try:
+            self._ensure_config_file_exists()
             # 备份当前配置
             self.backup_config()
 
             # 读取现有配置
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                current_config = json.load(f)
+            current_config = self._read_json_file(self.config_path)
 
             # 合并新配置
             for key, value in config_data.items():
@@ -439,12 +471,11 @@ class Config:
                 logger.warning(f"模板配置文件不存在: {self.config_template_path}")
                 return
 
+            self._ensure_config_file_exists()
             # 读取配置文件
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                current_config = json.load(f)
+            current_config = self._read_json_file(self.config_path)
 
-            with open(self.config_template_path, 'r', encoding='utf-8') as f:
-                template_config = json.load(f)
+            template_config = self._read_json_file(self.config_template_path)
 
             # 创建备份模板
             self._backup_template()
@@ -491,22 +522,16 @@ class Config:
             if auto_migrate is None:
                 auto_migrate = self.auto_migrate
 
-            # 如果配置不存在，从模板创建
-            if not os.path.exists(self.config_path):
-                if os.path.exists(self.config_template_path):
-                    logger.info("配置文件不存在，从模板创建")
-                    shutil.copy2(self.config_template_path, self.config_path)
-                    # 顺便备份模板
-                    self._backup_template()
-                else:
-                    raise FileNotFoundError(f"配置和模板文件都不存在")
-
             # 配置迁移会写入磁盘，只在显式启用时执行
             if auto_migrate:
                 self._check_and_update_config()
 
+            config_source = self._resolve_readable_config_path()
+            if config_source == self.config_template_path:
+                logger.info("未检测到 config.json，使用配置模板并通过环境变量覆盖敏感字段")
+
             # 读取配置文件
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(config_source, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 categories = config_data['categories']
 
@@ -537,52 +562,58 @@ class Config:
                 )
 
                 # LLM设置
-                llm_data = categories['llm_settings']['settings']
+                llm_data = categories.get('llm_settings', {}).get('settings', {})
                 # fallback_models: 备用模型列表
                 fallback_models_data = llm_data.get('fallback_models', {}).get('value', [])
                 if not isinstance(fallback_models_data, list):
                     fallback_models_data = []
 
                 self.llm = LLMSettings(
-                    api_key=get_env_override('llm.api_key', llm_data['api_key'].get('value', '')),
-                    base_url=llm_data['base_url'].get('value', ''),
-                    model=llm_data['model'].get('value', ''),
-                    max_tokens=int(llm_data['max_tokens'].get('value', 0)),
-                    temperature=float(llm_data['temperature'].get('value', 0)),
-                    auto_model_switch=bool(llm_data['auto_model_switch'].get('value', False)),
+                    api_key=get_env_override('llm.api_key', llm_data.get('api_key', {}).get('value', '')),
+                    base_url=get_env_override('llm.base_url', llm_data.get('base_url', {}).get('value', '')),
+                    model=get_env_override('llm.model', llm_data.get('model', {}).get('value', '')),
+                    max_tokens=int(llm_data.get('max_tokens', {}).get('value', 0)),
+                    temperature=float(llm_data.get('temperature', {}).get('value', 0)),
+                    auto_model_switch=bool(llm_data.get('auto_model_switch', {}).get('value', False)),
                     fallback_models=fallback_models_data
                 )
 
                 # 媒体设置
-                media_data = categories['media_settings']['settings']
-                image_recognition_data = media_data['image_recognition']
+                media_data = categories.get('media_settings', {}).get('settings', {})
+                image_recognition_data = media_data.get('image_recognition', {})
 
                 self.media = MediaSettings(
                     image_recognition=ImageRecognitionSettings(
                         api_key=get_env_override(
                             'media.image_recognition.api_key',
-                            image_recognition_data['api_key'].get('value', ''),
+                            image_recognition_data.get('api_key', {}).get('value', ''),
                         ),
-                        base_url=image_recognition_data['base_url'].get('value', ''),
-                        temperature=float(image_recognition_data['temperature'].get('value', 0)),
-                        model=image_recognition_data['model'].get('value', '')
+                        base_url=get_env_override(
+                            'media.image_recognition.base_url',
+                            image_recognition_data.get('base_url', {}).get('value', ''),
+                        ),
+                        temperature=float(image_recognition_data.get('temperature', {}).get('value', 0)),
+                        model=get_env_override(
+                            'media.image_recognition.model',
+                            image_recognition_data.get('model', {}).get('value', ''),
+                        )
                     )
                 )
 
                 # 行为设置
-                behavior_data = categories['behavior_settings']['settings']
-                auto_message_data = behavior_data['auto_message']
+                behavior_data = categories.get('behavior_settings', {}).get('settings', {})
+                auto_message_data = behavior_data.get('auto_message', {})
                 auto_message_countdown = auto_message_data.get('countdown', {})
-                quiet_time_data = behavior_data['quiet_time']
-                context_data = behavior_data['context']
+                quiet_time_data = behavior_data.get('quiet_time', {})
+                context_data = behavior_data.get('context', {})
 
                 # 消息队列设置
                 message_queue_data = behavior_data.get('message_queue', {})
                 message_queue_timeout = message_queue_data.get('timeout', {}).get('value', 8)
 
                 # 确保目录路径规范化
-                avatar_dir = context_data['avatar_dir'].get('value', '')
-                if not avatar_dir.startswith('data/avatars/'):
+                avatar_dir = context_data.get('avatar_dir', {}).get('value', '')
+                if avatar_dir and not avatar_dir.startswith('data/avatars/'):
                     avatar_dir = f"data/avatars/{avatar_dir.split('/')[-1]}"
 
                 # 定时任务配置
@@ -606,16 +637,16 @@ class Config:
                 # 行为配置
                 self.behavior = BehaviorSettings(
                     auto_message=AutoMessageSettings(
-                        content=auto_message_data['content'].get('value', ''),
+                        content=auto_message_data.get('content', {}).get('value', ''),
                         min_hours=float(auto_message_countdown.get('min_hours', {}).get('value', 0)),
                         max_hours=float(auto_message_countdown.get('max_hours', {}).get('value', 0))
                     ),
                     quiet_time=QuietTimeSettings(
-                        start=quiet_time_data['start'].get('value', ''),
-                        end=quiet_time_data['end'].get('value', '')
+                        start=quiet_time_data.get('start', {}).get('value', ''),
+                        end=quiet_time_data.get('end', {}).get('value', '')
                     ),
                     context=ContextSettings(
-                        max_groups=int(context_data['max_groups'].get('value', 0)),
+                        max_groups=int(context_data.get('max_groups', {}).get('value', 0)),
                         avatar_dir=avatar_dir
                     ),
                     schedule_settings=ScheduleSettings(
@@ -704,8 +735,8 @@ class Config:
                 # 企业微信设置
                 wecom_data = categories.get('wecom_settings', {}).get('settings', {})
                 self.wecom = WeComSettings(
-                    corp_id=wecom_data.get('corp_id', {}).get('value', ''),
-                    agent_id=wecom_data.get('agent_id', {}).get('value', ''),
+                    corp_id=get_env_override('wecom.corp_id', wecom_data.get('corp_id', {}).get('value', '')),
+                    agent_id=get_env_override('wecom.agent_id', wecom_data.get('agent_id', {}).get('value', '')),
                     secret=get_env_override('wecom.secret', wecom_data.get('secret', {}).get('value', '')),
                     token=get_env_override('wecom.token', wecom_data.get('token', {}).get('value', '')),
                     encoding_aes_key=get_env_override(
