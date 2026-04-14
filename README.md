@@ -257,9 +257,19 @@ The project is intended to run behind nginx with a public WeCom callback endpoin
 Typical production layout includes:
 
 - systemd-managed `run.py`
+- systemd service file: `deployment/atrinexus.service`
 - nginx reverse proxy
 - `/health` and `/metrics` exposure
 - WeCom callback routing
+
+The VPS bootstrap script installs that same service name:
+
+```bash
+sudo bash deployment/setup_vps.sh
+sudo systemctl start atrinexus
+sudo systemctl status atrinexus
+sudo journalctl -u atrinexus -f
+```
 
 ## Important Notes
 

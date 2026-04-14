@@ -48,31 +48,33 @@ fi
 
 # 5. 配置 Systemd 服务
 echo ">>> 配置 Systemd 服务..."
-SERVICE_FILE="deployment/kourichat.service"
-TARGET_SERVICE="/etc/systemd/system/kourichat.service"
+SERVICE_NAME="atrinexus"
+SERVICE_FILE="deployment/${SERVICE_NAME}.service"
+TARGET_SERVICE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 if [ -f "$SERVICE_FILE" ]; then
     # 替换服务文件中的路径为当前路径
-    sed "s|/opt/kourichat|$PROJECT_DIR|g" "$SERVICE_FILE" > temp_kourichat.service
-    
+    TEMP_SERVICE_FILE="temp_${SERVICE_NAME}.service"
+    sed "s|/opt/AtriNexus|$PROJECT_DIR|g" "$SERVICE_FILE" > "$TEMP_SERVICE_FILE"
+
     # 替换 User 为当前用户 (如果不是 root)
     CURRENT_USER=$(whoami)
     if [ "$CURRENT_USER" != "root" ]; then
-        sed -i "s|User=root|User=$CURRENT_USER|g" temp_kourichat.service
+        sed -i "s|User=root|User=$CURRENT_USER|g" "$TEMP_SERVICE_FILE"
     fi
 
     echo "正在安装服务文件到 $TARGET_SERVICE"
-    sudo mv temp_kourichat.service "$TARGET_SERVICE"
-    
+    sudo mv "$TEMP_SERVICE_FILE" "$TARGET_SERVICE"
+
     echo "重载 Systemd..."
     sudo systemctl daemon-reload
-    sudo systemctl enable kourichat
-    
+    sudo systemctl enable "$SERVICE_NAME"
+
     echo ">>> 服务配置完成！"
     echo "请修改 config.json 后，运行以下命令启动服务："
-    echo "sudo systemctl start kourichat"
-    echo "查看状态: sudo systemctl status kourichat"
-    echo "查看日志: sudo journalctl -u kourichat -f"
+    echo "sudo systemctl start $SERVICE_NAME"
+    echo "查看状态: sudo systemctl status $SERVICE_NAME"
+    echo "查看日志: sudo journalctl -u $SERVICE_NAME -f"
 else
     echo "错误: 未找到 $SERVICE_FILE，请确保脚本在项目根目录下运行"
 fi
