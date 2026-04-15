@@ -56,6 +56,43 @@ class FastPathRouter:
         self.path_resolver.begin(user_id)
         normalized_message = self.path_resolver.normalize_request_text(message)
 
+        def dispatch_before_remembered_action(
+            *,
+            inferred_profile: str,
+            request,
+            target_type: str,
+            remembered_path,
+            action,
+        ) -> Optional[str]:
+            pending_reply = self.path_resolver.take_pending_reply()
+            if pending_reply:
+                return pending_reply
+            if not request:
+                return None
+            self._promote_tool_profile(user_id, inferred_profile)
+            self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
+            return action(request)
+
+        def dispatch_after_remembered_action(
+            *,
+            inferred_profile: str,
+            request,
+            target_type: str,
+            remembered_path,
+            blocked_prefixes: Tuple[str, ...],
+            action,
+        ) -> Optional[str]:
+            pending_reply = self.path_resolver.take_pending_reply()
+            if pending_reply:
+                return pending_reply
+            if not request:
+                return None
+            self._promote_tool_profile(user_id, inferred_profile)
+            reply = action(request)
+            if not reply.startswith(blocked_prefixes):
+                self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
+            return reply
+
         if is_tool_overview(normalized_message):
             return self._handle_tool_overview(user_id, normalized_message)
 
@@ -63,82 +100,91 @@ class FastPathRouter:
             return self._handle_profile_overview(user_id, normalized_message)
 
         block_rewrite_request = self._extract_block_rewrite_request(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if block_rewrite_request:
-            path, target, instruction = block_rewrite_request
-            self._promote_tool_profile(user_id, "workspace_edit")
-            self.session_service.set_last_workspace_target(user_id, path, "file")
-            return self.rewrite_helper.handle_block_rewrite(user_id, path, target, instruction)
+        dispatch_reply = dispatch_before_remembered_action(
+            inferred_profile="workspace_edit",
+            request=block_rewrite_request,
+            target_type="file",
+            remembered_path=lambda request: request[0],
+            action=lambda request: self.rewrite_helper.handle_block_rewrite(
+                user_id,
+                request[0],
+                request[1],
+                request[2],
+            ),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         replace_request = self._extract_replace_request(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if replace_request:
-            path, find_text, replace_text = replace_request
-            self._promote_tool_profile(user_id, "workspace_edit")
-            self.session_service.set_last_workspace_target(user_id, path, "file")
-            return self.tool_catalog.runtime.preview_edit_file(
-                path,
-                find_text,
-                replace_text,
+        dispatch_reply = dispatch_before_remembered_action(
+            inferred_profile="workspace_edit",
+            request=replace_request,
+            target_type="file",
+            remembered_path=lambda request: request[0],
+            action=lambda request: self.tool_catalog.runtime.preview_edit_file(
+                request[0],
+                request[1],
+                request[2],
                 owner_user_id=user_id,
-            )
+            ),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         rewrite_request = self._extract_rewrite_request(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if rewrite_request:
-            path, content = rewrite_request
-            self._promote_tool_profile(user_id, "workspace_edit")
-            self.session_service.set_last_workspace_target(user_id, path, "file")
-            return self.tool_catalog.runtime.preview_write_file(
-                path,
-                content,
+        dispatch_reply = dispatch_before_remembered_action(
+            inferred_profile="workspace_edit",
+            request=rewrite_request,
+            target_type="file",
+            remembered_path=lambda request: request[0],
+            action=lambda request: self.tool_catalog.runtime.preview_write_file(
+                request[0],
+                request[1],
                 owner_user_id=user_id,
-            )
+            ),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         append_request = self._extract_append_request(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if append_request:
-            path, content, position = append_request
-            self._promote_tool_profile(user_id, "workspace_edit")
-            self.session_service.set_last_workspace_target(user_id, path, "file")
-            return self.tool_catalog.runtime.preview_append_file(
-                path,
-                content,
-                position=position,
+        dispatch_reply = dispatch_before_remembered_action(
+            inferred_profile="workspace_edit",
+            request=append_request,
+            target_type="file",
+            remembered_path=lambda request: request[0],
+            action=lambda request: self.tool_catalog.runtime.preview_append_file(
+                request[0],
+                request[1],
+                position=request[2],
                 owner_user_id=user_id,
-            )
+            ),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         rename_paths = self._extract_rename_paths(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if rename_paths:
-            source_path, target_path = rename_paths
-            self._promote_tool_profile(user_id, "workspace_edit")
-            reply = self.tool_catalog.runtime.rename_path(source_path, target_path)
-            if not reply.startswith(("未找到源路径", "路径不允许访问", "目标路径无效")):
-                self.session_service.set_last_workspace_target(user_id, target_path, "file")
-            return reply
+        dispatch_reply = dispatch_after_remembered_action(
+            inferred_profile="workspace_edit",
+            request=rename_paths,
+            target_type="file",
+            remembered_path=lambda request: request[1],
+            blocked_prefixes=("未找到源路径", "路径不允许访问", "目标路径无效"),
+            action=lambda request: self.tool_catalog.runtime.rename_path(request[0], request[1]),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         read_line_request = self._extract_read_file_line_request(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if read_line_request:
-            path, position = read_line_request
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.read_file_line(path, position)
-            if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
-                self.session_service.set_last_workspace_target(user_id, path, "file")
-            return reply
+        dispatch_reply = dispatch_after_remembered_action(
+            inferred_profile="workspace_read",
+            request=read_line_request,
+            target_type="file",
+            remembered_path=lambda request: request[0],
+            blocked_prefixes=("文件不存在", "目标不是文件", "路径不允许访问"),
+            action=lambda request: self.tool_catalog.runtime.read_file_line(request[0], request[1]),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         search_request = self._extract_search_request(normalized_message)
         if search_request:
@@ -147,26 +193,28 @@ class FastPathRouter:
             return self.tool_catalog.runtime.search_files(query, path)
 
         file_path = self._extract_read_file_path(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if file_path:
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.read_file(file_path)
-            if not reply.startswith(("文件不存在", "目标不是文件", "路径不允许访问")):
-                self.session_service.set_last_workspace_target(user_id, file_path, "file")
-            return reply
+        dispatch_reply = dispatch_after_remembered_action(
+            inferred_profile="workspace_read",
+            request=file_path,
+            target_type="file",
+            remembered_path=lambda request: request,
+            blocked_prefixes=("文件不存在", "目标不是文件", "路径不允许访问"),
+            action=lambda request: self.tool_catalog.runtime.read_file(request),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         dir_path = self._extract_directory_path(normalized_message)
-        pending_reply = self.path_resolver.take_pending_reply()
-        if pending_reply:
-            return pending_reply
-        if dir_path:
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.list_directory(dir_path)
-            if not reply.startswith(("路径不存在", "目标不是目录", "路径不允许访问")):
-                self.session_service.set_last_workspace_target(user_id, dir_path, "dir")
-            return reply
+        dispatch_reply = dispatch_after_remembered_action(
+            inferred_profile="workspace_read",
+            request=dir_path,
+            target_type="dir",
+            remembered_path=lambda request: request,
+            blocked_prefixes=("路径不存在", "目标不是目录", "路径不允许访问"),
+            action=lambda request: self.tool_catalog.runtime.list_directory(request),
+        )
+        if dispatch_reply is not None:
+            return dispatch_reply
 
         followup_reply = self._handle_followup_reference(user_id, normalized_message)
         if followup_reply:
