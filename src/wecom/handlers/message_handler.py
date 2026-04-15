@@ -23,15 +23,13 @@ from data.config import config
 # 导入拆分后的处理器
 from src.wecom.handlers.command_handler import CommandHandler
 from src.wecom.handlers.image_handler import ImageHandler
+from src.wecom.handlers.pending_confirmation_handler import PendingConfirmationHandler
 from src.wecom.processors.context_builder import ContextBuilder
 from src.wecom.processors.fast_path_router import FastPathRouter
 from src.wecom.processors.reply_cleaner import ReplyCleaner
 from src.wecom.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
-
-GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定", "1"}
-GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了", "2"}
 
 
 class MessageHandler:
@@ -80,6 +78,11 @@ class MessageHandler:
             self.reply_service.tool_catalog,
             self.session_service,
             self.llm_service,
+        )
+        self.pending_confirmation_handler = PendingConfirmationHandler(
+            reply_service=self.reply_service,
+            fast_path_router=self.fast_path_router,
+            run_sync_func=run_sync,
         )
 
         logger.info(
@@ -171,83 +174,7 @@ class MessageHandler:
         await self._execute_kb_search(user_id, content, msg_id)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
-        if content in GENERIC_APPROVAL_WORDS:
-            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
-            if latest_change_id:
-                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
-            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
-            if latest_command_id:
-                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
-            return "当前没有待审批的命令或修改。"
-
-        if content in GENERIC_REJECTION_WORDS:
-            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
-            if latest_change_id:
-                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
-            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
-            if latest_command_id:
-                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
-            return "当前没有待处理的命令或修改。"
-
-        confirm_command_id = self._extract_confirmation_id(content, prefixes=("确认执行", "确定执行"))
-        if confirm_command_id:
-            return await run_sync(self.reply_service.confirm_pending_command, confirm_command_id, user_id)
-
-        if content in {"确认执行", "确定执行"}:
-            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
-            if latest_command_id:
-                return await run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
-            return "当前没有待确认执行的命令。"
-
-        discard_command_id = self._extract_confirmation_id(content, prefixes=("取消执行",))
-        if discard_command_id:
-            return await run_sync(self.reply_service.discard_pending_command, discard_command_id, user_id)
-
-        if content == "取消执行":
-            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
-            if latest_command_id:
-                return await run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
-            return "当前没有待取消的命令。"
-
-        apply_change_id = self._extract_confirmation_id(content, prefixes=("确认修改", "确定修改"))
-        if apply_change_id:
-            return await run_sync(self.reply_service.apply_pending_change, apply_change_id, user_id)
-
-        if content in {"确认修改", "确定修改"}:
-            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
-            if latest_change_id:
-                return await run_sync(self.reply_service.apply_pending_change, latest_change_id, user_id)
-            return "当前没有待确认的修改。"
-
-        discard_change_id = self._extract_confirmation_id(content, prefixes=("取消修改",))
-        if discard_change_id:
-            return await run_sync(self.reply_service.discard_pending_change, discard_change_id, user_id)
-
-        if content == "取消修改":
-            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
-            if latest_change_id:
-                return await run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
-            return "当前没有待取消的修改。"
-
-        workspace_resolution_reply = await run_sync(
-            self.fast_path_router.try_handle_pending_resolution,
-            user_id,
-            content,
-        )
-        if workspace_resolution_reply is not None:
-            return workspace_resolution_reply
-
-        return None
-
-    def _extract_confirmation_id(self, content: str, prefixes: tuple[str, ...]) -> str | None:
-        normalized = (content or "").strip()
-        for prefix in prefixes:
-            if not normalized.startswith(prefix):
-                continue
-            suffix = normalized[len(prefix) :].strip()
-            if suffix and all(ch.isalnum() or ch in {"_", "-"} for ch in suffix):
-                return suffix
-        return None
+        return await self.pending_confirmation_handler.handle(user_id, content)
 
     async def _execute_kb_search(self, user_id: str, content: str, msg_id: str,
                                   category_filter: str = None):
