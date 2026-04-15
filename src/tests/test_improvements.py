@@ -31,6 +31,7 @@ def test_file_syntax():
         'src/services/memory_manager.py',
         'src/services/rag_service.py',
         'src/wecom/handlers/message_handler.py',
+        'src/wecom/handlers/pending_confirmation_handler.py',
     ]
     
     all_passed = True
@@ -138,7 +139,11 @@ def test_handlers_structure():
         tree = ast.parse(f.read())
     
     classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
-    functions = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+    functions = [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
     
     assert 'MessageHandler' in classes, "MessageHandler 类不存在"
     
@@ -149,6 +154,34 @@ def test_handlers_structure():
     print("[OK] process_message 方法存在")
     print("[OK] 待确认动作处理方法存在")
     
+    return True
+
+
+def test_pending_confirmation_handler_structure():
+    """测试 PendingConfirmationHandler 结构"""
+
+    filepath = os.path.join(
+        os.path.dirname(__file__),
+        '../../src/wecom/handlers/pending_confirmation_handler.py',
+    )
+    with open(filepath, 'r', encoding='utf-8') as f:
+        tree = ast.parse(f.read())
+
+    classes = [node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    functions = [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+
+    assert 'PendingConfirmationHandler' in classes, "PendingConfirmationHandler 类不存在"
+    assert 'handle' in functions, "handle 方法不存在"
+    assert '_extract_confirmation_id' in functions, "_extract_confirmation_id 方法不存在"
+
+    print("[OK] PendingConfirmationHandler 类存在")
+    print("[OK] handle 方法存在")
+    print("[OK] 确认 ID 提取方法存在")
+
     return True
 
 
@@ -165,6 +198,7 @@ def main():
         test_memory_manager_structure,
         test_rag_service_structure,
         test_handlers_structure,
+        test_pending_confirmation_handler_structure,
     ]
     
     passed = 0
