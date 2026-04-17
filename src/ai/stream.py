@@ -207,4 +207,73 @@ __all__ = [
     "iter_sse_lines",
     "StreamAccumulator",
     "stream_openai_chunks",
+    "consume_stream",
+    "StreamSummary",
 ]
+
+
+# ── Agent loop 用的高层 helper ─────────────────────────────────────────
+
+
+@dataclass
+class StreamSummary:
+    """drain 一次 stream 后的整合结果。供 agent loop 直接消费。"""
+
+    text: str
+    tool_calls: List[Tuple[str, str, dict]]
+    usage: Usage
+    stop_reason: str
+    error: Optional[str] = None
+
+
+async def consume_stream(events: AsyncIterator[StreamEvent]) -> StreamSummary:
+    """drain 一次 provider.stream 的事件流，返回组装好的最终状态。
+
+    - 文本按 TextDelta 顺序拼接
+    - tool_calls 按 ToolCallDelta.index 累积，结束时 JSON-decode args
+    - 遇 StreamError 立刻停止累积，error 字段填上消息（仍会等到 StreamDone 把 usage / stop_reason 收齐）
+    """
+    text_parts: List[str] = []
+    tool_buffers: Dict[int, _ToolCallAccumulator] = {}
+    usage = Usage()
+    stop_reason = ""
+    error: Optional[str] = None
+
+    from src.ai.types import StreamDone as _SDone
+    from src.ai.types import StreamError as _SErr
+    from src.ai.types import TextDelta as _TD
+    from src.ai.types import ToolCallDelta as _TCD
+
+    async for event in events:
+        if isinstance(event, _TD):
+            text_parts.append(event.text)
+        elif isinstance(event, _TCD):
+            buf = tool_buffers.get(event.index)
+            if buf is None:
+                buf = _ToolCallAccumulator(index=event.index)
+                tool_buffers[event.index] = buf
+            if event.id:
+                buf.id = event.id
+            if event.name:
+                buf.name = event.name
+            if event.args_delta:
+                buf.args_buffer += event.args_delta
+        elif isinstance(event, _SDone):
+            usage = event.usage or Usage()
+            stop_reason = event.stop_reason
+        elif isinstance(event, _SErr):
+            error = event.message
+
+    tool_calls: List[Tuple[str, str, dict]] = []
+    for index in sorted(tool_buffers.keys()):
+        call = tool_buffers[index].to_call()
+        if call is not None:
+            tool_calls.append(call)
+
+    return StreamSummary(
+        text="".join(text_parts),
+        tool_calls=tool_calls,
+        usage=usage,
+        stop_reason=stop_reason,
+        error=error,
+    )

@@ -1,11 +1,22 @@
+"""Agent 可用工具目录（框架中立）。
+
+每个工具登记为 `RegisteredTool`：一个 `ToolSpec`（送给模型的 JSONSchema 描述）
++ 一个异步 handler（接收已解析的 args dict，返回字符串结果）。
+
+Phase 4 替代 LangChain 后，本文件不再依赖任何外部 agent 框架。Tool 元数据
+直接以 OpenAI tool calling 协议的 JSONSchema 表达，避免任何中间层翻译。
+
+Profile 系统不变：会话 profile 决定哪些 section 暴露；fast-path 与
+before_tool_call hook 负责更细粒度的拦截 / 修复。
+"""
+
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
-from typing import Annotated, Callable, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from langchain_core.tools import BaseTool, tool
-from pydantic import Field
-
+from src.ai.types import ToolSpec
 from src.knowledge.kb_tools import build_kb_list_assets_response, build_kb_search_response
 from src.agent_runtime.runtime import WorkspaceRuntime
 from src.agent_runtime.tool_profiles import (
@@ -30,9 +41,27 @@ TOOL_OVERVIEW_HINTS = (
 )
 
 
+# ── 工具登记结构 ────────────────────────────────────────────────────────
+
+
+ToolHandler = Callable[[Dict[str, Any]], Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class RegisteredTool:
+    """供 agent loop 直接消费的工具单元。"""
+
+    spec: ToolSpec
+    handler: ToolHandler
+
+    @property
+    def name(self) -> str:
+        return self.spec.name
+
+
 @dataclass(frozen=True)
 class ToolBundle:
-    tools: List[BaseTool]
+    tools: List[RegisteredTool]
     profiles: List[str]
     compact_summary_lines: List[str]
     detailed_summary_lines: List[str]
@@ -58,15 +87,55 @@ class ToolSectionDefinition:
     compact_line: str
     detailed_lines: List[str]
     enabled_when: Callable[["ToolCatalog", str], bool]
-    build_tools: Callable[["ToolCatalog", str], List[BaseTool]]
+    build_tools: Callable[["ToolCatalog", str], List[RegisteredTool]]
+
+
+# ── JSONSchema 工厂 ─────────────────────────────────────────────────────
+
+
+def _string_field(description: str, default: Optional[str] = None) -> Dict[str, Any]:
+    field: Dict[str, Any] = {"type": "string", "description": description}
+    if default is not None:
+        field["default"] = default
+    return field
+
+
+def _integer_field(description: str, default: Optional[int] = None) -> Dict[str, Any]:
+    field: Dict[str, Any] = {"type": "integer", "description": description}
+    if default is not None:
+        field["default"] = default
+    return field
+
+
+def _object_schema(properties: Dict[str, Any], required: List[str]) -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
+# ── 同步 → 异步包装 ──────────────────────────────────────────────────────
+
+
+def _sync_handler(fn: Callable[..., str]) -> ToolHandler:
+    """把同步函数包成 async handler，并在线程池里跑（避免阻塞事件循环）。"""
+
+    async def wrapper(args: Dict[str, Any]) -> str:
+        return await asyncio.to_thread(fn, **args)
+
+    return wrapper
+
+
+# ── ToolCatalog ─────────────────────────────────────────────────────────
 
 
 class ToolCatalog:
     """声明式工具目录。
 
-    这里不再根据消息正则猜测“这句像不像文件请求”，而是根据稳定的
-    session profile 决定当前能力边界。这样工具治理更接近 OpenClaw：
-    profile 先稳定，再由 before-tool-call 和 fast-path 去做修正与拦截。
+    根据稳定的 session profile 决定当前能力边界。Profile 先稳定，再由
+    before_tool_call hook 与 fast-path 做修正与拦截。
     """
 
     def __init__(
@@ -91,7 +160,7 @@ class ToolCatalog:
             return ToolBundle([], [], [], [])
 
         profile = normalize_tool_profile(tool_profile)
-        tools: List[BaseTool] = []
+        tools: List[RegisteredTool] = []
         profiles: List[str] = ["core", profile]
         compact_summary_lines: List[str] = []
         detailed_summary_lines: List[str] = []
@@ -125,7 +194,7 @@ class ToolCatalog:
         return any(hint in normalized for hint in TOOL_OVERVIEW_HINTS)
 
     def format_tool_overview(self, tool_bundle: "ToolBundle") -> str:
-        tool_names = [tool.name for tool in tool_bundle.tools]
+        tool_names = [t.name for t in tool_bundle.tools]
         profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
         lines = [
             "我刚检查了当前这条消息下启用的工具。",
@@ -207,8 +276,6 @@ class ToolCatalog:
                     "- kb_list_assets: 看知识库里有哪些文档和分类。",
                     "- kb_search: 查知识库内容，可限定文档或分类。",
                 ],
-                # KB 只通过工具按需触发，不参与默认上下文注入；
-                # 因此这里的启用条件只看 rag_service 是否注入，与消息内容无关。
                 enabled_when=lambda self, _profile: self.rag_service is not None,
                 build_tools=lambda self, user_id: self._build_kb_tools(user_id),
             ),
@@ -223,114 +290,194 @@ class ToolCatalog:
             ),
         ]
 
-    def _build_core_tools(self, _user_id: str) -> List[BaseTool]:
-        @tool
-        def get_current_time() -> str:
-            """Read the current local date and time."""
-            return self.time_tool.execute()
+    # ── 各 section 的工具构造 ───────────────────────────────────────────
 
-        return [get_current_time]
+    def _build_core_tools(self, _user_id: str) -> List[RegisteredTool]:
+        time_tool = self.time_tool
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="get_current_time",
+                    description="Read the current local date and time.",
+                    parameters=_object_schema({}, []),
+                ),
+                handler=_sync_handler(lambda **_kwargs: time_tool.execute()),
+            ),
+        ]
 
-    def _build_workspace_read_tools(self, _user_id: str) -> List[BaseTool]:
+    def _build_workspace_read_tools(self, _user_id: str) -> List[RegisteredTool]:
         runtime = self.runtime
 
-        @tool
-        def list_directory(
-            path: Annotated[str, Field(description="要列出的目录路径，相对 workspace 根目录")] = ".",
-        ) -> str:
-            """List files and directories inside the workspace."""
+        def _list_directory(path: str = ".") -> str:
             return runtime.list_directory(path)
 
-        @tool
-        def read_file(
-            path: Annotated[str, Field(description="要读取的文件路径，相对 workspace 根目录")],
-        ) -> str:
-            """Read file contents from the workspace."""
+        def _read_file(path: str) -> str:
             return runtime.read_file(path)
 
-        @tool
-        def search_files(
-            query: Annotated[str, Field(description="要搜索的关键词")],
-            path: Annotated[str, Field(description="搜索起始路径，相对 workspace 根目录")] = ".",
-        ) -> str:
-            """Search workspace files for matching text."""
+        def _search_files(query: str, path: str = ".") -> str:
             return runtime.search_files(query, path)
 
-        return [list_directory, read_file, search_files]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="list_directory",
+                    description="List files and directories inside the workspace.",
+                    parameters=_object_schema(
+                        {"path": _string_field("要列出的目录路径，相对 workspace 根目录", default=".")},
+                        [],
+                    ),
+                ),
+                handler=_sync_handler(_list_directory),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="read_file",
+                    description="Read file contents from the workspace.",
+                    parameters=_object_schema(
+                        {"path": _string_field("要读取的文件路径，相对 workspace 根目录")},
+                        ["path"],
+                    ),
+                ),
+                handler=_sync_handler(_read_file),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="search_files",
+                    description="Search workspace files for matching text.",
+                    parameters=_object_schema(
+                        {
+                            "query": _string_field("要搜索的关键词"),
+                            "path": _string_field("搜索起始路径，相对 workspace 根目录", default="."),
+                        },
+                        ["query"],
+                    ),
+                ),
+                handler=_sync_handler(_search_files),
+            ),
+        ]
 
-    def _build_workspace_edit_tools(self, user_id: str) -> List[BaseTool]:
+    def _build_workspace_edit_tools(self, user_id: str) -> List[RegisteredTool]:
         runtime = self.runtime
 
-        @tool
-        def preview_write_file(
-            path: Annotated[str, Field(description="要写入的文件路径，相对 workspace 根目录")],
-            content: Annotated[str, Field(description="写入后的完整文件内容")],
-        ) -> str:
-            """Preview creating or overwriting a file."""
+        def _preview_write(path: str, content: str) -> str:
             return runtime.preview_write_file(path, content, owner_user_id=user_id)
 
-        @tool
-        def preview_edit_file(
-            path: Annotated[str, Field(description="要修改的文件路径，相对 workspace 根目录")],
-            find_text: Annotated[str, Field(description="待替换的原始文本片段，必须足够精确")],
-            replace_text: Annotated[str, Field(description="替换后的文本片段")],
-        ) -> str:
-            """Preview a precise in-file edit."""
+        def _preview_edit(path: str, find_text: str, replace_text: str) -> str:
             return runtime.preview_edit_file(path, find_text, replace_text, owner_user_id=user_id)
 
-        @tool
-        def preview_append_file(
-            path: Annotated[str, Field(description="要追加内容的文件路径，相对 workspace 根目录")],
-            content: Annotated[str, Field(description="要追加的文本内容")],
-            position: Annotated[str, Field(description="追加位置，只支持 start 或 end")] = "end",
-        ) -> str:
-            """Preview appending content to the start or end of a file."""
+        def _preview_append(path: str, content: str, position: str = "end") -> str:
             return runtime.preview_append_file(path, content, position=position, owner_user_id=user_id)
 
-        return [preview_write_file, preview_edit_file, preview_append_file]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="preview_write_file",
+                    description="Preview creating or overwriting a file.",
+                    parameters=_object_schema(
+                        {
+                            "path": _string_field("要写入的文件路径，相对 workspace 根目录"),
+                            "content": _string_field("写入后的完整文件内容"),
+                        },
+                        ["path", "content"],
+                    ),
+                ),
+                handler=_sync_handler(_preview_write),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="preview_edit_file",
+                    description="Preview a precise in-file edit.",
+                    parameters=_object_schema(
+                        {
+                            "path": _string_field("要修改的文件路径，相对 workspace 根目录"),
+                            "find_text": _string_field("待替换的原始文本片段，必须足够精确"),
+                            "replace_text": _string_field("替换后的文本片段"),
+                        },
+                        ["path", "find_text", "replace_text"],
+                    ),
+                ),
+                handler=_sync_handler(_preview_edit),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="preview_append_file",
+                    description="Preview appending content to the start or end of a file.",
+                    parameters=_object_schema(
+                        {
+                            "path": _string_field("要追加内容的文件路径，相对 workspace 根目录"),
+                            "content": _string_field("要追加的文本内容"),
+                            "position": _string_field("追加位置，只支持 start 或 end", default="end"),
+                        },
+                        ["path", "content"],
+                    ),
+                ),
+                handler=_sync_handler(_preview_append),
+            ),
+        ]
 
-    def _build_workspace_rename_tools(self, _user_id: str) -> List[BaseTool]:
+    def _build_workspace_rename_tools(self, _user_id: str) -> List[RegisteredTool]:
         runtime = self.runtime
 
-        @tool
-        def rename_path(
-            source_path: Annotated[str, Field(description="源文件或目录路径，相对 workspace 根目录")],
-            target_path: Annotated[str, Field(description="目标文件或目录路径，相对 workspace 根目录")],
-        ) -> str:
-            """Rename or move a file or directory inside the workspace."""
+        def _rename(source_path: str, target_path: str) -> str:
             return runtime.rename_path(source_path, target_path)
 
-        return [rename_path]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="rename_path",
+                    description="Rename or move a file or directory inside the workspace.",
+                    parameters=_object_schema(
+                        {
+                            "source_path": _string_field("源文件或目录路径，相对 workspace 根目录"),
+                            "target_path": _string_field("目标文件或目录路径，相对 workspace 根目录"),
+                        },
+                        ["source_path", "target_path"],
+                    ),
+                ),
+                handler=_sync_handler(_rename),
+            ),
+        ]
 
-    def _build_command_tools(self, user_id: str) -> List[BaseTool]:
+    def _build_command_tools(self, user_id: str) -> List[RegisteredTool]:
         runtime = self.runtime
 
-        @tool
-        def run_command(
-            command: Annotated[str, Field(description="要执行的命令，默认在 workspace 根目录执行")],
-            timeout_seconds: Annotated[int, Field(description="命令超时时间，单位秒，建议 5 到 20 秒")] = 20,
-        ) -> str:
-            """Run a command in the workspace."""
+        def _run_command(command: str, timeout_seconds: int = 20) -> str:
             return runtime.run_command(command, timeout_seconds, owner_user_id=user_id)
 
-        return [run_command]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="run_command",
+                    description="Run a command in the workspace.",
+                    parameters=_object_schema(
+                        {
+                            "command": _string_field("要执行的命令，默认在 workspace 根目录执行"),
+                            "timeout_seconds": _integer_field(
+                                "命令超时时间，单位秒，建议 5 到 20 秒",
+                                default=20,
+                            ),
+                        },
+                        ["command"],
+                    ),
+                ),
+                handler=_sync_handler(_run_command),
+            ),
+        ]
 
-    def _build_kb_tools(self, user_id: str) -> List[BaseTool]:
-        @tool
-        def kb_list_assets() -> str:
-            """List current knowledge-base documents, categories, and heading previews."""
-            return build_kb_list_assets_response(self.rag_service, user_id)
+    def _build_kb_tools(self, user_id: str) -> List[RegisteredTool]:
+        rag_service = self.rag_service
 
-        @tool
-        def kb_search(
-            query: Annotated[str, Field(description="知识库搜索问题或关键词")],
-            doc_filter: Annotated[str, Field(description="可选，限定某个文档名")] = "",
-            top_k: Annotated[int, Field(description="返回结果数量，建议 1 到 5")] = 3,
-            category: Annotated[str, Field(description="可选，限定某个分类")] = "",
+        def _kb_list_assets() -> str:
+            return build_kb_list_assets_response(rag_service, user_id)
+
+        def _kb_search(
+            query: str,
+            doc_filter: str = "",
+            top_k: int = 3,
+            category: str = "",
         ) -> str:
-            """Search the knowledge base for relevant content."""
             return build_kb_search_response(
-                self.rag_service,
+                rag_service,
                 user_id,
                 query,
                 top_k=top_k,
@@ -338,19 +485,52 @@ class ToolCatalog:
                 category=category,
             )
 
-        return [kb_list_assets, kb_search]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="kb_list_assets",
+                    description="List current knowledge-base documents, categories, and heading previews.",
+                    parameters=_object_schema({}, []),
+                ),
+                handler=_sync_handler(_kb_list_assets),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="kb_search",
+                    description="Search the knowledge base for relevant content.",
+                    parameters=_object_schema(
+                        {
+                            "query": _string_field("知识库搜索问题或关键词"),
+                            "doc_filter": _string_field("可选，限定某个文档名", default=""),
+                            "top_k": _integer_field("返回结果数量，建议 1 到 5", default=3),
+                            "category": _string_field("可选，限定某个分类", default=""),
+                        },
+                        ["query"],
+                    ),
+                ),
+                handler=_sync_handler(_kb_search),
+            ),
+        ]
 
-    def _build_web_tools(self, _user_id: str) -> List[BaseTool]:
+    def _build_web_tools(self, _user_id: str) -> List[RegisteredTool]:
         search_tool = SearchTool(api_key=self.search_api_key)
 
-        @tool
-        def web_search(
-            query: Annotated[str, Field(description="搜索关键词或问题")],
-        ) -> str:
-            """Search the web for up-to-date information."""
+        def _web_search(query: str) -> str:
             return search_tool.execute(query=query)
 
-        return [web_search]
+        return [
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="web_search",
+                    description="Search the web for up-to-date information.",
+                    parameters=_object_schema(
+                        {"query": _string_field("搜索关键词或问题")},
+                        ["query"],
+                    ),
+                ),
+                handler=_sync_handler(_web_search),
+            ),
+        ]
 
     def _dedupe_profiles(self, profiles: List[str]) -> List[str]:
         ordered: List[str] = []
