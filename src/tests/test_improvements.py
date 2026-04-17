@@ -26,12 +26,12 @@ def test_file_syntax():
     print("\n=== 测试文件语法 ===")
     
     files_to_check = [
-        'src/services/ai/embedding_service.py',
-        'src/services/database.py',
-        'src/services/memory_manager.py',
-        'src/services/rag_service.py',
-        'src/wecom/handlers/message_handler.py',
-        'src/wecom/handlers/pending_confirmation_handler.py',
+        'src/ai/embedding_service.py',
+        'src/platform_core/database.py',
+        'src/memory/memory_manager.py',
+        'src/knowledge/rag_service.py',
+        'src/conversation/message_handler.py',
+        'src/conversation/pending_confirmation_handler.py',
     ]
     
     all_passed = True
@@ -51,7 +51,7 @@ def test_embedding_service_structure():
     """测试 EmbeddingService 结构"""
     print("\n=== 测试 EmbeddingService 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/ai/embedding_service.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/ai/embedding_service.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -72,7 +72,7 @@ def test_database_structure():
     """测试数据库模型结构"""
     print("\n=== 测试数据库模型结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/database.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/platform_core/database.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -89,7 +89,7 @@ def test_memory_manager_structure():
     """测试 MemoryManager 结构"""
     print("\n=== 测试 MemoryManager 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/memory_manager.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/memory/memory_manager.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -116,7 +116,7 @@ def test_rag_service_structure():
     """测试 RAGService 结构"""
     print("\n=== 测试 RAGService 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/services/rag_service.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/knowledge/rag_service.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -134,7 +134,7 @@ def test_handlers_structure():
     """测试 MessageHandler 结构"""
     print("\n=== 测试 MessageHandler 结构 ===")
     
-    filepath = os.path.join(os.path.dirname(__file__), '../../src/wecom/handlers/message_handler.py')
+    filepath = os.path.join(os.path.dirname(__file__), '../../src/conversation/message_handler.py')
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())
     
@@ -162,7 +162,7 @@ def test_pending_confirmation_handler_structure():
 
     filepath = os.path.join(
         os.path.dirname(__file__),
-        '../../src/wecom/handlers/pending_confirmation_handler.py',
+        '../../src/conversation/pending_confirmation_handler.py',
     )
     with open(filepath, 'r', encoding='utf-8') as f:
         tree = ast.parse(f.read())

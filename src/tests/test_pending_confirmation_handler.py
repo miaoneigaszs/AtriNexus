@@ -9,7 +9,7 @@ import unittest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "wecom" / "handlers" / "pending_confirmation_handler.py"
+MODULE_PATH = Path(__file__).resolve().parents[1] / "conversation" / "pending_confirmation_handler.py"
 MODULE_SPEC = importlib.util.spec_from_file_location("pending_confirmation_handler", MODULE_PATH)
 PENDING_CONFIRMATION_MODULE = importlib.util.module_from_spec(MODULE_SPEC)
 assert MODULE_SPEC and MODULE_SPEC.loader

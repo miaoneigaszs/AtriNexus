@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 
-ROUTER_PATH = Path(__file__).resolve().parents[1] / "wecom" / "processors" / "fast_path_router.py"
+ROUTER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_router.py"
 
 
 class FastPathRouterStructureTest(unittest.TestCase):
@@ -51,7 +51,7 @@ class FastPathRouterStructureTest(unittest.TestCase):
             source,
         )
         self.assertIn('if not reply.startswith(blocked_prefixes):', source)
-        self.assertNotIn('from src.wecom.processors.fast_path_dispatch import', source)
+        self.assertNotIn('from src.conversation.fast_path_dispatch import', source)
 
 
 if __name__ == "__main__":
