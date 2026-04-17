@@ -9,7 +9,7 @@ import os
 from sqlalchemy.exc import IntegrityError
 
 from src.ai.llm_service import LLMService
-from src.agent_runtime.langchain_agent_service import LangChainAgentService
+from src.agent_runtime.agent_service import AgentService
 from src.memory.memory_manager import MemoryManager
 from src.knowledge.rag_service import SdkRAGService
 from src.platform_core.session_service import SessionService
@@ -70,7 +70,7 @@ class MessageHandler:
         # 其他服务
         self.memory = MemoryManager(llm_service=self.llm_service, vector_store=self.vector_store)
         self.rag = SdkRAGService()
-        self.reply_service = LangChainAgentService(
+        self.reply_service = AgentService(
             api_key=config.llm.api_key,
             base_url=config.llm.base_url,
             model=config.llm.model,
@@ -97,7 +97,7 @@ class MessageHandler:
 
         logger.info(
             f"MessageHandler 初始化完成: vector_backend={self.vector_backend}, "
-            f"rag_backend=sdk, agent_backend=langchain"
+            f"rag_backend=sdk, agent_backend=self-built"
         )
 
     def _resolve_vector_backend(self) -> str:
