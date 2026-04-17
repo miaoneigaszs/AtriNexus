@@ -324,7 +324,11 @@ class MemoryManager:
 
     def _update_memories_if_needed(self, user_id: str, avatar_name: str):
         """根据计数器触发核心记忆和向量记忆更新。"""
-        self.update_coordinator.update_memories_if_needed(user_id, avatar_name)
+        self.update_coordinator.update_memories_if_needed(
+            user_id,
+            avatar_name,
+            vector_store_available=self._vector_store_available,
+        )
 
     def _do_update_vector_memory(self, user_id: str, avatar_name: str):
         """将本批对话摘要写入向量库（每10轮触发）。"""
@@ -401,7 +405,11 @@ class MemoryManager:
             logger.error(f"异步更新记忆失败: {e}", exc_info=True)
 
     async def _update_memories_if_needed_async(self, user_id: str, avatar_name: str) -> None:
-        await self.update_coordinator.update_memories_if_needed_async(user_id, avatar_name)
+        await self.update_coordinator.update_memories_if_needed_async(
+            user_id,
+            avatar_name,
+            vector_store_available=self._vector_store_available,
+        )
 
     async def _do_update_vector_memory_async(self, user_id: str, avatar_name: str) -> None:
         await self.update_coordinator.update_vector_memory_async(

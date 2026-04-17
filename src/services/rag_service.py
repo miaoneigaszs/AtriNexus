@@ -11,51 +11,13 @@ from collections import defaultdict
 import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional
 
 from data.config import config
 
 
-@runtime_checkable
-class RAGService(Protocol):
-    """面向调用方的最小 RAG 服务协议。"""
-
-    def index_document(
-        self,
-        user_id: str,
-        file_name: str,
-        file_path: str,
-        *,
-        category: str = "默认分类",
-    ) -> tuple[bool, str]:
-        """索引文档到用户知识库。"""
-
-    def retrieve(
-        self,
-        user_id: str,
-        query: str,
-        *,
-        top_k: int = 3,
-        filter_conditions: Optional[Dict[str, Any]] = None,
-        skip_rerank: bool = False,
-    ) -> Dict[str, Any]:
-        """检索知识库，返回统一结果结构。"""
-
-    def list_documents(self, user_id: str) -> Dict[str, List[str]]:
-        """按分类返回文档列表。"""
-
-    def get_document_outline(self, user_id: str, file_name: Optional[str] = None) -> Dict[str, Any]:
-        """获取文档结构大纲。"""
-
-    def delete_document(self, user_id: str, file_name: str) -> bool:
-        """删除指定文档。"""
-
-    def format_retrieval_results(self, results: List[Dict[str, Any]], include_score: bool = True) -> str:
-        """格式化检索结果。"""
-
-
-class BaseRAGService(ABC):
-    """抽象基类，约束主项目对 RAG 能力的最小依赖面。"""
+class RAGService(ABC):
+    """面向调用方的最小 RAG 服务接口，当前由 SdkRAGService 提供实现。"""
 
     @abstractmethod
     def index_document(
@@ -97,7 +59,7 @@ class BaseRAGService(ABC):
         raise NotImplementedError
 
 
-class SdkRAGService(BaseRAGService):
+class SdkRAGService(RAGService):
     """面向 `atrinexus-rag-sdk` 的适配层。"""
 
     def __init__(

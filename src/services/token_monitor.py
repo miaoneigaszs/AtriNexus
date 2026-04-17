@@ -42,7 +42,6 @@ class TokenUsageRecord:
     # 详细 token 分解（可选）
     system_prompt_tokens: int = 0      # 人设+规则
     core_memory_tokens: int = 0        # 核心记忆
-    kb_context_tokens: int = 0         # 知识库上下文
     chat_history_tokens: int = 0       # 历史对话
     user_message_tokens: int = 0       # 用户消息
     
@@ -101,14 +100,13 @@ class TokenMonitor:
         # 详细 token 分解（可选）
         system_prompt_tokens: int = 0,
         core_memory_tokens: int = 0,
-        kb_context_tokens: int = 0,
         chat_history_tokens: int = 0,
         user_message_tokens: int = 0,
     ) -> TokenUsageRecord:
         """记录一次 token 使用"""
         total_tokens = prompt_tokens + completion_tokens
         timestamp = datetime.now().isoformat()
-        
+
         record = TokenUsageRecord(
             timestamp=timestamp,
             user_id=user_id,
@@ -119,7 +117,6 @@ class TokenMonitor:
             request_type=request_type,
             system_prompt_tokens=system_prompt_tokens,
             core_memory_tokens=core_memory_tokens,
-            kb_context_tokens=kb_context_tokens,
             chat_history_tokens=chat_history_tokens,
             user_message_tokens=user_message_tokens,
         )
@@ -164,8 +161,6 @@ class TokenMonitor:
             detail_parts.append(f"人设={system_prompt_tokens}")
         if core_memory_tokens > 0:
             detail_parts.append(f"记忆={core_memory_tokens}")
-        if kb_context_tokens > 0:
-            detail_parts.append(f"知识库={kb_context_tokens}")
         if chat_history_tokens > 0:
             detail_parts.append(f"历史={chat_history_tokens}")
         if user_message_tokens > 0:

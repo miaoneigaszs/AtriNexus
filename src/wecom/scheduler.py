@@ -95,7 +95,6 @@ def execute_scheduled_task(task: dict):
             tool_profile=default_tool_profile_for_mode(current_mode),
             previous_context=previous_context,
             core_memory=core_memory,
-            kb_context=None,
         )
         
         # 4. 清理回复

@@ -14,7 +14,6 @@ class PromptManager:
 
     MAX_RUNTIME_TOOL_SUMMARY_CHARS = 1200
     MAX_RUNTIME_CORE_MEMORY_CHARS = 1400
-    MAX_RUNTIME_KB_CONTEXT_CHARS = 1800
 
     SYSTEM_FILE_ORDER = (
         ("身份定位", "identity.md"),
@@ -67,7 +66,6 @@ class PromptManager:
         tool_profiles: List[str] | None = None,
         tool_summary: str = "",
         core_memory: str | None,
-        kb_context: str | None,
     ) -> str:
         sections: List[str] = []
         current_persona_prompt = avatar_prompt or persona_prompt
@@ -90,13 +88,6 @@ class PromptManager:
             sections.append(
                 f"【核心记忆】\n"
                 f"{self._truncate_text(core_memory, self.MAX_RUNTIME_CORE_MEMORY_CHARS)}"
-            )
-        if kb_context:
-            sections.append(
-                "【参考资料】\n"
-                f"{self._truncate_text(kb_context, self.MAX_RUNTIME_KB_CONTEXT_CHARS)}\n"
-                "必须结合上述参考资料，并严格保持当前会话风格来回答用户的问题。"
-                "如果参考资料无相关性，请忽略资料，自然回复即可。"
             )
 
         return "\n\n".join(sections)

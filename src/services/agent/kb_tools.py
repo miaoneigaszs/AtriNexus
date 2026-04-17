@@ -1,3 +1,10 @@
+"""KB agent 工具的文本构造辅助。
+
+KB 能力通过 `kb_list_assets` / `kb_search` 两个 agent 工具按需触发，
+不参与默认上下文注入。换句话说，普通对话不会默认把知识库内容塞进
+系统提示或用户消息前缀；只有当模型明确决定调用这两个工具时才会检索。
+"""
+
 from __future__ import annotations
 
 import logging

@@ -25,7 +25,6 @@ def build_dynamic_prompt_middleware(prompt_manager: PromptManager) -> Callable:
             tool_profiles=context.tool_profiles,
             tool_summary=context.tool_summary,
             core_memory=context.core_memory,
-            kb_context=context.kb_context,
         )
 
     return runtime_prompt

@@ -10,7 +10,6 @@ class AgentRunContext:
 
     persona_prompt: str
     core_memory: Optional[str]
-    kb_context: Optional[str]
     tool_profile: Optional[str]
     tool_profiles: list[str]
     tool_summary: str

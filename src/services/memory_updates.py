@@ -45,31 +45,57 @@ class MemoryUpdateCoordinator:
         self.increment_vector_count = increment_vector_count
         self.reset_vector_count = reset_vector_count
 
-    def update_memories_if_needed(self, user_id: str, avatar_name: str) -> None:
+    def update_memories_if_needed(
+        self,
+        user_id: str,
+        avatar_name: str,
+        *,
+        vector_store_available: bool = True,
+    ) -> None:
         """根据计数器触发核心记忆和向量记忆更新。"""
         vector_count = self.increment_vector_count(user_id, avatar_name)
         if vector_count >= 10:
             self.reset_vector_count(user_id, avatar_name)
-            self.update_vector_memory(user_id, avatar_name)
+            self.update_vector_memory(
+                user_id,
+                avatar_name,
+                vector_store_available=vector_store_available,
+            )
 
         core_count = self.increment_core_count(user_id, avatar_name)
         if core_count >= 15:
             self.reset_core_count(user_id, avatar_name)
             self.update_core_memory(user_id, avatar_name)
 
-    async def update_memories_if_needed_async(self, user_id: str, avatar_name: str) -> None:
+    async def update_memories_if_needed_async(
+        self,
+        user_id: str,
+        avatar_name: str,
+        *,
+        vector_store_available: bool = True,
+    ) -> None:
         """异步版本的触发链。"""
         vector_count = await run_sync(self.increment_vector_count, user_id, avatar_name)
         if vector_count >= 10:
             await run_sync(self.reset_vector_count, user_id, avatar_name)
-            await self.update_vector_memory_async(user_id, avatar_name)
+            await self.update_vector_memory_async(
+                user_id,
+                avatar_name,
+                vector_store_available=vector_store_available,
+            )
 
         core_count = await run_sync(self.increment_core_count, user_id, avatar_name)
         if core_count >= 15:
             await run_sync(self.reset_core_count, user_id, avatar_name)
             await self.update_core_memory_async(user_id, avatar_name)
 
-    def update_vector_memory(self, user_id: str, avatar_name: str, vector_store_available: bool) -> None:
+    def update_vector_memory(
+        self,
+        user_id: str,
+        avatar_name: str,
+        *,
+        vector_store_available: bool = True,
+    ) -> None:
         """同步更新向量记忆。"""
         if not vector_store_available:
             return
