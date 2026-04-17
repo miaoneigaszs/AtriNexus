@@ -100,26 +100,27 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 ### Service entry
 
 - `run.py`
-- `src/wecom/server.py`
+- `src/app/server.py`
 
 ### Main runtime path
 
-- `src/wecom/handlers/message_handler.py`
-- `src/wecom/processors/context_builder.py`
-- `src/services/agent/langchain_agent_service.py`
-- `src/services/prompt_manager.py`
-- `src/wecom/processors/fast_path_router.py`
+- `src/conversation/message_handler.py`
+- `src/conversation/context_builder.py`
+- `src/agent_runtime/langchain_agent_service.py`
+- `src/prompting/prompt_manager.py`
+- `src/conversation/fast_path_router.py`
 
 ### Memory and diary
 
-- `src/services/memory_manager.py`
-- `src/services/memory_store.py`
-- `src/services/diary_service.py`
-- `src/services/database.py`
+- `src/memory/memory_manager.py`
+- `src/memory/memory_store.py`
+- `src/features/diary_service.py`
+- `src/platform_core/database.py`
 
 ### RAG
 
-- `src/services/rag_service.py`
+- `src/knowledge/rag_service.py`
+- `src/knowledge/kb_tools.py`
 
 Knowledge-base retrieval is now agent-driven:
 
@@ -128,13 +129,13 @@ Knowledge-base retrieval is now agent-driven:
 
 ### Vector storage
 
-- `src/services/vector_store/qdrant.py`
+- `src/platform_core/vector_store/qdrant.py`
 
 ### AI services
 
-- `src/services/ai/llm_service.py`
-- `src/services/ai/embedding_service.py`
-- `src/services/ai/model_manager.py`
+- `src/ai/llm_service.py`
+- `src/ai/embedding_service.py`
+- `src/ai/model_manager.py`
 
 ## Tech Stack
 
@@ -150,25 +151,29 @@ Knowledge-base retrieval is now agent-driven:
 
 ## Project Structure
 
+Source code is organized by capability domain, not by framework. `src/wecom/`
+no longer occupies a top-level slot because WeCom is just one current
+ingress — future Discord / Slack / CLI adapters would sit alongside it
+under `ingress/`.
+
 ```text
 AtriNexus/
 ├── run.py
 ├── pyproject.toml
 ├── requirements.txt
 ├── src/
-│   ├── services/
-│   │   ├── agent/
-│   │   ├── ai/
-│   │   ├── vector_store/
-│   │   ├── database.py
-│   │   ├── diary_service.py
-│   │   ├── llm_service.py
-│   │   ├── memory_manager.py
-│   │   ├── memory_store.py
-│   │   ├── rag_service.py
-│   │   └── session_service.py
-│   ├── utils/
-│   └── wecom/
+│   ├── app/              # application assembly, startup
+│   ├── ingress/          # WeCom callback, HTTP routers, middleware
+│   ├── conversation/     # message orchestration, fast-path, reply cleaner
+│   ├── agent_runtime/    # langchain adapter, runtime, middleware, tool guard
+│   ├── prompting/        # prompt assembly + all prompt markdown resources
+│   ├── memory/           # three-layer memory + context + updates
+│   ├── knowledge/        # RAG service + KB agent tools
+│   ├── ai/               # LLM, embedding, vision, web search, model mgr
+│   ├── workspace/        # workspace capabilities
+│   ├── platform_core/    # DB, session, token monitor, vector store, utils
+│   ├── features/         # diary, web templates
+│   └── tests/
 ├── data/
 │   ├── config/
 │   ├── database/
@@ -177,6 +182,8 @@ AtriNexus/
 ├── deployment/
 └── docs/
 ```
+
+See `docs/PROJECT_STRUCTURE.md` for the full rationale and module mapping.
 
 ## Configuration
 
