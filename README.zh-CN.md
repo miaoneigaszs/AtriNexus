@@ -100,26 +100,27 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 ### 服务入口
 
 - `run.py`
-- `src/wecom/server.py`
+- `src/app/server.py`
 
 ### 主运行链路
 
-- `src/wecom/handlers/message_handler.py`
-- `src/wecom/processors/context_builder.py`
-- `src/services/agent/langchain_agent_service.py`
-- `src/services/prompt_manager.py`
-- `src/wecom/processors/fast_path_router.py`
+- `src/conversation/message_handler.py`
+- `src/conversation/context_builder.py`
+- `src/agent_runtime/langchain_agent_service.py`
+- `src/prompting/prompt_manager.py`
+- `src/conversation/fast_path_router.py`
 
 ### 记忆与日记
 
-- `src/services/memory_manager.py`
-- `src/services/memory_store.py`
-- `src/services/diary_service.py`
-- `src/services/database.py`
+- `src/memory/memory_manager.py`
+- `src/memory/memory_store.py`
+- `src/features/diary_service.py`
+- `src/platform_core/database.py`
 
 ### RAG
 
-- `src/services/rag_service.py`
+- `src/knowledge/rag_service.py`
+- `src/knowledge/kb_tools.py`
 
 知识库路径现在已经改成 agent 按需调用：
 
@@ -128,13 +129,13 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 ### 向量存储
 
-- `src/services/vector_store/qdrant.py`
+- `src/platform_core/vector_store/qdrant.py`
 
 ### AI 服务
 
-- `src/services/ai/llm_service.py`
-- `src/services/ai/embedding_service.py`
-- `src/services/ai/model_manager.py`
+- `src/ai/llm_service.py`
+- `src/ai/embedding_service.py`
+- `src/ai/model_manager.py`
 
 ## 技术栈
 
@@ -150,25 +151,27 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 ## 项目结构
 
+源码按能力域分层，不按框架分层。`src/wecom/` 不再占顶层——企微只是当前的
+一个接入方式，以后接 Discord / Slack / CLI 时会平级放在 `ingress/` 下。
+
 ```text
 AtriNexus/
 ├── run.py
 ├── pyproject.toml
 ├── requirements.txt
 ├── src/
-│   ├── services/
-│   │   ├── agent/
-│   │   ├── ai/
-│   │   ├── vector_store/
-│   │   ├── database.py
-│   │   ├── diary_service.py
-│   │   ├── llm_service.py
-│   │   ├── memory_manager.py
-│   │   ├── memory_store.py
-│   │   ├── rag_service.py
-│   │   └── session_service.py
-│   ├── utils/
-│   └── wecom/
+│   ├── app/              # 应用装配、启动入口
+│   ├── ingress/          # 企微回调、HTTP 路由、中间件
+│   ├── conversation/     # 消息编排、快速通道、回复清理
+│   ├── agent_runtime/    # langchain 适配、runtime、middleware、工具守卫
+│   ├── prompting/        # prompt 组装 + 所有 prompt markdown 资源
+│   ├── memory/           # 三层记忆 + 上下文 + 更新编排
+│   ├── knowledge/        # RAG 服务 + KB agent 工具
+│   ├── ai/               # LLM / embedding / 视觉 / 联网搜索 / 模型管理
+│   ├── workspace/        # 工作区能力
+│   ├── platform_core/    # 数据库、会话、token 监控、向量存储、工具函数
+│   ├── features/         # 日记、web 模板
+│   └── tests/
 ├── data/
 │   ├── config/
 │   ├── database/
@@ -177,6 +180,8 @@ AtriNexus/
 ├── deployment/
 └── docs/
 ```
+
+详细职责与迁移映射见 `docs/PROJECT_STRUCTURE.md`。
 
 ## 配置
 
