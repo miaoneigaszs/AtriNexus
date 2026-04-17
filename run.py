@@ -33,7 +33,7 @@ def main():
 
     # 清理缓存
     try:
-        from src.utils.cleanup import cleanup_pycache
+        from src.platform_core.cleanup import cleanup_pycache
         cleanup_pycache()
     except Exception:
         pass
@@ -45,7 +45,7 @@ def main():
         os.makedirs(dir_path, exist_ok=True)
 
     # 启动 WeCom 服务
-    from src.wecom.server import start_server
+    from src.app.server import start_server
 
     host = os.environ.get('WECOM_HOST', '127.0.0.1')
     port = int(os.environ.get('WECOM_PORT', '8080'))
