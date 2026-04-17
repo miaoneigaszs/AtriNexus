@@ -11,6 +11,7 @@ reset_loop_state，中间 record_tool_outcome 写入当前 run 的状态。
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import difflib
 import json
@@ -25,6 +26,7 @@ from src.agent_runtime.hooks import (
     BeforeToolCallContext,
     BeforeToolCallResult,
 )
+from src.agent_runtime.user_runtime import abort_requested
 
 
 logger = logging.getLogger("wecom")
@@ -71,6 +73,11 @@ class AgentToolGuard:
     async def before_tool_call(
         self, ctx: BeforeToolCallContext
     ) -> Optional[BeforeToolCallResult]:
+        # 在任何工具调用前先检查用户是否要求取消；是则让 agent loop 捕获 CancelledError。
+        if abort_requested():
+            logger.info("Tool call aborted: name=%s reason=user-abort", ctx.tool_name)
+            raise asyncio.CancelledError("user requested abort")
+
         repaired_args, repair_note = self.repair_tool_args(ctx.tool_name, ctx.args)
         effective_args = repaired_args if repaired_args != ctx.args else ctx.args
 

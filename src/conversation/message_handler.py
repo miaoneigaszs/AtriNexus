@@ -31,6 +31,16 @@ from src.ingress.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
 
+# 用户口语里常见的取消指令。不走正则是因为 WeCom 用户可能加标点/空格/"吧"。
+_ABORT_TRIGGERS = ("取消", "停止", "别弄了", "不做了", "算了", "stop", "cancel", "abort")
+
+
+def _looks_like_abort(content: str) -> bool:
+    text = (content or "").strip().lower()
+    if not text or len(text) > 16:
+        return False
+    return any(trigger in text for trigger in _ABORT_TRIGGERS)
+
 
 class MessageHandler:
     """企业微信消息处理器 - 重构版"""
@@ -152,26 +162,53 @@ class MessageHandler:
 
         content_trim = content.strip()
 
+        # 2. 当前用户已有活跃 agent run：取消请求立即处理；其他消息进 follow-up 队列
+        if await self.reply_service.is_running(user_id):
+            if _looks_like_abort(content_trim):
+                aborted = await self.reply_service.abort(user_id)
+                ack = "已请求取消，马上停下手里的活。" if aborted else "当前没有在处理的任务。"
+                await self.client.send_text_async(user_id, ack)
+                return
+            queue_len = await self.reply_service.queue_follow_up(user_id, content_trim)
+            logger.info(
+                "用户 %s 处于 run 中，消息进入 follow-up 队列（第 %s 条）",
+                user_id,
+                queue_len,
+            )
+            return
+
         confirm_reply = await self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
             await self.client.send_text_async(user_id, confirm_reply)
             return
 
-        # 2. 快路径：能力查询、读文件、列目录、重命名
+        # 3. 快路径：能力查询、读文件、列目录、重命名
         fast_path_reply = await run_sync(self.fast_path_router.try_handle, user_id, content_trim)
         if fast_path_reply is not None:
             await self.client.send_text_async(user_id, fast_path_reply)
             return
 
-        # 3. 检查是否是命令
+        # 4. 检查是否是命令
         if self.command_handler.is_command(content_trim):
             reply = await run_sync(self.command_handler.handle_command, user_id, content_trim)
             if reply:
                 await self.client.send_text_async(user_id, reply)
             return
 
-        # 4. 正常消息处理流程
+        # 5. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
+
+        # 6. 运行期间用户可能追发了其他消息，依次消耗 follow-up 队列
+        await self._drain_follow_up_queue(user_id)
+
+    async def _drain_follow_up_queue(self, user_id: str) -> None:
+        follow_ups = await self.reply_service.drain_follow_up(user_id)
+        for queued in follow_ups:
+            logger.info("消化 follow-up 消息: user=%s, content_len=%s", user_id, len(queued))
+            try:
+                await self._execute_kb_search(user_id, queued, msg_id=f"followup-{user_id}")
+            except Exception as exc:
+                logger.error("follow-up 消息处理失败: %s", exc, exc_info=True)
 
     async def _handle_pending_action_confirmation(self, user_id: str, content: str):
         return await self.pending_confirmation_handler.handle(user_id, content)
