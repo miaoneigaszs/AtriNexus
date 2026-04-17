@@ -65,7 +65,7 @@ class WorkspacePathResolver:
         if not path:
             return path
 
-        candidate, error = self.runtime._resolve_path_or_error(path)
+        candidate, error = self.runtime.resolve_path_or_error(path)
         if not error and candidate and candidate.exists():
             if expect_file and candidate.is_file():
                 return path
@@ -85,7 +85,7 @@ class WorkspacePathResolver:
         if last_path and "/" not in path:
             base_dir = PurePosixPath(last_path) if last_type == "dir" else PurePosixPath(last_path).parent
             candidate_path = str(base_dir / path) if str(base_dir) != "." else path
-            candidate, candidate_error = self.runtime._resolve_path_or_error(candidate_path)
+            candidate, candidate_error = self.runtime.resolve_path_or_error(candidate_path)
             if not candidate_error and candidate and candidate.exists():
                 if expect_file and candidate.is_file():
                     return candidate_path
@@ -105,11 +105,11 @@ class WorkspacePathResolver:
             return None if self._pending_resolution_reply else path
 
         exact_file_matches: List[str] = []
-        for file_path in self.runtime._iter_files(self.runtime.workspace_root):
+        for file_path in self.runtime.iter_files(self.runtime.workspace_root):
             file_name = file_path.name.lower()
             if file_name != lowered and self._normalize_lookup_key(file_name) != normalized_key:
                 continue
-            exact_file_matches.append(self.runtime._to_relative(file_path))
+            exact_file_matches.append(self.runtime.to_relative(file_path))
             if len(exact_file_matches) > 1:
                 break
         if len(exact_file_matches) == 1:
@@ -141,11 +141,11 @@ class WorkspacePathResolver:
         return None if self._pending_resolution_reply else path
 
     def looks_like_existing_file(self, path: str) -> bool:
-        candidate, error = self.runtime._resolve_path_or_error(path)
+        candidate, error = self.runtime.resolve_path_or_error(path)
         return not error and bool(candidate and candidate.exists() and candidate.is_file())
 
     def looks_like_existing_dir(self, path: str) -> bool:
-        candidate, error = self.runtime._resolve_path_or_error(path)
+        candidate, error = self.runtime.resolve_path_or_error(path)
         return not error and bool(candidate and candidate.exists() and candidate.is_dir())
 
     def parse_resolution_choice(self, message: str) -> Optional[int]:
@@ -207,8 +207,8 @@ class WorkspacePathResolver:
         candidates: List[Dict[str, Any]] = []
 
         if not expect_dir:
-            for file_path in self.runtime._iter_files(self.runtime.workspace_root):
-                relative_path = self.runtime._to_relative(file_path)
+            for file_path in self.runtime.iter_files(self.runtime.workspace_root):
+                relative_path = self.runtime.to_relative(file_path)
                 score = self._score_path_candidate(query_key, file_path.name, relative_path)
                 if score < 0.62:
                     continue

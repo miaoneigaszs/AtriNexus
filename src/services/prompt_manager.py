@@ -24,15 +24,19 @@ class PromptManager:
         ("记忆策略", "memory_policy.md"),
     )
 
+    MODE_FILE_MAP = {
+        "work": "work.md",
+        "companion": "companion.md",
+    }
+    DEFAULT_MODE = "work"
+
     def __init__(self, root_dir: str) -> None:
         self.root_dir = Path(root_dir)
         self.system_dir = self.root_dir / "src" / "base" / "prompts" / "system"
+        self.mode_dir = self.system_dir / "modes"
 
     def build_agent_static_prompt(self) -> str:
-        """组装稳定前缀。
-
-        这里故意只放长期稳定内容，避免把动态信息混进缓存友好的前缀里。
-        """
+        """组装稳定前缀，只放长期稳定内容以保持缓存前缀一致。"""
         sections: List[str] = []
         for title, filename in self.SYSTEM_FILE_ORDER:
             content = self._read_markdown(self.system_dir / filename)
@@ -40,37 +44,18 @@ class PromptManager:
                 sections.append(f"【{title}】\n{content}")
         return "\n\n".join(sections)
 
-    def build_agent_system_prompt(
-        self,
-        *,
-        tool_profiles: List[str] | None = None,
-        tool_summary: str | None = None,
-    ) -> str:
-        """兼容当前 agent 调用名。
-
-        tool_profiles 和 tool_summary 继续保留在签名里，避免接线阶段改动过大。
-        静态前缀不直接依赖它们。
-        """
-        return self.build_agent_static_prompt()
-
     def build_mode_prompt(self, current_mode: str) -> str:
         """构建当前会话模式提示。
 
-        这里不再引入独立 avatar 人设文件，避免角色扮演压过工作型助手的主职责。
+        模式文案直接从 markdown 文件读取，保持"所有静态提示词都在 prompts 目录"的单一事实来源。
         """
-        if current_mode == "companion":
-            return (
-                "当前处于陪伴模式。\n"
-                "表达可以更温和、更有陪伴感，但仍然要实事求是，不要编造，不要夸张表演。"
-            )
-
-        return (
-            "当前处于工作模式。\n"
-            "表达应当直率、简洁、接地气，有啥说啥，先解决问题。"
-            "可以保留少量温度，但不要主动卖萌、调侃、挖苦或角色表演。"
-        )
+        mode_key = current_mode if current_mode in self.MODE_FILE_MAP else self.DEFAULT_MODE
+        filename = self.MODE_FILE_MAP[mode_key]
+        return self._read_markdown(self.mode_dir / filename)
 
     def build_persona_prompt(self, avatar_name: str, current_mode: str) -> str:
+        # 保留签名兼容外部调用方；avatar_name 当前未使用。
+        del avatar_name
         return self.build_mode_prompt(current_mode)
 
     def build_runtime_prompt(

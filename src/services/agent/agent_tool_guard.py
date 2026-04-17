@@ -14,15 +14,6 @@ from langchain_core.messages import ToolMessage
 
 logger = logging.getLogger("wecom")
 
-TOOL_OVERVIEW_HINTS = (
-    "有哪些工具",
-    "有什么工具",
-    "能用什么工具",
-    "可以用什么工具",
-    "能做什么",
-    "会什么",
-    "能力有哪些",
-)
 MAX_TOOL_RESULT_CHARS = 4000
 MAX_TOOL_ARG_CHARS = 500
 MAX_TOOL_REPEAT_COUNT = 2
@@ -139,29 +130,6 @@ class AgentToolGuard:
 
         return managed_tool_call
 
-    def looks_like_tool_overview(self, message: str) -> bool:
-        normalized = (message or "").strip()
-        return any(hint in normalized for hint in TOOL_OVERVIEW_HINTS)
-
-    def format_tool_overview(self, tool_bundle: Any) -> str:
-        tool_names = [tool.name for tool in tool_bundle.tools]
-        profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
-        lines = [
-            "我刚检查了当前这条消息下启用的工具。",
-            "",
-            "当前工具组：",
-            profile_text,
-            "",
-            "当前可用工具：",
-        ]
-        for name in tool_names:
-            lines.append(f"- {name}")
-        if tool_bundle.detailed_summary_lines:
-            lines.append("")
-            lines.append("这些工具当前分别能做：")
-            lines.extend(tool_bundle.detailed_summary_lines)
-        return "\n".join(lines)
-
     def summarize_tool_args(self, tool_args: Any) -> str:
         raw = str(tool_args)
         if len(raw) <= MAX_TOOL_ARG_CHARS:
@@ -224,7 +192,7 @@ class AgentToolGuard:
             return "README.md", "readme"
 
         runtime = self.tool_catalog.runtime
-        candidate, error = runtime._resolve_path_or_error(normalized)
+        candidate, error = runtime.resolve_path_or_error(normalized)
         if not error and candidate and candidate.exists():
             if expect_dir and candidate.is_dir():
                 return normalized, ""
@@ -254,8 +222,8 @@ class AgentToolGuard:
 
         candidates: List[Tuple[float, str]] = []
         if not expect_dir:
-            for file_path in runtime._iter_files(runtime.workspace_root):
-                relative_path = runtime._to_relative(file_path)
+            for file_path in runtime.iter_files(runtime.workspace_root):
+                relative_path = runtime.to_relative(file_path)
                 score = self.score_workspace_candidate(query_key, file_path.name, relative_path)
                 if score >= 0.86:
                     candidates.append((score, relative_path))
