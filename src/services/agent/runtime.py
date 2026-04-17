@@ -195,7 +195,7 @@ class WorkspaceRuntime:
         return "\n\n".join(sections)
 
     def list_directory(self, path: str = ".") -> str:
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -204,7 +204,7 @@ class WorkspaceRuntime:
             return f"目标不是目录: {path}"
 
         entries = sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
-        lines: List[str] = [f"目录: {self._to_relative(target)}"]
+        lines: List[str] = [f"目录: {self.to_relative(target)}"]
         for entry in entries[:200]:
             kind = "dir" if entry.is_dir() else "file"
             lines.append(f"- [{kind}] {entry.name}")
@@ -213,7 +213,7 @@ class WorkspaceRuntime:
         return "\n".join(lines)
 
     def read_file(self, path: str) -> str:
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -227,11 +227,11 @@ class WorkspaceRuntime:
             suffix = "\n\n[内容过长，已截断]"
         else:
             suffix = ""
-        return f"文件: {self._to_relative(target)}\n\n{text}{suffix}"
+        return f"文件: {self.to_relative(target)}\n\n{text}{suffix}"
 
     def read_file_line(self, path: str, position: str = "last") -> str:
         """读取文件首行或末行，适合简单、确定性的文件提问。"""
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -241,33 +241,33 @@ class WorkspaceRuntime:
 
         lines = target.read_text(encoding="utf-8", errors="ignore").splitlines()
         if not lines:
-            return f"文件: {self._to_relative(target)}\n\n[文件为空]"
+            return f"文件: {self.to_relative(target)}\n\n[文件为空]"
 
         normalized = "first" if position == "first" else "last"
         line = lines[0] if normalized == "first" else lines[-1]
         label = "首行" if normalized == "first" else "末行"
-        return f"文件: {self._to_relative(target)}\n{label}: {line}"
+        return f"文件: {self.to_relative(target)}\n{label}: {line}"
 
     def search_files(self, query: str, path: str = ".") -> str:
         query = query.strip()
         if not query:
             return "缺少搜索关键词"
 
-        root, error = self._resolve_path_or_error(path)
+        root, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not root.exists():
             return f"路径不存在: {path}"
 
         matches: List[str] = []
-        for file_path in self._iter_files(root):
+        for file_path in self.iter_files(root):
             try:
                 with file_path.open("r", encoding="utf-8", errors="ignore") as file_obj:
                     for lineno, line in enumerate(file_obj, start=1):
                         if query.lower() not in line.lower():
                             continue
                         snippet = line.strip()
-                        matches.append(f"{self._to_relative(file_path)}:{lineno}: {snippet}")
+                        matches.append(f"{self.to_relative(file_path)}:{lineno}: {snippet}")
                         if len(matches) >= self.MAX_MATCHES:
                             return "\n".join(matches + ["[结果过多，已截断]"])
             except OSError:
@@ -278,7 +278,7 @@ class WorkspaceRuntime:
         return "\n".join(matches)
 
     def preview_write_file(self, path: str, content: str, owner_user_id: Optional[str] = None) -> str:
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         old_text = ""
@@ -299,7 +299,7 @@ class WorkspaceRuntime:
         owner_user_id: Optional[str] = None,
     ) -> str:
         """预览在文件头部或尾部追加内容。"""
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -330,7 +330,7 @@ class WorkspaceRuntime:
         owner_user_id: Optional[str] = None,
     ) -> str:
         """预览按字符范围替换文件中的一段内容。"""
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -357,7 +357,7 @@ class WorkspaceRuntime:
         if not find_text:
             return "缺少待替换文本"
 
-        target, error = self._resolve_path_or_error(path)
+        target, error = self.resolve_path_or_error(path)
         if error:
             return error
         if not target.exists():
@@ -378,10 +378,10 @@ class WorkspaceRuntime:
         return self._format_preview(change_id, target, diff)
 
     def rename_path(self, source_path: str, target_path: str) -> str:
-        source, error = self._resolve_path_or_error(source_path)
+        source, error = self.resolve_path_or_error(source_path)
         if error:
             return error
-        target, error = self._resolve_path_or_error(target_path)
+        target, error = self.resolve_path_or_error(target_path)
         if error:
             return error
         if not source.exists():
@@ -391,7 +391,7 @@ class WorkspaceRuntime:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         source.rename(target)
-        return f"已重命名: {self._to_relative(source)} -> {self._to_relative(target)}"
+        return f"已重命名: {self.to_relative(source)} -> {self.to_relative(target)}"
 
     def apply_pending_change(self, change_id: str, owner_user_id: Optional[str] = None) -> str:
         pending = self._pending_changes.get(change_id)
@@ -401,13 +401,13 @@ class WorkspaceRuntime:
         if owner_error:
             return owner_error
 
-        target, error = self._resolve_path_or_error(pending["path"])
+        target, error = self.resolve_path_or_error(pending["path"])
         if error:
             return error
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(pending["new_text"], encoding="utf-8")
         del self._pending_changes[change_id]
-        return f"已应用变更: {change_id} -> {self._to_relative(target)}"
+        return f"已应用变更: {change_id} -> {self.to_relative(target)}"
 
     def discard_pending_change(self, change_id: str, owner_user_id: Optional[str] = None) -> str:
         if change_id not in self._pending_changes:
@@ -432,19 +432,19 @@ class WorkspaceRuntime:
             raise ValueError("路径超出 workspace 范围")
         return candidate
 
-    def _resolve_path_or_error(self, raw_path: str) -> Tuple[Optional[Path], Optional[str]]:
+    def resolve_path_or_error(self, raw_path: str) -> Tuple[Optional[Path], Optional[str]]:
         try:
             return self._resolve_path(raw_path), None
         except ValueError:
             return None, "路径超出 workspace 范围"
 
-    def _to_relative(self, path: Path) -> str:
+    def to_relative(self, path: Path) -> str:
         try:
             return str(path.relative_to(self.workspace_root))
         except ValueError:
             return str(path)
 
-    def _iter_files(self, root: Path):
+    def iter_files(self, root: Path):
         if root.is_file():
             yield root
             return
@@ -499,7 +499,7 @@ class WorkspaceRuntime:
     ) -> str:
         change_id = uuid.uuid4().hex[:12]
         self._pending_changes[change_id] = {
-            "path": str(self._to_relative(target)),
+            "path": str(self.to_relative(target)),
             "old_text": old_text,
             "new_text": new_text,
             "owner_user_id": owner_user_id or "",
@@ -535,8 +535,8 @@ class WorkspaceRuntime:
         diff_lines = difflib.unified_diff(
             old_text.splitlines(),
             new_text.splitlines(),
-            fromfile=f"a/{self._to_relative(target)}",
-            tofile=f"b/{self._to_relative(target)}",
+            fromfile=f"a/{self.to_relative(target)}",
+            tofile=f"b/{self.to_relative(target)}",
             lineterm="",
         )
         diff = "\n".join(diff_lines)
@@ -545,7 +545,7 @@ class WorkspaceRuntime:
     def _format_preview(self, change_id: str, target: Path, diff: str) -> str:
         return (
             f"待审批变更 ID: {change_id}\n"
-            f"目标文件: {self._to_relative(target)}\n\n"
+            f"目标文件: {self.to_relative(target)}\n\n"
             f"{diff}\n\n"
             "请选择：\n"
             f"1. 确认修改 {change_id}\n"

@@ -124,6 +124,25 @@ class ToolCatalog:
         normalized = (message or "").strip()
         return any(hint in normalized for hint in TOOL_OVERVIEW_HINTS)
 
+    def format_tool_overview(self, tool_bundle: "ToolBundle") -> str:
+        tool_names = [tool.name for tool in tool_bundle.tools]
+        profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
+        lines = [
+            "我刚检查了当前这条消息下启用的工具。",
+            "",
+            "当前工具组：",
+            profile_text,
+            "",
+            "当前可用工具：",
+        ]
+        for name in tool_names:
+            lines.append(f"- {name}")
+        if tool_bundle.detailed_summary_lines:
+            lines.append("")
+            lines.append("这些工具当前分别能做：")
+            lines.extend(tool_bundle.detailed_summary_lines)
+        return "\n".join(lines)
+
     def _section_definitions(self) -> List[ToolSectionDefinition]:
         return [
             ToolSectionDefinition(

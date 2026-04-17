@@ -4,17 +4,19 @@ import asyncio
 import logging
 import os
 import threading
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import dynamic_prompt, wrap_model_call
 from langchain_openai import ChatOpenAI
 
 from data.config import config
 from src.services.agent.agent_context import AgentRunContext
 from src.services.agent.agent_tool_guard import AgentToolGuard
+from src.services.agent.middleware import (
+    build_dynamic_prompt_middleware,
+    build_model_middleware,
+)
 from src.services.agent.tool_catalog import ToolCatalog
 from src.services.agent.agent_usage import (
     MAX_HISTORY_MESSAGES,
@@ -26,7 +28,6 @@ from src.services.agent.agent_usage import (
 )
 from src.services.prompt_manager import PromptManager
 from src.services.token_monitor import token_monitor
-from src.utils.metrics import Metrics, PROMETHEUS_AVAILABLE
 
 logger = logging.getLogger("wecom")
 
@@ -123,8 +124,8 @@ class LangChainAgentService:
                 allow_tools=not self._model_lacks_tool_support(),
                 tool_profile=tool_profile,
             )
-            if self._looks_like_tool_overview(message):
-                return self._format_tool_overview(tool_bundle)
+            if self.tool_catalog.looks_like_tool_overview(message):
+                return self.tool_catalog.format_tool_overview(tool_bundle)
             agent = self._get_or_build_agent(
                 tool_bundle.profiles,
                 tool_bundle.summary,
@@ -212,10 +213,10 @@ class LangChainAgentService:
         agent = create_agent(
             model=self.model_client,
             tools=tools,
-            system_prompt=self._build_static_system_prompt(tool_profiles, tool_summary),
+            system_prompt=self.prompt_manager.build_agent_static_prompt(),
             middleware=[
-                self._build_dynamic_prompt_middleware(),
-                self._build_model_middleware(),
+                build_dynamic_prompt_middleware(self.prompt_manager),
+                build_model_middleware(self.model),
                 self.tool_guard.build_tool_middleware(),
             ],
             context_schema=AgentRunContext,
@@ -223,16 +224,6 @@ class LangChainAgentService:
         with self._agent_cache_lock:
             self._agent_cache[cache_key] = agent
         return agent
-
-    def _build_static_system_prompt(
-        self,
-        tool_profiles: List[str],
-        tool_summary: str,
-    ) -> str:
-        return self.prompt_manager.build_agent_system_prompt(
-            tool_profiles=tool_profiles,
-            tool_summary=tool_summary,
-        )
 
     def _build_messages(
         self,
@@ -253,62 +244,6 @@ class LangChainAgentService:
     def _build_agent_cache_key(self, tool_profiles: List[str], tools) -> Tuple[str, ...]:
         tool_names = tuple(tool.name for tool in tools)
         return tuple(tool_profiles) + ("|",) + tool_names
-
-    def _build_dynamic_prompt_middleware(self):
-        prompt_manager = self.prompt_manager
-
-        @dynamic_prompt
-        def runtime_prompt(request) -> str:
-            context = request.runtime.context
-            return prompt_manager.build_runtime_prompt(
-                persona_prompt=context.persona_prompt,
-                tool_profile=context.tool_profile,
-                tool_profiles=context.tool_profiles,
-                tool_summary=context.tool_summary,
-                core_memory=context.core_memory,
-                kb_context=context.kb_context,
-            )
-
-        return runtime_prompt
-
-    def _build_model_middleware(self):
-        @wrap_model_call
-        async def managed_model_call(request, handler):
-            model_name = getattr(request.model, "model_name", None) or getattr(request.model, "model", None) or self.model
-            start = time.perf_counter()
-            if PROMETHEUS_AVAILABLE and Metrics.active_llm_requests:
-                Metrics.active_llm_requests.labels(model=model_name, request_type="agent").inc()
-            logger.info(
-                "Model call start: model=%s messages=%s tools=%s",
-                model_name,
-                len(request.messages),
-                len(request.tools),
-            )
-            try:
-                response = await handler(request)
-            except Exception as exc:
-                duration = time.perf_counter() - start
-                logger.warning("Model call failed: model=%s duration_ms=%.2f error=%s", model_name, duration * 1000, exc)
-                if PROMETHEUS_AVAILABLE and Metrics.llm_errors_total:
-                    Metrics.llm_errors_total.labels(model=model_name, error_type=type(exc).__name__).inc()
-                raise
-            finally:
-                if PROMETHEUS_AVAILABLE and Metrics.active_llm_requests:
-                    Metrics.active_llm_requests.labels(model=model_name, request_type="agent").dec()
-
-            duration = time.perf_counter() - start
-            logger.info("Model call end: model=%s duration_ms=%.2f", model_name, duration * 1000)
-            if PROMETHEUS_AVAILABLE and Metrics.llm_request_duration:
-                Metrics.llm_request_duration.labels(model=model_name).observe(duration)
-            return response
-
-        return managed_model_call
-
-    def _looks_like_tool_overview(self, message: str) -> bool:
-        return self.tool_guard.looks_like_tool_overview(message)
-
-    def _format_tool_overview(self, tool_bundle) -> str:
-        return self.tool_guard.format_tool_overview(tool_bundle)
 
     def _record_token_usage(
         self,
