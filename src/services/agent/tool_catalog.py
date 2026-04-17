@@ -207,6 +207,8 @@ class ToolCatalog:
                     "- kb_list_assets: 看知识库里有哪些文档和分类。",
                     "- kb_search: 查知识库内容，可限定文档或分类。",
                 ],
+                # KB 只通过工具按需触发，不参与默认上下文注入；
+                # 因此这里的启用条件只看 rag_service 是否注入，与消息内容无关。
                 enabled_when=lambda self, _profile: self.rag_service is not None,
                 build_tools=lambda self, user_id: self._build_kb_tools(user_id),
             ),

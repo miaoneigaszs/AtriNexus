@@ -88,7 +88,6 @@ class LangChainAgentService:
         tool_profile: Optional[str] = None,
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
-        kb_context: Optional[str] = None,
     ) -> str:
         try:
             asyncio.get_running_loop()
@@ -103,7 +102,6 @@ class LangChainAgentService:
                     tool_profile=tool_profile,
                     previous_context=previous_context,
                     core_memory=core_memory,
-                    kb_context=kb_context,
                 )
             )
 
@@ -115,7 +113,6 @@ class LangChainAgentService:
         tool_profile: Optional[str] = None,
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
-        kb_context: Optional[str] = None,
     ) -> str:
         try:
             tool_bundle = self.tool_catalog.build_tool_bundle(
@@ -137,7 +134,6 @@ class LangChainAgentService:
                 previous_context=previous_context,
                 system_prompt=system_prompt,
                 core_memory=core_memory,
-                kb_context=kb_context,
                 tool_profile=tool_profile,
                 tool_profiles=tool_bundle.profiles,
                 tool_summary=tool_bundle.summary,
@@ -147,7 +143,6 @@ class LangChainAgentService:
                 user_id=user_id,
                 system_prompt=system_prompt,
                 core_memory=core_memory,
-                kb_context=kb_context,
                 previous_context=previous_context,
                 user_message=message,
             )
@@ -164,7 +159,6 @@ class LangChainAgentService:
         previous_context: Optional[List[Dict[str, Any]]],
         system_prompt: str,
         core_memory: Optional[str],
-        kb_context: Optional[str],
         tool_profile: Optional[str],
         tool_profiles: List[str],
         tool_summary: str,
@@ -181,7 +175,6 @@ class LangChainAgentService:
                     context=AgentRunContext(
                         persona_prompt=system_prompt,
                         core_memory=core_memory,
-                        kb_context=kb_context,
                         tool_profile=tool_profile,
                         tool_profiles=tool_profiles,
                         tool_summary=tool_summary,
@@ -252,7 +245,6 @@ class LangChainAgentService:
         user_id: str,
         system_prompt: str,
         core_memory: Optional[str],
-        kb_context: Optional[str],
         previous_context: Optional[List[Dict[str, Any]]],
         user_message: str,
     ) -> None:
@@ -274,7 +266,6 @@ class LangChainAgentService:
             request_type="agent",
             system_prompt_tokens=estimate_tokens(system_prompt),
             core_memory_tokens=estimate_tokens(core_memory),
-            kb_context_tokens=estimate_tokens(kb_context),
             chat_history_tokens=estimate_message_tokens(previous_context),
             user_message_tokens=estimate_tokens(user_message),
         )

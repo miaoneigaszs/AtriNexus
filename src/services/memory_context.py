@@ -1,3 +1,17 @@
+"""记忆上下文组装与向量记忆召回门控。
+
+向量记忆召回是昂贵操作（一次 embedding + 向量查询 + 时间衰减重排），
+并且大多数普通对话并不依赖跨轮长时记忆。为避免把向量记忆默认堆进每轮
+上下文，这里用两条触发规则做门控：
+
+- `_MEMORY_HINTS`：用户显式表达"想起/回忆/之前说过/..."类语义时才触发。
+- `_ACTION_HINTS`：一旦出现这些动作型词（改文件、跑命令、查知识库...），
+  就短路掉向量召回——这类请求的关键上下文是当轮参数，不是历史对话。
+
+只有同时满足"消息足够长 + 命中 MEMORY_HINTS + 未命中 ACTION_HINTS"
+才会真正执行向量检索；其余路径核心记忆 + 最近短期记忆就足够了。
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -5,6 +19,9 @@ from typing import Callable, List
 
 from src.utils.async_utils import run_sync
 
+
+# 短于该长度的消息一律跳过向量召回——信息量不足以检索出有意义的结果。
+_MIN_MESSAGE_CHARS_FOR_VECTOR_RECALL = 4
 
 _ACTION_HINTS = (
     "readme",
@@ -59,7 +76,7 @@ class MemoryContextBuilder:
     def should_recall_vector_memories(self, current_message: str) -> bool:
         """只在明显需要跨轮回忆时才做向量记忆召回。"""
         normalized = (current_message or "").strip().lower()
-        if len(normalized) < 4:
+        if len(normalized) < _MIN_MESSAGE_CHARS_FOR_VECTOR_RECALL:
             return False
 
         if any(hint in normalized for hint in _ACTION_HINTS):

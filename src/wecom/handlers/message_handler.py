@@ -204,7 +204,6 @@ class MessageHandler:
                 tool_profile=tool_profile,
                 previous_context=previous_context,
                 core_memory=core_memory,
-                kb_context=None,
             )
 
             # 清理回复
