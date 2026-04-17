@@ -13,6 +13,7 @@ from langchain_openai import ChatOpenAI
 from data.config import config
 from src.agent_runtime.agent_context import AgentRunContext
 from src.agent_runtime.agent_tool_guard import AgentToolGuard
+from src.agent_runtime.context_engine import ContextEngine, DefaultCompressor
 from src.agent_runtime.default_hooks import DefaultAgentHooks
 from src.agent_runtime.hooks import AgentHooks
 from src.agent_runtime.middleware import (
@@ -85,6 +86,7 @@ class LangChainAgentService:
         rag_service: Optional[object] = None,
         hooks: Optional[AgentHooks] = None,
         runtime_registry: Optional[UserRuntimeRegistry] = None,
+        context_engine: Optional[ContextEngine] = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
@@ -92,6 +94,9 @@ class LangChainAgentService:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.runtime_registry = runtime_registry or default_user_runtime
+        self.context_engine: ContextEngine = context_engine or DefaultCompressor(
+            context_length=int(os.getenv("ATRINEXUS_AGENT_CONTEXT_LENGTH", "32000"))
+        )
         # OpenClaw 的默认策略不是用很小的总轮数硬截停，而是给 loop detection
         # 留足历史窗口。这里把默认 recursion_limit 提高到 12，避免简单文件任务在
         # 完成最后一次 read/search 后还没来得及收尾就被截断。
@@ -163,6 +168,7 @@ class LangChainAgentService:
                 )
                 if self.tool_catalog.looks_like_tool_overview(message):
                     return self.tool_catalog.format_tool_overview(tool_bundle)
+                previous_context = self._maybe_compress_context(previous_context)
                 agent = self._get_or_build_agent(
                     tool_bundle.profiles,
                     tool_bundle.summary,
@@ -186,6 +192,7 @@ class LangChainAgentService:
                     previous_context=previous_context,
                     user_message=message,
                 )
+                self._update_context_engine(result)
                 reply_text = extract_text(result) or ""
                 self._record_trajectory(
                     user_id=user_id,
@@ -341,6 +348,29 @@ class LangChainAgentService:
     def _model_lacks_tool_support(self) -> bool:
         model_name = self.model.lower()
         return any(item in model_name for item in MODELS_WITHOUT_TOOL_SUPPORT)
+
+    def _maybe_compress_context(
+        self,
+        previous_context: Optional[List[Dict[str, Any]]],
+    ) -> Optional[List[Dict[str, Any]]]:
+        """送给 ainvoke 之前问 context_engine 是否需要压缩。"""
+        if not previous_context:
+            return previous_context
+        try:
+            if self.context_engine.should_compress_preflight(previous_context):
+                return self.context_engine.compress(previous_context)
+        except Exception as exc:
+            logger.warning("context_engine 压缩失败，按原样发送: %s", exc)
+        return previous_context
+
+    def _update_context_engine(self, result: Any) -> None:
+        """LLM 响应回来后把 usage 喂给 engine 用于下一轮判断。"""
+        try:
+            usage = collect_usage_metadata(result) or {}
+            if usage:
+                self.context_engine.update_from_response(usage)
+        except Exception as exc:
+            logger.debug("context_engine 更新失败: %s", exc)
 
     def _record_trajectory(
         self,
