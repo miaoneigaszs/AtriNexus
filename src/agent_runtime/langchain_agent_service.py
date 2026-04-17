@@ -32,10 +32,12 @@ from src.agent_runtime.agent_usage import (
 from src.prompting.prompt_manager import PromptManager
 from src.platform_core.token_monitor import token_monitor
 from src.agent_runtime.trajectory import record_turn as record_trajectory_turn
+from src.agent_runtime.user_runtime import user_runtime as default_user_runtime, UserRuntimeRegistry
 
 logger = logging.getLogger("wecom")
 
 USER_VISIBLE_AGENT_ERROR = "抱歉，我暂时无法处理你的消息，请稍后再试。"
+USER_VISIBLE_AGENT_CANCELLED = "已取消当前处理。"
 MODELS_WITHOUT_TOOL_SUPPORT = {"deepseek-reasoner", "deepseek-r1"}
 
 
@@ -82,12 +84,14 @@ class LangChainAgentService:
         max_tokens: int,
         rag_service: Optional[object] = None,
         hooks: Optional[AgentHooks] = None,
+        runtime_registry: Optional[UserRuntimeRegistry] = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.runtime_registry = runtime_registry or default_user_runtime
         # OpenClaw 的默认策略不是用很小的总轮数硬截停，而是给 loop detection
         # 留足历史窗口。这里把默认 recursion_limit 提高到 12，避免简单文件任务在
         # 完成最后一次 read/search 后还没来得及收尾就被截断。
@@ -147,50 +151,73 @@ class LangChainAgentService:
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
     ) -> str:
-        try:
-            tool_bundle = self.tool_catalog.build_tool_bundle(
-                user_id=user_id,
-                message=message,
-                allow_tools=not self._model_lacks_tool_support(),
-                tool_profile=tool_profile,
-            )
-            if self.tool_catalog.looks_like_tool_overview(message):
-                return self.tool_catalog.format_tool_overview(tool_bundle)
-            agent = self._get_or_build_agent(
-                tool_bundle.profiles,
-                tool_bundle.summary,
-                tool_bundle.tools,
-            )
-            result = await self._invoke_agent_async(
-                agent,
-                message=message,
-                previous_context=previous_context,
-                system_prompt=system_prompt,
-                core_memory=core_memory,
-                tool_profile=tool_profile,
-                tool_profiles=tool_bundle.profiles,
-                tool_summary=tool_bundle.summary,
-            )
-            self._record_token_usage(
-                result=result,
-                user_id=user_id,
-                system_prompt=system_prompt,
-                core_memory=core_memory,
-                previous_context=previous_context,
-                user_message=message,
-            )
-            reply_text = extract_text(result) or ""
-            self._record_trajectory(
-                user_id=user_id,
-                user_message=message,
-                assistant_reply=reply_text,
-                system_prompt=system_prompt,
-                result=result,
-            )
-            return reply_text
-        except Exception as e:
-            logger.error(f"LangChain agent 调用失败: {e}", exc_info=True)
-            return USER_VISIBLE_AGENT_ERROR
+        """跑一次 agent。外部调用方必须先确认 user 没有活跃 run（is_running 为 False）；
+        否则请走 queue_follow_up → 等待当前 run 完成时回来消费。"""
+        async with self.runtime_registry.claim_run(user_id):
+            try:
+                tool_bundle = self.tool_catalog.build_tool_bundle(
+                    user_id=user_id,
+                    message=message,
+                    allow_tools=not self._model_lacks_tool_support(),
+                    tool_profile=tool_profile,
+                )
+                if self.tool_catalog.looks_like_tool_overview(message):
+                    return self.tool_catalog.format_tool_overview(tool_bundle)
+                agent = self._get_or_build_agent(
+                    tool_bundle.profiles,
+                    tool_bundle.summary,
+                    tool_bundle.tools,
+                )
+                result = await self._invoke_agent_async(
+                    agent,
+                    message=message,
+                    previous_context=previous_context,
+                    system_prompt=system_prompt,
+                    core_memory=core_memory,
+                    tool_profile=tool_profile,
+                    tool_profiles=tool_bundle.profiles,
+                    tool_summary=tool_bundle.summary,
+                )
+                self._record_token_usage(
+                    result=result,
+                    user_id=user_id,
+                    system_prompt=system_prompt,
+                    core_memory=core_memory,
+                    previous_context=previous_context,
+                    user_message=message,
+                )
+                reply_text = extract_text(result) or ""
+                self._record_trajectory(
+                    user_id=user_id,
+                    user_message=message,
+                    assistant_reply=reply_text,
+                    system_prompt=system_prompt,
+                    result=result,
+                )
+                return reply_text
+            except asyncio.CancelledError:
+                logger.info("Agent 运行被取消: user=%s", user_id)
+                return USER_VISIBLE_AGENT_CANCELLED
+            except Exception as e:
+                logger.error(f"LangChain agent 调用失败: {e}", exc_info=True)
+                return USER_VISIBLE_AGENT_ERROR
+
+    # ── Run 控制外部接口 ───────────────────────────────────────────────
+
+    async def is_running(self, user_id: str) -> bool:
+        return await self.runtime_registry.is_running(user_id)
+
+    async def abort(self, user_id: str) -> bool:
+        """用户主动取消当前 run。只有活跃 run 存在时返回 True。"""
+        return await self.runtime_registry.abort(user_id)
+
+    async def queue_follow_up(self, user_id: str, message: str) -> int:
+        """当用户在 run 期间发了新消息，外部入队让它进入本轮 run 结束后的下一轮。"""
+        return await self.runtime_registry.queue_follow_up(user_id, message)
+
+    async def drain_follow_up(self, user_id: str) -> List[str]:
+        """外部（message_handler）在 agent run 返回后用来消化排队消息。"""
+        return await self.runtime_registry.drain_follow_up(user_id)
 
     async def _invoke_agent_async(
         self,
