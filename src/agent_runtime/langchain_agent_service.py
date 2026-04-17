@@ -28,11 +28,39 @@ from src.agent_runtime.agent_usage import (
 )
 from src.prompting.prompt_manager import PromptManager
 from src.platform_core.token_monitor import token_monitor
+from src.agent_runtime.trajectory import record_turn as record_trajectory_turn
 
 logger = logging.getLogger("wecom")
 
 USER_VISIBLE_AGENT_ERROR = "抱歉，我暂时无法处理你的消息，请稍后再试。"
 MODELS_WITHOUT_TOOL_SUPPORT = {"deepseek-reasoner", "deepseek-r1"}
+
+
+def _extract_tool_events(result: Any) -> List[Dict[str, Any]]:
+    """从 agent 返回里提取工具调用序列用于 trajectory。失败时返回空列表。"""
+    events: List[Dict[str, Any]] = []
+    if not isinstance(result, dict):
+        return events
+    messages = result.get("messages") or []
+    pending_calls: Dict[str, Dict[str, Any]] = {}
+    for message in messages:
+        msg_type = getattr(message, "type", "")
+        if msg_type == "ai":
+            for call in getattr(message, "tool_calls", None) or []:
+                call_id = call.get("id") or f"{call.get('name', '')}:{len(pending_calls)}"
+                pending_calls[call_id] = {
+                    "name": call.get("name", ""),
+                    "args": call.get("args", {}),
+                }
+        elif msg_type == "tool":
+            call_id = getattr(message, "tool_call_id", "") or ""
+            base = pending_calls.pop(call_id, {"name": getattr(message, "name", ""), "args": {}})
+            events.append({
+                **base,
+                "result": str(getattr(message, "content", "")),
+                "status": getattr(message, "status", "ok"),
+            })
+    return events
 
 
 class LangChainAgentService:
@@ -146,7 +174,15 @@ class LangChainAgentService:
                 previous_context=previous_context,
                 user_message=message,
             )
-            return extract_text(result) or ""
+            reply_text = extract_text(result) or ""
+            self._record_trajectory(
+                user_id=user_id,
+                user_message=message,
+                assistant_reply=reply_text,
+                system_prompt=system_prompt,
+                result=result,
+            )
+            return reply_text
         except Exception as e:
             logger.error(f"LangChain agent 调用失败: {e}", exc_info=True)
             return USER_VISIBLE_AGENT_ERROR
@@ -273,6 +309,30 @@ class LangChainAgentService:
     def _model_lacks_tool_support(self) -> bool:
         model_name = self.model.lower()
         return any(item in model_name for item in MODELS_WITHOUT_TOOL_SUPPORT)
+
+    def _record_trajectory(
+        self,
+        *,
+        user_id: str,
+        user_message: str,
+        assistant_reply: str,
+        system_prompt: str,
+        result: Any,
+    ) -> None:
+        """把本轮对话以 ShareGPT 形式追加到 trajectory 文件（未启用时直接返回）。"""
+        try:
+            tool_events = _extract_tool_events(result)
+            record_trajectory_turn(
+                user_id=user_id,
+                user_message=user_message,
+                assistant_reply=assistant_reply,
+                model=self.model,
+                system_prompt=system_prompt,
+                tool_events=tool_events,
+                completed=bool(assistant_reply),
+            )
+        except Exception as exc:
+            logger.debug("trajectory 记录失败: %s", exc)
 
     def apply_pending_change(self, change_id: str, user_id: str) -> str:
         return self.tool_catalog.runtime.apply_pending_change(change_id, owner_user_id=user_id)
