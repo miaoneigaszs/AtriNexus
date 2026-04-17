@@ -13,9 +13,12 @@ from langchain_openai import ChatOpenAI
 from data.config import config
 from src.agent_runtime.agent_context import AgentRunContext
 from src.agent_runtime.agent_tool_guard import AgentToolGuard
+from src.agent_runtime.default_hooks import DefaultAgentHooks
+from src.agent_runtime.hooks import AgentHooks
 from src.agent_runtime.middleware import (
     build_dynamic_prompt_middleware,
     build_model_middleware,
+    build_tool_middleware_from_hooks,
 )
 from src.agent_runtime.tool_catalog import ToolCatalog
 from src.agent_runtime.agent_usage import (
@@ -78,6 +81,7 @@ class LangChainAgentService:
         temperature: float,
         max_tokens: int,
         rag_service: Optional[object] = None,
+        hooks: Optional[AgentHooks] = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url
@@ -97,6 +101,7 @@ class LangChainAgentService:
             rag_service=rag_service,
         )
         self.tool_guard = AgentToolGuard(self.tool_catalog)
+        self.hooks: AgentHooks = hooks or DefaultAgentHooks(self.tool_guard)
         self.prompt_manager = PromptManager(self.workspace_root)
         self.model_client = ChatOpenAI(
             api_key=self.api_key,
@@ -245,8 +250,8 @@ class LangChainAgentService:
             system_prompt=self.prompt_manager.build_agent_static_prompt(),
             middleware=[
                 build_dynamic_prompt_middleware(self.prompt_manager),
-                build_model_middleware(self.model),
-                self.tool_guard.build_tool_middleware(),
+                build_model_middleware(self.model, hooks=self.hooks),
+                build_tool_middleware_from_hooks(self.hooks),
             ],
             context_schema=AgentRunContext,
         )
