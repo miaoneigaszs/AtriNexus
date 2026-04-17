@@ -1,3 +1,14 @@
+"""工具调用前后的修正、护栏、结果整形。
+
+本模块**框架中立**——不再依赖 LangChain。逻辑通过 `AgentHooks` 协议的
+`before_tool_call` / `after_tool_call` 方法暴露；LangChain 集成由
+`agent_runtime/middleware.py` 的翻译层负责，Phase 4 自建 agent loop 后翻译层
+消失，hook 直接被调用。
+
+Loop 检测仍靠 contextvar 做逐 run 隔离：agent 运行前 set_loop_state，结束后
+reset_loop_state，中间 record_tool_outcome 写入当前 run 的状态。
+"""
+
 from __future__ import annotations
 
 import contextvars
@@ -8,8 +19,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain.agents.middleware import wrap_tool_call
-from langchain_core.messages import ToolMessage
+from src.agent_runtime.hooks import (
+    AfterToolCallContext,
+    AfterToolCallResult,
+    BeforeToolCallContext,
+    BeforeToolCallResult,
+)
 
 
 logger = logging.getLogger("wecom")
@@ -35,10 +50,12 @@ TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.Con
 
 
 class AgentToolGuard:
-    """集中处理工具调用前后的修正、护栏和结果整形。"""
+    """集中处理工具调用前后的修正、护栏和结果整形；实现 AgentHooks 的两个 tool 钩子。"""
 
     def __init__(self, tool_catalog: Any) -> None:
         self.tool_catalog = tool_catalog
+
+    # ── Loop 状态生命周期 ───────────────────────────────────────────────
 
     def create_loop_state(self) -> Dict[str, Any]:
         return {"counts": {}, "recent": []}
@@ -49,86 +66,65 @@ class AgentToolGuard:
     def reset_loop_state(self, token) -> None:
         TOOL_LOOP_STATE.reset(token)
 
-    def build_tool_middleware(self):
-        @wrap_tool_call
-        async def managed_tool_call(request, handler):
-            tool_name = request.tool_call.get("name", "<unknown>")
-            tool_args = request.tool_call.get("args", {})
-            repaired_args, repair_message = self.repair_tool_args(tool_name, tool_args)
-            if repaired_args != tool_args:
-                request.tool_call["args"] = repaired_args
-            tool_args = request.tool_call.get("args", {})
+    # ── AgentHooks 接口 ─────────────────────────────────────────────────
 
-            validation_error = self.validate_tool_args(tool_name, tool_args)
-            if validation_error:
-                logger.warning(
-                    "Tool call blocked by validation: name=%s args=%s error=%s",
-                    tool_name,
-                    self.summarize_tool_args(tool_args),
-                    validation_error,
-                )
-                return ToolMessage(
-                    content=validation_error,
-                    tool_call_id=request.tool_call["id"],
-                    status="error",
-                )
+    async def before_tool_call(
+        self, ctx: BeforeToolCallContext
+    ) -> Optional[BeforeToolCallResult]:
+        repaired_args, repair_note = self.repair_tool_args(ctx.tool_name, ctx.args)
+        effective_args = repaired_args if repaired_args != ctx.args else ctx.args
 
-            loop_guard_message = self.check_tool_loop(tool_name, tool_args)
-            if loop_guard_message:
-                logger.warning(
-                    "Tool call blocked by loop guard: name=%s args=%s",
-                    tool_name,
-                    self.summarize_tool_args(tool_args),
-                )
-                return ToolMessage(
-                    content=loop_guard_message,
-                    tool_call_id=request.tool_call["id"],
-                    status="error",
-                )
-
-            logger.info(
-                "Tool call start: name=%s args=%s%s",
-                tool_name,
-                self.summarize_tool_args(tool_args),
-                f" repair={repair_message}" if repair_message else "",
+        validation_error = self.validate_tool_args(ctx.tool_name, effective_args)
+        if validation_error:
+            logger.warning(
+                "Tool call blocked by validation: name=%s args=%s error=%s",
+                ctx.tool_name,
+                self.summarize_tool_args(effective_args),
+                validation_error,
             )
-            try:
-                response = await handler(request)
-            except Exception as exc:
-                logger.warning("Tool call failed: name=%s error=%s", tool_name, exc)
-                return ToolMessage(
-                    content=f"工具 {tool_name} 执行失败：{exc}",
-                    tool_call_id=request.tool_call["id"],
-                    status="error",
-                )
+            return BeforeToolCallResult(block=True, reason=validation_error)
 
-            if not isinstance(response, ToolMessage):
-                logger.info("Tool call end: name=%s result_type=%s", tool_name, type(response).__name__)
-                return response
-
-            content = self.extract_tool_message_text(response)
-            content = self.shape_tool_result(tool_name, tool_args, content)
-            response = self.replace_tool_message_content(response, content)
-            self.record_tool_outcome(tool_name, tool_args, response.status, content)
-            logger.info(
-                "Tool call end: name=%s status=%s content_chars=%s",
-                tool_name,
-                response.status,
-                len(content),
+        loop_guard_message = self.check_tool_loop(ctx.tool_name, effective_args)
+        if loop_guard_message:
+            logger.warning(
+                "Tool call blocked by loop guard: name=%s args=%s",
+                ctx.tool_name,
+                self.summarize_tool_args(effective_args),
             )
-            if len(content) <= MAX_TOOL_RESULT_CHARS:
-                return response
+            return BeforeToolCallResult(block=True, reason=loop_guard_message)
 
-            return ToolMessage(
-                content=self.truncate_tool_text(content),
-                tool_call_id=response.tool_call_id,
-                status=response.status,
-                artifact=response.artifact,
-                name=response.name,
-                id=response.id,
-            )
+        logger.info(
+            "Tool call start: name=%s args=%s%s",
+            ctx.tool_name,
+            self.summarize_tool_args(effective_args),
+            f" repair={repair_note}" if repair_note else "",
+        )
+        if repaired_args != ctx.args:
+            return BeforeToolCallResult(repaired_args=repaired_args)
+        return None
 
-        return managed_tool_call
+    async def after_tool_call(
+        self, ctx: AfterToolCallContext
+    ) -> Optional[AfterToolCallResult]:
+        shaped = self.shape_tool_result(ctx.tool_name, ctx.args, ctx.result_content)
+        shaped = self._maybe_truncate(shaped)
+        self.record_tool_outcome(
+            ctx.tool_name,
+            ctx.args,
+            "error" if ctx.is_error else "ok",
+            shaped,
+        )
+        logger.info(
+            "Tool call end: name=%s status=%s content_chars=%s",
+            ctx.tool_name,
+            "error" if ctx.is_error else "ok",
+            len(shaped),
+        )
+        if shaped != ctx.result_content:
+            return AfterToolCallResult(content=shaped)
+        return None
+
+    # ── Arg repair ──────────────────────────────────────────────────────
 
     def summarize_tool_args(self, tool_args: Any) -> str:
         raw = str(tool_args)
@@ -271,6 +267,8 @@ class AgentToolGuard:
     def normalize_lookup_key(self, value: str) -> str:
         return "".join(ch for ch in value.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
 
+    # ── Loop guard ──────────────────────────────────────────────────────
+
     def check_tool_loop(self, tool_name: str, tool_args: Any) -> Optional[str]:
         loop_state = TOOL_LOOP_STATE.get()
         if loop_state is None:
@@ -291,7 +289,11 @@ class AgentToolGuard:
                 "改用别的工具、直接给出结论，或先向用户确认目标。"
             )
 
-        if len(recent_signatures) >= 4 and recent_signatures[-1] == recent_signatures[-3] and recent_signatures[-2] == recent_signatures[-4]:
+        if (
+            len(recent_signatures) >= 4
+            and recent_signatures[-1] == recent_signatures[-3]
+            and recent_signatures[-2] == recent_signatures[-4]
+        ):
             return (
                 f"工具链出现来回循环：{tool_name}。请不要继续重复试探，"
                 "直接总结当前已知信息，或先向用户确认下一步。"
@@ -355,6 +357,8 @@ class AgentToolGuard:
             return True
         return False
 
+    # ── Arg validation ──────────────────────────────────────────────────
+
     def validate_tool_args(self, tool_name: str, tool_args: Any) -> Optional[str]:
         if not isinstance(tool_args, dict):
             return None
@@ -405,6 +409,8 @@ class AgentToolGuard:
                 return value
         return ""
 
+    # ── Result shaping ──────────────────────────────────────────────────
+
     def shape_tool_result(self, tool_name: str, tool_args: Any, content: str) -> str:
         if tool_name == LIST_DIRECTORY_TOOL_NAME:
             return self.shape_directory_result(content)
@@ -437,7 +443,7 @@ class AgentToolGuard:
 
         header, separator, body = content.partition("\n\n")
         if not separator:
-            return self.truncate_tool_text(content)
+            return self._maybe_truncate(content)
 
         trimmed_body = body[: MAX_READ_FILE_CHARS - len(header) - 120].rstrip()
         hint_path = path or "文件"
@@ -446,17 +452,12 @@ class AgentToolGuard:
             f"[文件内容较长，已只保留前半段。若要继续，请指定更小范围，例如“{hint_path}最后一行”或“{hint_path} 某段内容”。]"
         )
 
-    def replace_tool_message_content(self, message: ToolMessage, content: str) -> ToolMessage:
-        if message.content == content:
-            return message
-        return ToolMessage(
-            content=content,
-            tool_call_id=message.tool_call_id,
-            status=message.status,
-            artifact=message.artifact,
-            name=message.name,
-            id=message.id,
-        )
+    def _maybe_truncate(self, text: str) -> str:
+        if len(text) <= MAX_TOOL_RESULT_CHARS:
+            return text
+        return text[:MAX_TOOL_RESULT_CHARS] + "\n\n[工具输出过长，已截断]"
+
+    # ── Shared utilities ────────────────────────────────────────────────
 
     def build_tool_signature(self, tool_name: str, tool_args: Any) -> str:
         try:
@@ -464,24 +465,3 @@ class AgentToolGuard:
         except TypeError:
             serialized = str(tool_args)
         return f"{tool_name}:{serialized}"
-
-    def extract_tool_message_text(self, message: ToolMessage) -> str:
-        content = message.content
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(item)
-                elif isinstance(item, dict):
-                    text = item.get("text")
-                    if text:
-                        parts.append(str(text))
-            return "\n".join(parts)
-        return str(content)
-
-    def truncate_tool_text(self, text: str) -> str:
-        if len(text) <= MAX_TOOL_RESULT_CHARS:
-            return text
-        return text[:MAX_TOOL_RESULT_CHARS] + "\n\n[工具输出过长，已截断]"
