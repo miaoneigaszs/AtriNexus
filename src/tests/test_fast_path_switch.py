@@ -120,16 +120,22 @@ class StripAgentPrefixTest(unittest.TestCase):
 
 
 class RouterEnvGateSourceTest(unittest.TestCase):
-    """try_handle 的 env 短路必须在触碰 path_resolver 之前——源码文本断言。"""
+    """try_handle 的 env 短路应立即返回——源码文本断言。"""
 
-    def test_disabled_branch_exists_before_path_resolver_begin(self):
+    def test_disabled_branch_returns_disabled_outcome(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
         self.assertIn("read_fast_path_mode() == FAST_PATH_MODE_DISABLED", source)
         self.assertIn("return FastPathOutcome.miss(INTENT_DISABLED)", source)
 
-        env_idx = source.index("read_fast_path_mode() == FAST_PATH_MODE_DISABLED")
-        resolver_idx = source.index("self.path_resolver.begin(user_id)")
-        self.assertLess(env_idx, resolver_idx, "env 短路必须在 path_resolver.begin 之前")
+    def test_try_handle_has_no_resolver_interaction(self):
+        # PR17 之后 try_handle 不再触碰 path_resolver（normalize_request_text 已删）；
+        # 所有非空消息都交给 agent loop。
+        source = ROUTER_PATH.read_text(encoding="utf-8")
+        try_handle_start = source.index("def try_handle(")
+        pending_start = source.index("def try_handle_pending_resolution(")
+        try_handle_body = source[try_handle_start:pending_start]
+        self.assertNotIn("self.path_resolver.begin", try_handle_body)
+        self.assertNotIn("self.path_resolver.normalize_request_text", try_handle_body)
 
     def test_try_handle_returns_fast_path_outcome(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")

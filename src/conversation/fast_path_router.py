@@ -51,11 +51,8 @@ class FastPathRouter:
         if read_fast_path_mode() == FAST_PATH_MODE_DISABLED:
             return FastPathOutcome.miss(INTENT_DISABLED)
 
-        self.path_resolver.begin(user_id)
-        # 运行 path_resolver 的归一化不是为了 FastPath 自己——当前只有状态机路径会用到
-        # normalized text（经 pending 候选号解析）；此处仅维持会话级的 path_resolver 状态。
-        self.path_resolver.normalize_request_text(message)
-
+        # Phase A 完成后，FastPath 不再做消息归一化或意图识别——所有非空消息直接落到
+        # agent loop；FastPathRouter 只剩候选解析状态机入口（try_handle_pending_resolution）。
         return FastPathOutcome.miss()
 
     def try_handle_pending_resolution(self, user_id: str, message: str) -> Optional[str]:
