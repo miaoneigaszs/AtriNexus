@@ -129,6 +129,23 @@ class PendingConfirmationHandlerTest(unittest.TestCase):
         self.assertEqual(result, "workspace-choice")
         self.assertEqual(self.fast_path_router.calls, [("u1", "不是确认指令")])
 
+    def test_numeric_choice_prefers_workspace_resolution(self):
+        self.reply_service.latest_change_id = "chg-1"
+        self.fast_path_router.reply = "workspace-choice"
+
+        result = self._handle("1")
+
+        self.assertEqual(result, "workspace-choice")
+        self.assertNotIn(("apply_pending_change", "chg-1", "u1"), self.reply_service.calls)
+
+    def test_confirmation_word_still_prefers_pending_change_before_workspace(self):
+        self.reply_service.latest_change_id = "chg-1"
+        self.fast_path_router.reply = "workspace-choice"
+
+        result = self._handle("确认")
+
+        self.assertEqual(result, "apply:chg-1:u1")
+
 
 if __name__ == "__main__":
     unittest.main()

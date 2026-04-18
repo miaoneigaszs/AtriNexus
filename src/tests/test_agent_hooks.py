@@ -12,6 +12,7 @@ import asyncio
 import os
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -36,6 +37,22 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro) if False else asyncio.run(coro)
 
 
+class _FakeCandidate:
+    def __init__(self, path: str, is_file: bool = False, is_dir: bool = False):
+        self.path = path
+        self._is_file = is_file
+        self._is_dir = is_dir
+
+    def exists(self):
+        return self._is_file or self._is_dir
+
+    def is_file(self):
+        return self._is_file
+
+    def is_dir(self):
+        return self._is_dir
+
+
 class _FakeRuntime:
     """足够骗过 AgentToolGuard 的 runtime 替身。"""
 
@@ -43,14 +60,18 @@ class _FakeRuntime:
     workspace_root = "."
 
     def resolve_path_or_error(self, raw_path):
-        # 报错表示路径不在 workspace 内——触发 find_workspace_candidate 回退
+        normalized = str(raw_path).replace('\\', '/').strip('/')
+        if normalized == "README.md":
+            return _FakeCandidate(normalized, is_file=True), None
+        if normalized == "docs":
+            return _FakeCandidate(normalized, is_dir=True), None
         return None, "not found"
 
     def iter_files(self, root):
-        return []
+        return [Path("README.md"), Path("docs/guide.md")]
 
     def to_relative(self, path):
-        return str(path)
+        return str(path).replace('\\', '/')
 
 
 class _FakeCatalog:
@@ -105,6 +126,16 @@ class AgentToolGuardHookTest(unittest.TestCase):
         )
         result = _run(self.guard.before_tool_call(ctx))
         self.assertIsNone(result)
+
+    def test_before_repairs_workspace_path_with_shared_resolver(self):
+        ctx = BeforeToolCallContext(
+            tool_name="read_file",
+            args={"path": "readme"},
+            call_id="c1",
+        )
+        result = _run(self.guard.before_tool_call(ctx))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.repaired_args, {"path": "README.md"})
 
     def test_loop_guard_blocks_after_repeats(self):
         token = self.guard.set_loop_state(self.guard.create_loop_state())

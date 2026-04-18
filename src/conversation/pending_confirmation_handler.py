@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Awaitable, Callable, Optional
 
 
-GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定", "1"}
-GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了", "2"}
+GENERIC_APPROVAL_WORDS = {"审批通过", "通过", "确认", "同意", "确定"}
+GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了"}
 
 
 class PendingConfirmationHandler:
@@ -22,6 +22,14 @@ class PendingConfirmationHandler:
         self._run_sync = run_sync_func
 
     async def handle(self, user_id: str, content: str) -> Optional[str]:
+        workspace_resolution_reply = await self._run_sync(
+            self.fast_path_router.try_handle_pending_resolution,
+            user_id,
+            content,
+        )
+        if content in {"1", "2"} and workspace_resolution_reply is not None:
+            return workspace_resolution_reply
+
         if content in GENERIC_APPROVAL_WORDS:
             latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
             if latest_change_id:
@@ -29,6 +37,8 @@ class PendingConfirmationHandler:
             latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
             if latest_command_id:
                 return await self._run_sync(self.reply_service.confirm_pending_command, latest_command_id, user_id)
+            if workspace_resolution_reply is not None:
+                return workspace_resolution_reply
             return "当前没有待审批的命令或修改。"
 
         if content in GENERIC_REJECTION_WORDS:
@@ -38,6 +48,8 @@ class PendingConfirmationHandler:
             latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
             if latest_command_id:
                 return await self._run_sync(self.reply_service.discard_pending_command, latest_command_id, user_id)
+            if workspace_resolution_reply is not None:
+                return workspace_resolution_reply
             return "当前没有待处理的命令或修改。"
 
         confirm_command_id = self._extract_confirmation_id(content, prefixes=("确认执行", "确定执行"))
@@ -80,11 +92,6 @@ class PendingConfirmationHandler:
                 return await self._run_sync(self.reply_service.discard_pending_change, latest_change_id, user_id)
             return "当前没有待取消的修改。"
 
-        workspace_resolution_reply = await self._run_sync(
-            self.fast_path_router.try_handle_pending_resolution,
-            user_id,
-            content,
-        )
         if workspace_resolution_reply is not None:
             return workspace_resolution_reply
 
