@@ -11,14 +11,16 @@ It is designed for a real long-running personal usage scenario rather than a gen
 - PostgreSQL for conversation, memory, and diary data
 - Qdrant for vector memory storage
 - `atrinexus-rag-sdk` for knowledge-base retrieval
-- LangChain for the lightweight agent/tool layer
+- A **self-built ~500-line agent loop** for the agent/tool layer (no LangChain)
 
 The current runtime is no longer a simple "chat + attached tools" stack. It now centers on:
 
 - `PromptManager` for layered prompt assembly
 - `ToolProfile` for session-stable tool exposure
 - `FastPathRouter` for deterministic file/tool requests
-- middleware-based agent control for model/tool governance
+- Hook-based agent runtime (`before_tool_call` / `after_tool_call` / `transform_context` / `on_response`) for model/tool governance
+- `UserRuntimeRegistry` for per-user run control (abort + follow-up queue)
+- `ContextEngine` for pluggable context-window compression
 
 ## What It Does
 
@@ -106,9 +108,19 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 
 - `src/conversation/message_handler.py`
 - `src/conversation/context_builder.py`
-- `src/agent_runtime/langchain_agent_service.py`
+- `src/agent_runtime/agent_service.py`
+- `src/agent_runtime/agent_loop.py`
 - `src/prompting/prompt_manager.py`
 - `src/conversation/fast_path_router.py`
+
+### Agent runtime internals
+
+- `src/agent_runtime/hooks.py` — four-hook protocol (before/after tool, transform context, on response)
+- `src/agent_runtime/default_hooks.py` — composes tool guard + prompt caching + rate-limit capture
+- `src/agent_runtime/user_runtime.py` — per-user abort + follow-up queue
+- `src/agent_runtime/context_engine.py` — pluggable context-window compression
+- `src/ai/providers/openai_compat.py` — self-built OpenAI-compatible streaming adapter
+- `src/ai/stream.py` — SSE parser + tool-call accumulator
 
 ### Memory and diary
 
@@ -141,13 +153,13 @@ Knowledge-base retrieval is now agent-driven:
 
 - Python 3.12
 - FastAPI
-- LangChain 1.x
 - PostgreSQL
 - Qdrant
 - `atrinexus-rag-sdk`
 - WeCom / `wechatpy`
 - APScheduler
 - Prometheus client
+- httpx (async HTTP for the self-built provider layer)
 
 ## Project Structure
 
@@ -165,11 +177,11 @@ AtriNexus/
 │   ├── app/              # application assembly, startup
 │   ├── ingress/          # WeCom callback, HTTP routers, middleware
 │   ├── conversation/     # message orchestration, fast-path, reply cleaner
-│   ├── agent_runtime/    # langchain adapter, runtime, middleware, tool guard
+│   ├── agent_runtime/    # self-built agent loop, hooks, tool catalog, context engine
 │   ├── prompting/        # prompt assembly + all prompt markdown resources
 │   ├── memory/           # three-layer memory + context + updates
 │   ├── knowledge/        # RAG service + KB agent tools
-│   ├── ai/               # LLM, embedding, vision, web search, model mgr
+│   ├── ai/               # self-built provider layer (types, registry, stream, providers/)
 │   ├── workspace/        # workspace capabilities
 │   ├── platform_core/    # DB, session, token monitor, vector store, utils
 │   ├── features/         # diary, web templates
@@ -280,10 +292,11 @@ sudo journalctl -u atrinexus -f
 
 ## Important Notes
 
-- The runtime path is now centered on Qdrant, `atrinexus-rag-sdk`, and LangChain.
-- PostgreSQL is now the source of truth for conversation history, short-term memory, core memory, and diaries.
+- The agent runtime is now fully self-built. LangChain, langchain-openai, langchain-core and langgraph are no longer dependencies; the provider layer is ~500 lines of httpx-based code under `src/ai/`.
+- The runtime path is centered on Qdrant, `atrinexus-rag-sdk`, and the self-built provider layer.
+- PostgreSQL is the source of truth for conversation history, short-term memory, core memory, and diaries.
 - Qdrant local state under `data/vectordb_qdrant/` is runtime data and is not tracked in git.
-- KB lookup is now exposed as agent tools instead of a front-routed retrieval step on every normal message.
+- KB lookup is exposed as agent tools instead of a front-routed retrieval step on every normal message.
 - The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
 - When the runtime structure changes, update `README.md` and `README.zh-CN.md` in the same change to keep architecture notes in sync.
 
