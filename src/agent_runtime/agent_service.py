@@ -343,6 +343,8 @@ class AgentService:
                     for ev in tool_events
                 ],
                 completed=bool(assistant_reply),
+                fast_path_hit=False,
+                intent="none",
             )
         except Exception as exc:
             logger.debug("trajectory 记录失败: %s", exc)

@@ -105,10 +105,19 @@ def record_turn(
     tool_events: Optional[List[Dict[str, Any]]] = None,
     completed: bool = True,
     extra: Optional[Dict[str, Any]] = None,
+    fast_path_hit: bool = False,
+    intent: str = "none",
 ) -> None:
-    """业务侧便捷入口：未启用时直接返回，启用时落盘一条。"""
+    """业务侧便捷入口：未启用时直接返回，启用时落盘一条。
+
+    `fast_path_hit` / `intent` 用于 FastPath vs agent loop 的 A/B 观测，
+    会并入 entry 的 `extra` 字段。
+    """
     if not trajectory_enabled():
         return
+    merged_extra: Dict[str, Any] = dict(extra) if extra else {}
+    merged_extra.setdefault("fast_path_hit", fast_path_hit)
+    merged_extra.setdefault("intent", intent)
     entry = build_trajectory_entry(
         user_id=user_id,
         user_message=user_message,
@@ -117,6 +126,27 @@ def record_turn(
         system_prompt=system_prompt,
         tool_events=tool_events,
         completed=completed,
-        extra=extra,
+        extra=merged_extra,
     )
     save_trajectory(entry)
+
+
+def record_fast_path_turn(
+    *,
+    user_id: str,
+    user_message: str,
+    assistant_reply: str,
+    intent: str,
+) -> None:
+    """FastPath/状态机命中时的轨迹落盘。
+
+    model 固定 "fast_path" 便于离线过滤；不带 system prompt 和 tool_events。
+    """
+    record_turn(
+        user_id=user_id,
+        user_message=user_message,
+        assistant_reply=assistant_reply,
+        model="fast_path",
+        fast_path_hit=True,
+        intent=intent,
+    )

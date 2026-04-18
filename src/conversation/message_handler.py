@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.ai.llm_service import LLMService
 from src.agent_runtime.agent_service import AgentService
+from src.agent_runtime.trajectory import record_fast_path_turn
 from src.memory.memory_manager import MemoryManager
 from src.knowledge.rag_service import SdkRAGService
 from src.platform_core.session_service import SessionService
@@ -25,6 +26,10 @@ from src.conversation.command_handler import CommandHandler
 from src.conversation.image_handler import ImageHandler
 from src.conversation.pending_confirmation_handler import PendingConfirmationHandler
 from src.conversation.context_builder import ContextBuilder
+from src.conversation.fast_path_config import (
+    INTENT_PENDING_RESOLUTION,
+    strip_agent_prefix,
+)
 from src.conversation.fast_path_router import FastPathRouter
 from src.conversation.reply_cleaner import ReplyCleaner
 from src.ingress.middleware.dedup_middleware import DedupMiddleware
@@ -179,26 +184,45 @@ class MessageHandler:
 
         confirm_reply = await self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
+            record_fast_path_turn(
+                user_id=user_id,
+                user_message=content_trim,
+                assistant_reply=confirm_reply,
+                intent=INTENT_PENDING_RESOLUTION,
+            )
             await self.client.send_text_async(user_id, confirm_reply)
             return
 
-        # 3. 快路径：能力查询、读文件、列目录、重命名
-        fast_path_reply = await run_sync(self.fast_path_router.try_handle, user_id, content_trim)
-        if fast_path_reply is not None:
-            await self.client.send_text_async(user_id, fast_path_reply)
-            return
+        # 3. `/agent` 前缀：用户显式绕过 FastPath 意图路由，进 agent loop。
+        agent_payload, bypass_fast_path = strip_agent_prefix(content_trim)
+        if bypass_fast_path:
+            content = agent_payload
+            content_trim = agent_payload
 
-        # 4. 检查是否是命令
+        # 4. 快路径：能力查询、读文件、列目录、重命名
+        if not bypass_fast_path:
+            outcome = await run_sync(self.fast_path_router.try_handle, user_id, content_trim)
+            if outcome.reply is not None:
+                record_fast_path_turn(
+                    user_id=user_id,
+                    user_message=content_trim,
+                    assistant_reply=outcome.reply,
+                    intent=outcome.intent,
+                )
+                await self.client.send_text_async(user_id, outcome.reply)
+                return
+
+        # 5. 检查是否是命令
         if self.command_handler.is_command(content_trim):
             reply = await run_sync(self.command_handler.handle_command, user_id, content_trim)
             if reply:
                 await self.client.send_text_async(user_id, reply)
             return
 
-        # 5. 正常消息处理流程
+        # 6. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
-        # 6. 运行期间用户可能追发了其他消息，依次消耗 follow-up 队列
+        # 7. 运行期间用户可能追发了其他消息，依次消耗 follow-up 队列
         await self._drain_follow_up_queue(user_id)
 
     async def _drain_follow_up_queue(self, user_id: str) -> None:
