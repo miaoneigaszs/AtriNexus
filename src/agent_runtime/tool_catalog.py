@@ -30,17 +30,6 @@ from src.workspace.search_tool import SearchTool
 from src.platform_core.time_tool import TimeTool
 
 
-TOOL_OVERVIEW_HINTS = (
-    "有哪些工具",
-    "有什么工具",
-    "能用什么工具",
-    "可以用什么工具",
-    "能做什么",
-    "会什么",
-    "能力有哪些",
-)
-
-
 # ── 工具登记结构 ────────────────────────────────────────────────────────
 
 
@@ -188,29 +177,6 @@ class ToolCatalog:
             compact_summary_lines=compact_summary_lines,
             detailed_summary_lines=detailed_summary_lines,
         )
-
-    def looks_like_tool_overview(self, message: str) -> bool:
-        normalized = (message or "").strip()
-        return any(hint in normalized for hint in TOOL_OVERVIEW_HINTS)
-
-    def format_tool_overview(self, tool_bundle: "ToolBundle") -> str:
-        tool_names = [t.name for t in tool_bundle.tools]
-        profile_text = "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无"
-        lines = [
-            "我刚检查了当前这条消息下启用的工具。",
-            "",
-            "当前工具组：",
-            profile_text,
-            "",
-            "当前可用工具：",
-        ]
-        for name in tool_names:
-            lines.append(f"- {name}")
-        if tool_bundle.detailed_summary_lines:
-            lines.append("")
-            lines.append("这些工具当前分别能做：")
-            lines.extend(tool_bundle.detailed_summary_lines)
-        return "\n".join(lines)
 
     def _section_definitions(self) -> List[ToolSectionDefinition]:
         return [

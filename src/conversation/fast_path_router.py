@@ -14,13 +14,7 @@ from src.conversation.fast_path_config import (
     INTENT_DISABLED,
     INTENT_NONE,
     INTENT_PENDING_RESOLUTION,
-    INTENT_PROFILE_OVERVIEW,
-    INTENT_TOOL_OVERVIEW,
     read_fast_path_mode,
-)
-from src.conversation.fast_path_intents import (
-    is_profile_overview,
-    is_tool_overview,
 )
 from src.conversation.fast_path_rewrite import FastPathRewriteHelper
 from src.conversation.fast_path_resolution import WorkspacePathResolver
@@ -58,19 +52,9 @@ class FastPathRouter:
             return FastPathOutcome.miss(INTENT_DISABLED)
 
         self.path_resolver.begin(user_id)
-        normalized_message = self.path_resolver.normalize_request_text(message)
-
-        if is_tool_overview(normalized_message):
-            return FastPathOutcome.hit(
-                self._handle_tool_overview(user_id, normalized_message),
-                INTENT_TOOL_OVERVIEW,
-            )
-
-        if is_profile_overview(normalized_message):
-            return FastPathOutcome.hit(
-                self._handle_profile_overview(user_id, normalized_message),
-                INTENT_PROFILE_OVERVIEW,
-            )
+        # 运行 path_resolver 的归一化不是为了 FastPath 自己——当前只有状态机路径会用到
+        # normalized text（经 pending 候选号解析）；此处仅维持会话级的 path_resolver 状态。
+        self.path_resolver.normalize_request_text(message)
 
         return FastPathOutcome.miss()
 
@@ -109,54 +93,6 @@ class FastPathRouter:
             payload=pending.get("payload", {}),
             target_type=target_type,
         )
-
-    def _handle_tool_overview(self, user_id: str, message: str) -> str:
-        tool_profile = self.session_service.get_tool_profile(user_id)
-        tool_bundle = self.tool_catalog.build_tool_bundle(
-            user_id=user_id,
-            message=message,
-            allow_tools=True,
-            tool_profile=tool_profile,
-        )
-        lines = [
-            "我刚检查了当前会话下启用的能力。",
-            "",
-            f"当前能力档位：{tool_profile}",
-            "当前工具组：",
-            "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无",
-            "",
-            "当前可用工具：",
-        ]
-        for tool in tool_bundle.tools:
-            lines.append(f"- {tool.name}")
-        if tool_bundle.detailed_summary_lines:
-            lines.append("")
-            lines.append("这些工具当前分别能做：")
-            lines.extend(tool_bundle.detailed_summary_lines)
-        return "\n".join(lines)
-
-    def _handle_profile_overview(self, user_id: str, message: str) -> str:
-        tool_profile = normalize_tool_profile(self.session_service.get_tool_profile(user_id))
-        current_mode = self.session_service.get_current_mode(user_id)
-        tool_bundle = self.tool_catalog.build_tool_bundle(
-            user_id=user_id,
-            message=message,
-            allow_tools=True,
-            tool_profile=tool_profile,
-        )
-        lines = [
-            "我刚检查了当前会话状态。",
-            "",
-            f"当前模式：{current_mode}",
-            f"当前能力档位：{tool_profile}",
-            "当前工具组：",
-            "、".join(tool_bundle.profiles) if tool_bundle.profiles else "无",
-        ]
-        if tool_bundle.compact_summary_lines:
-            lines.append("")
-            lines.append("当前能力边界：")
-            lines.extend(tool_bundle.compact_summary_lines)
-        return "\n".join(lines)
 
     def _promote_tool_profile(self, user_id: str, inferred: str) -> None:
         current = self.session_service.get_tool_profile(user_id)
