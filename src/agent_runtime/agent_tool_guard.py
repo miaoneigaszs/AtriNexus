@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-import difflib
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from src.conversation.fast_path_resolution import WorkspacePathResolver
 
 from src.agent_runtime.hooks import (
     AfterToolCallContext,
@@ -49,6 +48,14 @@ TOOL_LOOP_STATE: contextvars.ContextVar[Dict[str, Any] | None] = contextvars.Con
     "tool_loop_state",
     default=None,
 )
+
+
+class _NoopSessionService:
+    def get_last_workspace_target(self, _user_id: str) -> Dict[str, str]:
+        return {}
+
+    def set_pending_workspace_resolution(self, *_args, **_kwargs) -> None:
+        return None
 
 
 class AgentToolGuard:
@@ -194,85 +201,15 @@ class AgentToolGuard:
         if normalized.lower() == "readme":
             return "README.md", "readme"
 
-        runtime = self.tool_catalog.runtime
-        candidate, error = runtime.resolve_path_or_error(normalized)
-        if not error and candidate and candidate.exists():
-            if expect_dir and candidate.is_dir():
-                return normalized, ""
-            if not expect_dir and (candidate.is_file() or (allow_dir and candidate.is_dir())):
-                return normalized, ""
-
-        file_candidate = self.find_workspace_candidate(normalized, expect_dir=expect_dir, allow_dir=allow_dir)
-        if file_candidate:
-            return file_candidate, "path-repaired"
-        return normalized, ""
-
-    def find_workspace_candidate(
-        self,
-        value: str,
-        *,
-        expect_dir: bool,
-        allow_dir: bool,
-    ) -> Optional[str]:
-        runtime = self.tool_catalog.runtime
-        query = value.replace("\\", "/").strip().strip("/")
-        if not query:
-            return None
-        query_name = Path(query).name
-        query_key = self.normalize_lookup_key(query_name)
-        if not query_key:
-            return None
-
-        candidates: List[Tuple[float, str]] = []
-        if not expect_dir:
-            for file_path in runtime.iter_files(runtime.workspace_root):
-                relative_path = runtime.to_relative(file_path)
-                score = self.score_workspace_candidate(query_key, file_path.name, relative_path)
-                if score >= 0.86:
-                    candidates.append((score, relative_path))
-
-        if expect_dir or allow_dir:
-            for current_root, dirnames, _ in os.walk(runtime.workspace_root):
-                dirnames[:] = [name for name in dirnames if name not in runtime.SKIP_DIRS]
-                for dirname in dirnames:
-                    relative_path = str(
-                        Path(
-                            os.path.relpath(
-                                os.path.join(current_root, dirname),
-                                runtime.workspace_root,
-                            )
-                        )
-                    )
-                    score = self.score_workspace_candidate(query_key, dirname, relative_path)
-                    if score >= 0.86:
-                        candidates.append((score, relative_path))
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: (-item[0], len(item[1])))
-        best_score, best_path = candidates[0]
-        if len(candidates) > 1 and abs(best_score - candidates[1][0]) < 0.03:
-            return None
-        return best_path
-
-    def score_workspace_candidate(self, query_key: str, name: str, relative_path: str) -> float:
-        name_key = self.normalize_lookup_key(name)
-        path_key = self.normalize_lookup_key(relative_path)
-        score = max(
-            difflib.SequenceMatcher(None, query_key, name_key).ratio(),
-            difflib.SequenceMatcher(None, query_key, path_key).ratio(),
+        resolver = WorkspacePathResolver(self.tool_catalog.runtime, _NoopSessionService())
+        repaired = resolver.repair_path_if_confident(
+            normalized,
+            expect_dir=expect_dir,
+            allow_dir=allow_dir,
         )
-        if query_key == name_key:
-            return 1.0
-        if name_key.startswith(query_key):
-            return max(score, 0.93)
-        if query_key in name_key:
-            return max(score, 0.88)
-        return score
-
-    def normalize_lookup_key(self, value: str) -> str:
-        return "".join(ch for ch in value.lower() if ch.isalnum() or "\u4e00" <= ch <= "\u9fff")
+        if repaired != normalized:
+            return repaired, "path-repaired"
+        return normalized, ""
 
     # ── Loop guard ──────────────────────────────────────────────────────
 

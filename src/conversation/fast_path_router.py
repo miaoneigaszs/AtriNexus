@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 from src.agent_runtime.tool_catalog import ToolCatalog
 from src.agent_runtime.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.prompting.prompt_manager import PromptManager
 from src.platform_core.session_service import SessionService
 from src.conversation.fast_path_intents import (
+    WorkspaceBrowseRequest,
     extract_append_request,
     extract_block_rewrite_request,
-    extract_directory_path,
     extract_followup_rename_target,
-    extract_read_file_line_request,
-    extract_read_file_path,
     extract_rename_paths,
     extract_replace_request,
     extract_rewrite_request,
-    extract_search_request,
+    extract_workspace_browse_request,
     is_profile_overview,
     is_tool_overview,
 )
@@ -174,56 +172,21 @@ class FastPathRouter:
         if dispatch_reply is not None:
             return dispatch_reply
 
-        read_line_request = self._extract_read_file_line_request(normalized_message)
-        dispatch_reply = dispatch_after_remembered_action(
-            inferred_profile="workspace_read",
-            request=read_line_request,
-            target_type="file",
-            remembered_path=lambda request: request[0],
-            blocked_prefixes=("文件不存在", "目标不是文件", "路径不允许访问"),
-            action=lambda request: self.tool_catalog.runtime.read_file_line(request[0], request[1]),
-        )
-        if dispatch_reply is not None:
-            return dispatch_reply
-
-        search_request = self._extract_search_request(normalized_message)
-        if search_request:
-            query, path = search_request
-            self._promote_tool_profile(user_id, "workspace_read")
-            return self.tool_catalog.runtime.search_files(query, path)
-
-        file_path = self._extract_read_file_path(normalized_message)
-        dispatch_reply = dispatch_after_remembered_action(
-            inferred_profile="workspace_read",
-            request=file_path,
-            target_type="file",
-            remembered_path=lambda request: request,
-            blocked_prefixes=("文件不存在", "目标不是文件", "路径不允许访问"),
-            action=lambda request: self.tool_catalog.runtime.read_file(request),
-        )
-        if dispatch_reply is not None:
-            return dispatch_reply
-
-        dir_path = self._extract_directory_path(normalized_message)
-        dispatch_reply = dispatch_after_remembered_action(
-            inferred_profile="workspace_read",
-            request=dir_path,
-            target_type="dir",
-            remembered_path=lambda request: request,
-            blocked_prefixes=("路径不存在", "目标不是目录", "路径不允许访问"),
-            action=lambda request: self.tool_catalog.runtime.list_directory(request),
-        )
-        if dispatch_reply is not None:
-            return dispatch_reply
-
-        followup_reply = self._handle_followup_reference(user_id, normalized_message)
-        if followup_reply:
-            return followup_reply
+        browse_request = self._extract_workspace_browse_request(user_id, normalized_message)
+        if browse_request:
+            browse_reply = self._handle_workspace_browse_request(user_id, browse_request)
+            pending_reply = self.path_resolver.take_pending_reply()
+            if pending_reply:
+                return pending_reply
+            if browse_reply is not None:
+                return browse_reply
 
         return None
 
     def try_handle_pending_resolution(self, user_id: str, message: str) -> Optional[str]:
-        pending = self.session_service.get_pending_workspace_resolution(user_id)
+        pending = self.session_service.get_workspace_browser_pending(user_id)
+        if not pending:
+            pending = self.session_service.get_pending_workspace_resolution(user_id)
         if not pending:
             return None
 
@@ -310,56 +273,132 @@ class FastPathRouter:
         if merged != normalize_tool_profile(current):
             self.session_service.set_tool_profile(user_id, merged)
 
-    def _extract_read_file_path(self, message: str) -> Optional[str]:
-        raw = extract_read_file_path(message)
-        if not raw:
-            return None
-        normalized = self.path_resolver.normalize_path_fragment(raw)
-        normalized = self.path_resolver.resolve_existing_path_hint(
-            normalized,
-            expect_file=True,
-            action="read_file",
-        )
-        if normalized and self.path_resolver.looks_like_existing_file(normalized):
-            return normalized
-        return None
+    def _extract_workspace_browse_request(
+        self,
+        user_id: str,
+        message: str,
+    ) -> Optional[WorkspaceBrowseRequest]:
+        browser_state = self.session_service.get_workspace_browser_state(user_id)
+        return extract_workspace_browse_request(message, browser_state)
 
-    def _extract_directory_path(self, message: str) -> Optional[str]:
-        raw = extract_directory_path(message)
-        if not raw:
-            return None
-        normalized = self.path_resolver.normalize_path_fragment(raw)
-        normalized = self.path_resolver.resolve_existing_path_hint(
-            normalized,
-            expect_dir=True,
-            action="list_directory",
-        )
-        if normalized and self.path_resolver.looks_like_existing_dir(normalized):
-            return normalized
-        return None
+    def _handle_workspace_browse_request(
+        self,
+        user_id: str,
+        request: WorkspaceBrowseRequest,
+    ) -> Optional[str]:
+        browser_state = self.session_service.get_workspace_browser_state(user_id)
+        focus = browser_state.get("focus", {}) if isinstance(browser_state, dict) else {}
+        focus_path = str(focus.get("path", "")).strip()
+        focus_type = str(focus.get("type", "")).strip()
 
-    def _extract_search_request(self, message: str) -> Optional[Tuple[str, str]]:
-        extracted = extract_search_request(message)
-        if not extracted:
-            return None
-        query, path = extracted
-        normalized_path = self.path_resolver.normalize_path_fragment(path or ".")
-        return query, normalized_path or "."
+        if request.intent == "browse_list":
+            target_path = request.path_hint or (focus_path if focus_type == "dir" else "")
+            if not target_path:
+                return None
+            resolved = self.path_resolver.resolve_path_hint(
+                target_path,
+                expect_dir=True,
+                action="list_directory",
+            )
+            if resolved.status != "resolved":
+                return None
+            self._promote_tool_profile(user_id, "workspace_read")
+            reply = self.tool_catalog.runtime.list_directory(resolved.path)
+            return self._remember_browse_result(
+                user_id,
+                intent="browse_list",
+                path=resolved.path,
+                target_type="dir",
+                reply=reply,
+            )
 
-    def _extract_read_file_line_request(self, message: str) -> Optional[Tuple[str, str]]:
-        extracted = extract_read_file_line_request(message)
-        if not extracted:
-            return None
-        raw_path, position = extracted
-        path = self.path_resolver.normalize_path_fragment(raw_path)
-        path = self.path_resolver.resolve_existing_path_hint(
-            path,
-            expect_file=True,
-            action="read_file_line",
-            payload={"position": position},
-        )
-        if path:
-            return path, position
+        if request.intent == "browse_read":
+            if request.reference_mode == "focus_file":
+                target_path = focus_path if focus_type == "file" else ""
+            else:
+                target_path = request.path_hint or focus_path
+            if not target_path:
+                return None
+            resolved = self.path_resolver.resolve_path_hint(
+                target_path,
+                expect_file=True,
+                action="read_file",
+            )
+            if resolved.status != "resolved":
+                return None
+            self._promote_tool_profile(user_id, "workspace_read")
+            reply = self.tool_catalog.runtime.read_file(resolved.path)
+            return self._remember_browse_result(
+                user_id,
+                intent="browse_read",
+                path=resolved.path,
+                target_type="file",
+                reply=reply,
+            )
+
+        if request.intent == "browse_read_line":
+            line_position = request.line_position or "last"
+            if request.reference_mode == "focus_file":
+                target_path = focus_path if focus_type == "file" else ""
+            else:
+                target_path = request.path_hint or focus_path
+            if not target_path:
+                return None
+            resolved = self.path_resolver.resolve_path_hint(
+                target_path,
+                expect_file=True,
+                action="read_file_line",
+                payload={"position": line_position},
+            )
+            if resolved.status != "resolved":
+                return None
+            self._promote_tool_profile(user_id, "workspace_read")
+            reply = self.tool_catalog.runtime.read_file_line(resolved.path, line_position)
+            return self._remember_browse_result(
+                user_id,
+                intent="browse_read_line",
+                path=resolved.path,
+                target_type="file",
+                reply=reply,
+                line_position=line_position,
+            )
+
+        if request.intent == "browse_search":
+            if request.reference_mode == "focus_dir":
+                if focus_type == "dir":
+                    target_path = focus_path
+                elif focus_type == "file":
+                    parent = PurePosixPath(focus_path).parent
+                    target_path = str(parent) if str(parent) != "." else "."
+                else:
+                    target_path = "."
+            else:
+                target_path = request.path_hint or "."
+            query = str(request.query or "").strip()
+            if not query:
+                return None
+            normalized_path = self.path_resolver.normalize_path_fragment(target_path) or "."
+            if normalized_path != ".":
+                resolved = self.path_resolver.resolve_path_hint(
+                    normalized_path,
+                    expect_dir=True,
+                    action="search_files",
+                    payload={"query": query},
+                )
+                if resolved.status != "resolved":
+                    return None
+                normalized_path = resolved.path
+            self._promote_tool_profile(user_id, "workspace_read")
+            reply = self.tool_catalog.runtime.search_files(query, normalized_path)
+            return self._remember_browse_result(
+                user_id,
+                intent="browse_search",
+                path=normalized_path,
+                target_type="dir",
+                reply=reply,
+                query=query,
+            )
+
         return None
 
     def _extract_replace_request(self, message: str) -> Optional[Tuple[str, str, str]]:
@@ -481,23 +520,37 @@ class FastPathRouter:
                 target = str(source_parent / target_path.name)
         return source, target
 
-    def _handle_followup_reference(self, user_id: str, message: str) -> Optional[str]:
-        last_target = self.session_service.get_last_workspace_target(user_id)
-        path = str(last_target.get("path", "")).strip()
-        target_type = str(last_target.get("type", "")).strip()
-        if not path:
-            return None
-
-        if target_type == "file" and any(token in message for token in ("它", "这个文件")):
-            if any(keyword in message for keyword in ("内容", "写的什么", "写了什么", "有什么", "有哪些")):
-                self._promote_tool_profile(user_id, "workspace_read")
-                return self.tool_catalog.runtime.read_file(path)
-            if any(keyword in message for keyword in ("最后一行", "末行", "第一行", "首行")):
-                position = "first" if any(keyword in message for keyword in ("第一行", "首行")) else "last"
-                self._promote_tool_profile(user_id, "workspace_read")
-                return self.tool_catalog.runtime.read_file_line(path, position)
-
-        return None
+    def _remember_browse_result(
+        self,
+        user_id: str,
+        *,
+        intent: str,
+        path: str,
+        target_type: str,
+        reply: str,
+        query: str = "",
+        line_position: str = "",
+    ) -> str:
+        if not reply.startswith(
+            (
+                "文件不存在",
+                "路径不存在",
+                "目标不是",
+                "源路径不存在",
+                "路径不允许访问",
+                "未找到待替换文本",
+                "替换范围无效",
+            )
+        ):
+            self.session_service.set_workspace_browser_focus(
+                user_id,
+                path=path,
+                target_type=target_type,
+                intent=intent,
+                query=query,
+                line_position=line_position,
+            )
+        return reply
 
     def _execute_resolved_action(
         self,
@@ -519,6 +572,18 @@ class FastPathRouter:
         elif action == "list_directory":
             self._promote_tool_profile(user_id, "workspace_read")
             reply = self.tool_catalog.runtime.list_directory(path)
+        elif action == "search_files":
+            self._promote_tool_profile(user_id, "workspace_read")
+            query = str(payload.get("query", "")).strip()
+            reply = self.tool_catalog.runtime.search_files(query, path)
+            return self._remember_browse_result(
+                user_id,
+                intent="browse_search",
+                path=path,
+                target_type="dir",
+                reply=reply,
+                query=query,
+            )
         elif action == "preview_edit_file":
             self._promote_tool_profile(user_id, "workspace_edit")
             reply = self.tool_catalog.runtime.preview_edit_file(
@@ -556,17 +621,16 @@ class FastPathRouter:
         else:
             return "这次文件定位候选已经失效，请重新描述一次你的请求。"
 
-        if not reply.startswith(
-            (
-                "文件不存在",
-                "路径不存在",
-                "目标不是",
-                "源路径不存在",
-                "路径不允许访问",
-                "未找到待替换文本",
-                "替换范围无效",
-            )
-        ):
-            remembered_type = "dir" if target_type == "dir" else "file"
-            self.session_service.set_last_workspace_target(user_id, path, remembered_type)
-        return reply
+        intent = {
+            "read_file": "browse_read",
+            "read_file_line": "browse_read_line",
+            "list_directory": "browse_list",
+        }.get(action, "")
+        return self._remember_browse_result(
+            user_id,
+            intent=intent,
+            path=path,
+            target_type="dir" if target_type == "dir" else "file",
+            reply=reply,
+            line_position=str(payload.get("position", "")),
+        )
