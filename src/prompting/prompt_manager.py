@@ -66,21 +66,28 @@ class PromptManager:
         tool_profiles: List[str] | None = None,
         tool_summary: str = "",
         core_memory: str | None,
+        current_mode: str | None = None,
     ) -> str:
         sections: List[str] = []
         current_persona_prompt = avatar_prompt or persona_prompt
 
+        capability_lines: List[str] = []
+        if current_mode:
+            capability_lines.append(f"当前模式：{current_mode}")
         if tool_profile:
             normalized_profile = normalize_tool_profile(tool_profile)
-            sections.append(f"【当前能力档位】\n{normalized_profile}")
-            sections.append(f"【当前能力边界】\n{describe_tool_profile(normalized_profile)}")
+            capability_lines.append(f"当前能力档位：{normalized_profile}")
+            capability_lines.append(f"当前能力边界：{describe_tool_profile(normalized_profile)}")
         if tool_profiles:
-            sections.append(f"【当前工具组】\n{', '.join(tool_profiles)}")
+            capability_lines.append(f"当前工具组：{', '.join(tool_profiles)}")
         if tool_summary:
-            sections.append(
-                f"【当前可用工具摘要】\n"
+            capability_lines.append(
+                "这些工具当前分别能做：\n"
                 f"{self._truncate_text(tool_summary, self.MAX_RUNTIME_TOOL_SUMMARY_CHARS)}"
             )
+        if capability_lines:
+            sections.append("【你现在的能力】\n" + "\n".join(capability_lines))
+
         if current_persona_prompt:
             sections.append(f"【当前会话风格】\n{current_persona_prompt}")
 

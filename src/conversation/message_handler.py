@@ -265,6 +265,7 @@ class MessageHandler:
                 tool_profile=tool_profile,
                 previous_context=previous_context,
                 core_memory=core_memory,
+                current_mode=current_mode,
             )
 
             # 清理回复

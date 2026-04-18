@@ -135,6 +135,7 @@ class AgentService:
         tool_profile: Optional[str] = None,
         previous_context: Optional[List[Dict[str, Any]]] = None,
         core_memory: Optional[str] = None,
+        current_mode: Optional[str] = None,
     ) -> str:
         """跑一次 agent。外部调用方必须先确认 user 没有活跃 run（is_running 为 False）。"""
         async with self.runtime_registry.claim_run(user_id):
@@ -146,10 +147,13 @@ class AgentService:
                     tool_profile=tool_profile,
                 )
 
-                if self.tool_catalog.looks_like_tool_overview(message):
-                    return self.tool_catalog.format_tool_overview(tool_bundle)
-
-                full_system_prompt = self._merge_system_prompt(system_prompt, core_memory, tool_bundle)
+                full_system_prompt = self._merge_system_prompt(
+                    system_prompt,
+                    core_memory,
+                    tool_bundle,
+                    tool_profile=tool_profile,
+                    current_mode=current_mode,
+                )
                 initial_messages = self._build_initial_messages(message, previous_context)
 
                 loop_state_token = self.tool_guard.set_loop_state(self.tool_guard.create_loop_state())
@@ -240,20 +244,26 @@ class AgentService:
         persona_prompt: str,
         core_memory: Optional[str],
         tool_bundle,
+        *,
+        tool_profile: Optional[str] = None,
+        current_mode: Optional[str] = None,
     ) -> str:
         """把静态壳 + 风格 + 核心记忆 + 当前工具组拼成最终 system prompt。
 
         替代旧版 dynamic_prompt middleware 的拼装逻辑——但只在调用时拼一次。
+        把 `当前模式 / 工具档位 / 详细工具清单` 渲染进 runtime 段，agent 被问到
+        "当前是什么模式"/"有哪些工具" 时直接从 system prompt 答。
         """
         from src.prompting.prompt_manager import PromptManager
         pm = PromptManager(self.workspace_root)
         static_prefix = pm.build_agent_static_prompt()
         runtime_prefix = pm.build_runtime_prompt(
             persona_prompt=persona_prompt or "",
-            tool_profile=None,  # profile 信息合并在 profiles 列表里给
+            tool_profile=tool_profile,
             tool_profiles=tool_bundle.profiles,
-            tool_summary=tool_bundle.summary,
+            tool_summary=tool_bundle.detailed_summary,
             core_memory=core_memory,
+            current_mode=current_mode,
         )
         parts = [static_prefix]
         if runtime_prefix:
