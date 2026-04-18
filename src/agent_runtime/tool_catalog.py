@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from src.ai.types import ToolSpec
 from src.knowledge.kb_tools import build_kb_list_assets_response, build_kb_search_response
 from src.agent_runtime.runtime import WorkspaceRuntime
+from src.agent_runtime.todo_store import TodoItem, VALID_STATUSES, todo_store
 from src.agent_runtime.tool_profiles import (
     normalize_tool_profile,
     should_enable_command,
@@ -117,6 +118,51 @@ def _sync_handler(fn: Callable[..., str]) -> ToolHandler:
     return wrapper
 
 
+def _run_todo_tool(user_id: str, kwargs: Dict[str, Any]) -> str:
+    """todo 工具 handler：读 / 写 per-user 待办清单，返回渲染后的清单文本。"""
+    raw_todos = kwargs.get("todos")
+    if raw_todos is None:
+        items = todo_store.get(user_id)
+        return _format_todo_reply(items, action="read")
+
+    if not isinstance(raw_todos, list):
+        return "todo 工具失败：`todos` 必须是数组。"
+
+    parsed: List[TodoItem] = []
+    for raw in raw_todos:
+        item = TodoItem.from_raw(raw)
+        if item is None:
+            return (
+                "todo 工具失败：数组里的每一项都必须包含非空 id、content，以及 status "
+                f"∈ {list(VALID_STATUSES)}。"
+            )
+        parsed.append(item)
+
+    merge = bool(kwargs.get("merge", False))
+    if merge:
+        items = todo_store.merge(user_id, parsed)
+        action = "merge"
+    else:
+        items = todo_store.set(user_id, parsed)
+        action = "replace"
+    return _format_todo_reply(items, action=action)
+
+
+def _format_todo_reply(items: List["TodoItem"], *, action: str) -> str:
+    if not items:
+        return "当前没有待办。"
+    lines = []
+    if action == "read":
+        lines.append("当前待办：")
+    elif action == "merge":
+        lines.append("已合并待办，当前清单：")
+    else:
+        lines.append("已更新待办清单：")
+    for item in items:
+        lines.append(f"- [{item.status}] ({item.id}) {item.content}")
+    return "\n".join(lines)
+
+
 # ── ToolCatalog ─────────────────────────────────────────────────────────
 
 
@@ -184,8 +230,11 @@ class ToolCatalog:
                 id="core",
                 label="基础",
                 profile_tag="core",
-                compact_line="读当前本地时间。",
-                detailed_lines=["- get_current_time: 读当前本地时间。"],
+                compact_line="读当前本地时间、维护本轮待办清单。",
+                detailed_lines=[
+                    "- get_current_time: 读当前本地时间。",
+                    "- todo: 维护本轮会话的待办清单——省略 todos 即读当前列表；传入 todos 则写入（merge=false 替换全部，merge=true 按 id 合并）。适合超过 3 步的任务。",
+                ],
                 enabled_when=lambda _self, _profile: True,
                 build_tools=lambda self, user_id: self._build_core_tools(user_id),
             ),
@@ -258,7 +307,7 @@ class ToolCatalog:
 
     # ── 各 section 的工具构造 ───────────────────────────────────────────
 
-    def _build_core_tools(self, _user_id: str) -> List[RegisteredTool]:
+    def _build_core_tools(self, user_id: str) -> List[RegisteredTool]:
         time_tool = self.time_tool
         return [
             RegisteredTool(
@@ -268,6 +317,54 @@ class ToolCatalog:
                     parameters=_object_schema({}, []),
                 ),
                 handler=_sync_handler(lambda **_kwargs: time_tool.execute()),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="todo",
+                    description=(
+                        "Maintain a per-session todo list. Omit `todos` to read the "
+                        "current list. Pass `todos` to write (merge=false replaces the "
+                        "entire list, merge=true upserts by id). Use for tasks with 3+ steps."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "todos": {
+                                "type": "array",
+                                "description": (
+                                    "List of todo items. Each item must have id, content, "
+                                    "and status. Omit to read current list."
+                                ),
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": _string_field("Stable short id, e.g. '1', '2a'."),
+                                        "content": _string_field("What needs to be done."),
+                                        "status": {
+                                            "type": "string",
+                                            "description": "One of pending / in_progress / completed / cancelled.",
+                                            "enum": list(VALID_STATUSES),
+                                        },
+                                    },
+                                    "required": ["id", "content", "status"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "merge": {
+                                "type": "boolean",
+                                "description": (
+                                    "When true, upsert by id (update existing, add new, "
+                                    "keep untouched). When false (default), replace the "
+                                    "entire list."
+                                ),
+                                "default": False,
+                            },
+                        },
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                ),
+                handler=_sync_handler(lambda **kwargs: _run_todo_tool(user_id, kwargs)),
             ),
         ]
 

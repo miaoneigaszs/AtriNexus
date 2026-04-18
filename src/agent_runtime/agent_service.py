@@ -153,6 +153,7 @@ class AgentService:
                     tool_bundle,
                     tool_profile=tool_profile,
                     current_mode=current_mode,
+                    user_id=user_id,
                 )
                 initial_messages = self._build_initial_messages(message, previous_context)
 
@@ -247,16 +248,20 @@ class AgentService:
         *,
         tool_profile: Optional[str] = None,
         current_mode: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> str:
         """把静态壳 + 风格 + 核心记忆 + 当前工具组拼成最终 system prompt。
 
         替代旧版 dynamic_prompt middleware 的拼装逻辑——但只在调用时拼一次。
-        把 `当前模式 / 工具档位 / 详细工具清单` 渲染进 runtime 段，agent 被问到
-        "当前是什么模式"/"有哪些工具" 时直接从 system prompt 答。
+        把 `当前模式 / 工具档位 / 详细工具清单 / 当前待办` 渲染进 runtime 段，
+        agent 被问到 "当前是什么模式"/"有哪些工具" 时直接从 system prompt 答，
+        同时看得见自己的待办进度。
         """
         from src.prompting.prompt_manager import PromptManager
+        from src.agent_runtime.todo_store import todo_store
         pm = PromptManager(self.workspace_root)
         static_prefix = pm.build_agent_static_prompt()
+        todo_snapshot = todo_store.render(user_id) if user_id else ""
         runtime_prefix = pm.build_runtime_prompt(
             persona_prompt=persona_prompt or "",
             tool_profile=tool_profile,
@@ -264,6 +269,7 @@ class AgentService:
             tool_summary=tool_bundle.detailed_summary,
             core_memory=core_memory,
             current_mode=current_mode,
+            todo_snapshot=todo_snapshot,
         )
         parts = [static_prefix]
         if runtime_prefix:

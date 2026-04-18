@@ -67,6 +67,7 @@ class PromptManager:
         tool_summary: str = "",
         core_memory: str | None,
         current_mode: str | None = None,
+        todo_snapshot: str = "",
     ) -> str:
         sections: List[str] = []
         current_persona_prompt = avatar_prompt or persona_prompt
@@ -87,6 +88,9 @@ class PromptManager:
             )
         if capability_lines:
             sections.append("【你现在的能力】\n" + "\n".join(capability_lines))
+
+        if todo_snapshot:
+            sections.append("【当前待办】\n" + todo_snapshot)
 
         if current_persona_prompt:
             sections.append(f"【当前会话风格】\n{current_persona_prompt}")
