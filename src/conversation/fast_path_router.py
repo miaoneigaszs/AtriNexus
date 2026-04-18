@@ -7,6 +7,27 @@ from src.agent_runtime.tool_catalog import ToolCatalog
 from src.agent_runtime.tool_profiles import merge_tool_profile, normalize_tool_profile
 from src.prompting.prompt_manager import PromptManager
 from src.platform_core.session_service import SessionService
+from src.conversation.fast_path_config import (
+    FAST_PATH_ENV_VAR,
+    FAST_PATH_MODE_DISABLED,
+    FAST_PATH_MODE_FULL,
+    FastPathOutcome,
+    INTENT_APPEND,
+    INTENT_BLOCK_REWRITE,
+    INTENT_BROWSE_LIST,
+    INTENT_BROWSE_READ,
+    INTENT_BROWSE_READ_LINE,
+    INTENT_BROWSE_SEARCH,
+    INTENT_DISABLED,
+    INTENT_NONE,
+    INTENT_PENDING_RESOLUTION,
+    INTENT_PROFILE_OVERVIEW,
+    INTENT_RENAME,
+    INTENT_REPLACE,
+    INTENT_REWRITE,
+    INTENT_TOOL_OVERVIEW,
+    read_fast_path_mode,
+)
 from src.conversation.fast_path_intents import (
     WorkspaceBrowseRequest,
     extract_append_request,
@@ -46,10 +67,13 @@ class FastPathRouter:
             self.prompt_manager,
         )
 
-    def try_handle(self, user_id: str, message: str) -> Optional[str]:
+    def try_handle(self, user_id: str, message: str) -> FastPathOutcome:
         message = (message or "").strip()
         if not message:
-            return None
+            return FastPathOutcome.miss()
+
+        if read_fast_path_mode() == FAST_PATH_MODE_DISABLED:
+            return FastPathOutcome.miss(INTENT_DISABLED)
 
         self.path_resolver.begin(user_id)
         normalized_message = self.path_resolver.normalize_request_text(message)
@@ -61,15 +85,16 @@ class FastPathRouter:
             target_type: str,
             remembered_path,
             action,
-        ) -> Optional[str]:
+            intent: str,
+        ) -> Optional[FastPathOutcome]:
             pending_reply = self.path_resolver.take_pending_reply()
             if pending_reply:
-                return pending_reply
+                return FastPathOutcome.hit(pending_reply, intent)
             if not request:
                 return None
             self._promote_tool_profile(user_id, inferred_profile)
             self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
-            return action(request)
+            return FastPathOutcome.hit(action(request), intent)
 
         def dispatch_after_remembered_action(
             *,
@@ -79,26 +104,33 @@ class FastPathRouter:
             remembered_path,
             blocked_prefixes: Tuple[str, ...],
             action,
-        ) -> Optional[str]:
+            intent: str,
+        ) -> Optional[FastPathOutcome]:
             pending_reply = self.path_resolver.take_pending_reply()
             if pending_reply:
-                return pending_reply
+                return FastPathOutcome.hit(pending_reply, intent)
             if not request:
                 return None
             self._promote_tool_profile(user_id, inferred_profile)
             reply = action(request)
             if not reply.startswith(blocked_prefixes):
                 self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
-            return reply
+            return FastPathOutcome.hit(reply, intent)
 
         if is_tool_overview(normalized_message):
-            return self._handle_tool_overview(user_id, normalized_message)
+            return FastPathOutcome.hit(
+                self._handle_tool_overview(user_id, normalized_message),
+                INTENT_TOOL_OVERVIEW,
+            )
 
         if is_profile_overview(normalized_message):
-            return self._handle_profile_overview(user_id, normalized_message)
+            return FastPathOutcome.hit(
+                self._handle_profile_overview(user_id, normalized_message),
+                INTENT_PROFILE_OVERVIEW,
+            )
 
         block_rewrite_request = self._extract_block_rewrite_request(normalized_message)
-        dispatch_reply = dispatch_before_remembered_action(
+        dispatch_outcome = dispatch_before_remembered_action(
             inferred_profile="workspace_edit",
             request=block_rewrite_request,
             target_type="file",
@@ -109,12 +141,13 @@ class FastPathRouter:
                 request[1],
                 request[2],
             ),
+            intent=INTENT_BLOCK_REWRITE,
         )
-        if dispatch_reply is not None:
-            return dispatch_reply
+        if dispatch_outcome is not None:
+            return dispatch_outcome
 
         replace_request = self._extract_replace_request(normalized_message)
-        dispatch_reply = dispatch_before_remembered_action(
+        dispatch_outcome = dispatch_before_remembered_action(
             inferred_profile="workspace_edit",
             request=replace_request,
             target_type="file",
@@ -125,12 +158,13 @@ class FastPathRouter:
                 request[2],
                 owner_user_id=user_id,
             ),
+            intent=INTENT_REPLACE,
         )
-        if dispatch_reply is not None:
-            return dispatch_reply
+        if dispatch_outcome is not None:
+            return dispatch_outcome
 
         rewrite_request = self._extract_rewrite_request(normalized_message)
-        dispatch_reply = dispatch_before_remembered_action(
+        dispatch_outcome = dispatch_before_remembered_action(
             inferred_profile="workspace_edit",
             request=rewrite_request,
             target_type="file",
@@ -140,12 +174,13 @@ class FastPathRouter:
                 request[1],
                 owner_user_id=user_id,
             ),
+            intent=INTENT_REWRITE,
         )
-        if dispatch_reply is not None:
-            return dispatch_reply
+        if dispatch_outcome is not None:
+            return dispatch_outcome
 
         append_request = self._extract_append_request(normalized_message)
-        dispatch_reply = dispatch_before_remembered_action(
+        dispatch_outcome = dispatch_before_remembered_action(
             inferred_profile="workspace_edit",
             request=append_request,
             target_type="file",
@@ -156,32 +191,34 @@ class FastPathRouter:
                 position=request[2],
                 owner_user_id=user_id,
             ),
+            intent=INTENT_APPEND,
         )
-        if dispatch_reply is not None:
-            return dispatch_reply
+        if dispatch_outcome is not None:
+            return dispatch_outcome
 
         rename_paths = self._extract_rename_paths(normalized_message)
-        dispatch_reply = dispatch_after_remembered_action(
+        dispatch_outcome = dispatch_after_remembered_action(
             inferred_profile="workspace_edit",
             request=rename_paths,
             target_type="file",
             remembered_path=lambda request: request[1],
             blocked_prefixes=("未找到源路径", "路径不允许访问", "目标路径无效"),
             action=lambda request: self.tool_catalog.runtime.rename_path(request[0], request[1]),
+            intent=INTENT_RENAME,
         )
-        if dispatch_reply is not None:
-            return dispatch_reply
+        if dispatch_outcome is not None:
+            return dispatch_outcome
 
         browse_request = self._extract_workspace_browse_request(user_id, normalized_message)
         if browse_request:
             browse_reply = self._handle_workspace_browse_request(user_id, browse_request)
             pending_reply = self.path_resolver.take_pending_reply()
             if pending_reply:
-                return pending_reply
+                return FastPathOutcome.hit(pending_reply, browse_request.intent)
             if browse_reply is not None:
-                return browse_reply
+                return FastPathOutcome.hit(browse_reply, browse_request.intent)
 
-        return None
+        return FastPathOutcome.miss()
 
     def try_handle_pending_resolution(self, user_id: str, message: str) -> Optional[str]:
         pending = self.session_service.get_workspace_browser_pending(user_id)
