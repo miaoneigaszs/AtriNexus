@@ -11,14 +11,16 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - PostgreSQL 存储对话、记忆和日记数据
 - Qdrant 存储向量记忆
 - `atrinexus-rag-sdk` 负责知识库检索
-- LangChain 负责轻量级 agent 与工具调用层
+- **自建 ~500 行 agent loop** 负责 agent 与工具调用层（已去 LangChain）
 
-当前运行时已经不再是简单的“聊天 + 挂几个工具”，而是围绕以下骨架组织：
+当前运行时已经不再是简单的”聊天 + 挂几个工具”，而是围绕以下骨架组织：
 
 - `PromptManager` 负责分层 prompt 组装
 - `ToolProfile` 负责会话级稳定工具暴露
 - `FastPathRouter` 负责确定性文件/工具请求直达
-- middleware 负责模型与工具调用治理
+- 基于 hook 的 agent runtime（`before_tool_call` / `after_tool_call` / `transform_context` / `on_response`）负责模型与工具调用治理
+- `UserRuntimeRegistry` 负责 per-user run 控制（取消 + follow-up 队列）
+- `ContextEngine` 负责可插拔的上下文窗口压缩
 
 ## 项目能做什么
 
@@ -106,9 +108,19 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 - `src/conversation/message_handler.py`
 - `src/conversation/context_builder.py`
-- `src/agent_runtime/langchain_agent_service.py`
+- `src/agent_runtime/agent_service.py`
+- `src/agent_runtime/agent_loop.py`
 - `src/prompting/prompt_manager.py`
 - `src/conversation/fast_path_router.py`
+
+### Agent 运行时内部
+
+- `src/agent_runtime/hooks.py` —— 四 hook 协议（before/after tool、transform context、on response）
+- `src/agent_runtime/default_hooks.py` —— 组合工具守卫 + prompt 缓存 + 速率限制抓取
+- `src/agent_runtime/user_runtime.py` —— per-user 取消信号 + follow-up 队列
+- `src/agent_runtime/context_engine.py` —— 可插拔的上下文窗口压缩
+- `src/ai/providers/openai_compat.py` —— 自建的 OpenAI 兼容流式 provider
+- `src/ai/stream.py` —— SSE 解析 + tool-call 累积
 
 ### 记忆与日记
 
@@ -141,13 +153,13 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 
 - Python 3.12
 - FastAPI
-- LangChain 1.x
 - PostgreSQL
 - Qdrant
 - `atrinexus-rag-sdk`
 - 企业微信 / `wechatpy`
 - APScheduler
 - Prometheus client
+- httpx（自建 provider 层的异步 HTTP）
 
 ## 项目结构
 
@@ -163,11 +175,11 @@ AtriNexus/
 │   ├── app/              # 应用装配、启动入口
 │   ├── ingress/          # 企微回调、HTTP 路由、中间件
 │   ├── conversation/     # 消息编排、快速通道、回复清理
-│   ├── agent_runtime/    # langchain 适配、runtime、middleware、工具守卫
+│   ├── agent_runtime/    # 自建 agent loop、hook、工具目录、context engine
 │   ├── prompting/        # prompt 组装 + 所有 prompt markdown 资源
 │   ├── memory/           # 三层记忆 + 上下文 + 更新编排
 │   ├── knowledge/        # RAG 服务 + KB agent 工具
-│   ├── ai/               # LLM / embedding / 视觉 / 联网搜索 / 模型管理
+│   ├── ai/               # 自建 provider 层（types / registry / stream / providers/）
 │   ├── workspace/        # 工作区能力
 │   ├── platform_core/    # 数据库、会话、token 监控、向量存储、工具函数
 │   ├── features/         # 日记、web 模板
@@ -268,10 +280,11 @@ curl http://127.0.0.1:8080/health
 
 ## 重要说明
 
-- 当前运行主路径已经统一到 Qdrant、`atrinexus-rag-sdk` 和 LangChain。
-- PostgreSQL 现在是对话历史、短期记忆、核心记忆和日记的事实来源。
+- Agent 运行时已完全自建，不再依赖 langchain / langchain-openai / langchain-core / langgraph；provider 层是 `src/ai/` 下基于 httpx 的 ~500 行代码。
+- 当前运行主路径基于 Qdrant、`atrinexus-rag-sdk` 和自建 provider 层。
+- PostgreSQL 是对话历史、短期记忆、核心记忆和日记的事实来源。
 - `data/vectordb_qdrant/` 属于本地运行状态数据，不纳入 Git 跟踪。
-- 知识库查询已经从“每条普通消息前置检索”收口为 agent 工具按需调用。
+- 知识库查询已经从”每条普通消息前置检索”收口为 agent 工具按需调用。
 - 项目刻意保持轻量，不朝通用 Agent 平台方向膨胀。
 - 运行时结构改动时，需要在同一个变更里同步更新 `README.md` 和 `README.zh-CN.md`，保持主链说明一致。
 
