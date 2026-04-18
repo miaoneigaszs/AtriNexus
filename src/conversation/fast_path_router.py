@@ -14,10 +14,6 @@ from src.conversation.fast_path_config import (
     FastPathOutcome,
     INTENT_APPEND,
     INTENT_BLOCK_REWRITE,
-    INTENT_BROWSE_LIST,
-    INTENT_BROWSE_READ,
-    INTENT_BROWSE_READ_LINE,
-    INTENT_BROWSE_SEARCH,
     INTENT_DISABLED,
     INTENT_NONE,
     INTENT_PENDING_RESOLUTION,
@@ -29,14 +25,12 @@ from src.conversation.fast_path_config import (
     read_fast_path_mode,
 )
 from src.conversation.fast_path_intents import (
-    WorkspaceBrowseRequest,
     extract_append_request,
     extract_block_rewrite_request,
     extract_followup_rename_target,
     extract_rename_paths,
     extract_replace_request,
     extract_rewrite_request,
-    extract_workspace_browse_request,
     is_profile_overview,
     is_tool_overview,
 )
@@ -209,15 +203,6 @@ class FastPathRouter:
         if dispatch_outcome is not None:
             return dispatch_outcome
 
-        browse_request = self._extract_workspace_browse_request(user_id, normalized_message)
-        if browse_request:
-            browse_reply = self._handle_workspace_browse_request(user_id, browse_request)
-            pending_reply = self.path_resolver.take_pending_reply()
-            if pending_reply:
-                return FastPathOutcome.hit(pending_reply, browse_request.intent)
-            if browse_reply is not None:
-                return FastPathOutcome.hit(browse_reply, browse_request.intent)
-
         return FastPathOutcome.miss()
 
     def try_handle_pending_resolution(self, user_id: str, message: str) -> Optional[str]:
@@ -309,134 +294,6 @@ class FastPathRouter:
         merged = merge_tool_profile(current, inferred)
         if merged != normalize_tool_profile(current):
             self.session_service.set_tool_profile(user_id, merged)
-
-    def _extract_workspace_browse_request(
-        self,
-        user_id: str,
-        message: str,
-    ) -> Optional[WorkspaceBrowseRequest]:
-        browser_state = self.session_service.get_workspace_browser_state(user_id)
-        return extract_workspace_browse_request(message, browser_state)
-
-    def _handle_workspace_browse_request(
-        self,
-        user_id: str,
-        request: WorkspaceBrowseRequest,
-    ) -> Optional[str]:
-        browser_state = self.session_service.get_workspace_browser_state(user_id)
-        focus = browser_state.get("focus", {}) if isinstance(browser_state, dict) else {}
-        focus_path = str(focus.get("path", "")).strip()
-        focus_type = str(focus.get("type", "")).strip()
-
-        if request.intent == "browse_list":
-            target_path = request.path_hint or (focus_path if focus_type == "dir" else "")
-            if not target_path:
-                return None
-            resolved = self.path_resolver.resolve_path_hint(
-                target_path,
-                expect_dir=True,
-                action="list_directory",
-            )
-            if resolved.status != "resolved":
-                return None
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.list_directory(resolved.path)
-            return self._remember_browse_result(
-                user_id,
-                intent="browse_list",
-                path=resolved.path,
-                target_type="dir",
-                reply=reply,
-            )
-
-        if request.intent == "browse_read":
-            if request.reference_mode == "focus_file":
-                target_path = focus_path if focus_type == "file" else ""
-            else:
-                target_path = request.path_hint or focus_path
-            if not target_path:
-                return None
-            resolved = self.path_resolver.resolve_path_hint(
-                target_path,
-                expect_file=True,
-                action="read_file",
-            )
-            if resolved.status != "resolved":
-                return None
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.read_file(resolved.path)
-            return self._remember_browse_result(
-                user_id,
-                intent="browse_read",
-                path=resolved.path,
-                target_type="file",
-                reply=reply,
-            )
-
-        if request.intent == "browse_read_line":
-            line_position = request.line_position or "last"
-            if request.reference_mode == "focus_file":
-                target_path = focus_path if focus_type == "file" else ""
-            else:
-                target_path = request.path_hint or focus_path
-            if not target_path:
-                return None
-            resolved = self.path_resolver.resolve_path_hint(
-                target_path,
-                expect_file=True,
-                action="read_file_line",
-                payload={"position": line_position},
-            )
-            if resolved.status != "resolved":
-                return None
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.read_file_line(resolved.path, line_position)
-            return self._remember_browse_result(
-                user_id,
-                intent="browse_read_line",
-                path=resolved.path,
-                target_type="file",
-                reply=reply,
-                line_position=line_position,
-            )
-
-        if request.intent == "browse_search":
-            if request.reference_mode == "focus_dir":
-                if focus_type == "dir":
-                    target_path = focus_path
-                elif focus_type == "file":
-                    parent = PurePosixPath(focus_path).parent
-                    target_path = str(parent) if str(parent) != "." else "."
-                else:
-                    target_path = "."
-            else:
-                target_path = request.path_hint or "."
-            query = str(request.query or "").strip()
-            if not query:
-                return None
-            normalized_path = self.path_resolver.normalize_path_fragment(target_path) or "."
-            if normalized_path != ".":
-                resolved = self.path_resolver.resolve_path_hint(
-                    normalized_path,
-                    expect_dir=True,
-                    action="search_files",
-                    payload={"query": query},
-                )
-                if resolved.status != "resolved":
-                    return None
-                normalized_path = resolved.path
-            self._promote_tool_profile(user_id, "workspace_read")
-            reply = self.tool_catalog.runtime.search_files(query, normalized_path)
-            return self._remember_browse_result(
-                user_id,
-                intent="browse_search",
-                path=normalized_path,
-                target_type="dir",
-                reply=reply,
-                query=query,
-            )
-
-        return None
 
     def _extract_replace_request(self, message: str) -> Optional[Tuple[str, str, str]]:
         extracted = extract_replace_request(message)
