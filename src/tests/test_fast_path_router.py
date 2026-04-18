@@ -4,6 +4,7 @@ import unittest
 
 
 ROUTER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_router.py"
+RESOLUTION_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_resolution.py"
 TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
 
 
@@ -18,6 +19,8 @@ class FastPathRouterStructureTest(unittest.TestCase):
         self.assertIn("read_fast_path_mode() == FAST_PATH_MODE_DISABLED", source)
         self.assertNotIn("is_tool_overview(", source)
         self.assertNotIn("is_profile_overview(", source)
+        self.assertNotIn("normalize_request_text(", source)
+        self.assertNotIn("self.path_resolver.begin(", source)
 
     def test_browse_intent_routing_is_removed(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
@@ -67,6 +70,30 @@ class FastPathRouterStructureTest(unittest.TestCase):
     def test_rewrite_helper_still_instantiated(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
         self.assertIn("self.rewrite_helper = FastPathRewriteHelper(", source)
+
+
+class PathResolverStructureTest(unittest.TestCase):
+    def test_request_text_prefix_stripping_is_removed(self):
+        source = RESOLUTION_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("def normalize_request_text(", source)
+        self.assertNotIn('"那你"', source)
+        self.assertNotIn('"麻烦你"', source)
+
+    def test_path_normalization_and_repair_preserved(self):
+        tree = ast.parse(RESOLUTION_PATH.read_text(encoding="utf-8"))
+        method_names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for kept in (
+            "normalize_path_fragment",
+            "repair_path_if_confident",
+            "resolve_path_hint",
+            "find_path_candidates",
+            "parse_resolution_choice",
+        ):
+            self.assertIn(kept, method_names, f"{kept} 必须保留")
 
 
 class ToolCatalogOverviewRemovedTest(unittest.TestCase):

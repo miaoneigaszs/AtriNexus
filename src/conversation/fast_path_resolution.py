@@ -59,32 +59,6 @@ class WorkspacePathResolver:
             normalized = normalized.replace("//", "/")
         return normalized.strip("/")
 
-    def normalize_request_text(self, message: str) -> str:
-        normalized = (message or "").strip()
-        for prefix in (
-            "那你",
-            "那就",
-            "那",
-            "你先",
-            "你就",
-            "你",
-            "帮我",
-            "麻烦你",
-            "麻烦",
-            "请你",
-            "请",
-            "看一下",
-            "看下",
-            "看看",
-            "查看",
-            "读一下",
-            "读取",
-            "打开",
-        ):
-            if normalized.startswith(prefix):
-                normalized = normalized[len(prefix) :].lstrip()
-        return normalized.strip()
-
     def resolve_existing_path_hint(
         self,
         path: str,
