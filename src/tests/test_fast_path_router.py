@@ -7,46 +7,16 @@ ROUTER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_
 
 
 class FastPathRouterStructureTest(unittest.TestCase):
-    def test_dispatch_helpers_do_not_exist_as_router_methods(self):
-        tree = ast.parse(ROUTER_PATH.read_text(encoding="utf-8"))
-        functions = {
-            node.name
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
-
-        self.assertNotIn("_dispatch_before_remembered_action", functions)
-        self.assertNotIn("_dispatch_after_remembered_action", functions)
-
-    def test_try_handle_order_is_preserved_in_source(self):
+    def test_legacy_dispatch_helpers_do_not_exist(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
-        markers = [
-            "block_rewrite_request = self._extract_block_rewrite_request(normalized_message)",
-            "replace_request = self._extract_replace_request(normalized_message)",
-            "rewrite_request = self._extract_rewrite_request(normalized_message)",
-            "append_request = self._extract_append_request(normalized_message)",
-            "rename_paths = self._extract_rename_paths(normalized_message)",
-        ]
+        self.assertNotIn("def dispatch_before_remembered_action(", source)
+        self.assertNotIn("def dispatch_after_remembered_action(", source)
 
-        positions = [source.index(marker) for marker in markers]
-        self.assertEqual(positions, sorted(positions))
-
-    def test_try_handle_keeps_router_local_dispatch_and_pending_short_circuit(self):
+    def test_try_handle_only_contains_env_and_overview_branches(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
-        self.assertIn("def dispatch_before_remembered_action(", source)
-        self.assertIn("def dispatch_after_remembered_action(", source)
-        self.assertEqual(source.count("pending_reply = self.path_resolver.take_pending_reply()"), 2)
-
-    def test_router_local_dispatch_preserves_boundary_critical_semantics(self):
-        source = ROUTER_PATH.read_text(encoding="utf-8")
-
-        self.assertIn('self._promote_tool_profile(user_id, inferred_profile)', source)
-        self.assertIn(
-            'self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)',
-            source,
-        )
-        self.assertIn('if not reply.startswith(blocked_prefixes):', source)
-        self.assertNotIn('from src.conversation.fast_path_dispatch import', source)
+        self.assertIn("read_fast_path_mode() == FAST_PATH_MODE_DISABLED", source)
+        self.assertIn("is_tool_overview(normalized_message)", source)
+        self.assertIn("is_profile_overview(normalized_message)", source)
 
     def test_browse_intent_routing_is_removed(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
@@ -54,6 +24,57 @@ class FastPathRouterStructureTest(unittest.TestCase):
         self.assertNotIn("_handle_workspace_browse_request", source)
         self.assertNotIn("extract_workspace_browse_request", source)
         self.assertNotIn("WorkspaceBrowseRequest", source)
+
+    def test_edit_intent_routing_is_removed(self):
+        source = ROUTER_PATH.read_text(encoding="utf-8")
+        for symbol in (
+            "_extract_replace_request",
+            "_extract_rewrite_request",
+            "_extract_block_rewrite_request",
+            "_extract_append_request",
+            "_extract_rename_paths",
+            "_extract_followup_rename_target",
+            "extract_replace_request",
+            "extract_rewrite_request",
+            "extract_block_rewrite_request",
+            "extract_append_request",
+            "extract_rename_paths",
+            "extract_followup_rename_target",
+        ):
+            self.assertNotIn(symbol, source, f"{symbol} 应已从 router 删除")
+
+    def test_edit_intent_constants_are_removed_from_imports(self):
+        source = ROUTER_PATH.read_text(encoding="utf-8")
+        for symbol in (
+            "INTENT_BLOCK_REWRITE",
+            "INTENT_REPLACE",
+            "INTENT_REWRITE",
+            "INTENT_APPEND",
+            "INTENT_RENAME",
+        ):
+            self.assertNotIn(symbol, source, f"{symbol} 应已从 router 删除")
+
+    def test_state_machine_methods_preserved(self):
+        tree = ast.parse(ROUTER_PATH.read_text(encoding="utf-8"))
+        method_names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        for kept in (
+            "try_handle",
+            "try_handle_pending_resolution",
+            "_execute_resolved_action",
+            "_remember_browse_result",
+            "_promote_tool_profile",
+            "_handle_tool_overview",
+            "_handle_profile_overview",
+        ):
+            self.assertIn(kept, method_names, f"{kept} 必须保留")
+
+    def test_rewrite_helper_still_instantiated(self):
+        source = ROUTER_PATH.read_text(encoding="utf-8")
+        self.assertIn("self.rewrite_helper = FastPathRewriteHelper(", source)
 
 
 if __name__ == "__main__":

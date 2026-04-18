@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pathlib import PurePosixPath
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 from src.agent_runtime.tool_catalog import ToolCatalog
 from src.agent_runtime.tool_profiles import merge_tool_profile, normalize_tool_profile
@@ -12,25 +11,14 @@ from src.conversation.fast_path_config import (
     FAST_PATH_MODE_DISABLED,
     FAST_PATH_MODE_FULL,
     FastPathOutcome,
-    INTENT_APPEND,
-    INTENT_BLOCK_REWRITE,
     INTENT_DISABLED,
     INTENT_NONE,
     INTENT_PENDING_RESOLUTION,
     INTENT_PROFILE_OVERVIEW,
-    INTENT_RENAME,
-    INTENT_REPLACE,
-    INTENT_REWRITE,
     INTENT_TOOL_OVERVIEW,
     read_fast_path_mode,
 )
 from src.conversation.fast_path_intents import (
-    extract_append_request,
-    extract_block_rewrite_request,
-    extract_followup_rename_target,
-    extract_rename_paths,
-    extract_replace_request,
-    extract_rewrite_request,
     is_profile_overview,
     is_tool_overview,
 )
@@ -72,45 +60,6 @@ class FastPathRouter:
         self.path_resolver.begin(user_id)
         normalized_message = self.path_resolver.normalize_request_text(message)
 
-        def dispatch_before_remembered_action(
-            *,
-            inferred_profile: str,
-            request,
-            target_type: str,
-            remembered_path,
-            action,
-            intent: str,
-        ) -> Optional[FastPathOutcome]:
-            pending_reply = self.path_resolver.take_pending_reply()
-            if pending_reply:
-                return FastPathOutcome.hit(pending_reply, intent)
-            if not request:
-                return None
-            self._promote_tool_profile(user_id, inferred_profile)
-            self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
-            return FastPathOutcome.hit(action(request), intent)
-
-        def dispatch_after_remembered_action(
-            *,
-            inferred_profile: str,
-            request,
-            target_type: str,
-            remembered_path,
-            blocked_prefixes: Tuple[str, ...],
-            action,
-            intent: str,
-        ) -> Optional[FastPathOutcome]:
-            pending_reply = self.path_resolver.take_pending_reply()
-            if pending_reply:
-                return FastPathOutcome.hit(pending_reply, intent)
-            if not request:
-                return None
-            self._promote_tool_profile(user_id, inferred_profile)
-            reply = action(request)
-            if not reply.startswith(blocked_prefixes):
-                self.session_service.set_last_workspace_target(user_id, remembered_path(request), target_type)
-            return FastPathOutcome.hit(reply, intent)
-
         if is_tool_overview(normalized_message):
             return FastPathOutcome.hit(
                 self._handle_tool_overview(user_id, normalized_message),
@@ -122,86 +71,6 @@ class FastPathRouter:
                 self._handle_profile_overview(user_id, normalized_message),
                 INTENT_PROFILE_OVERVIEW,
             )
-
-        block_rewrite_request = self._extract_block_rewrite_request(normalized_message)
-        dispatch_outcome = dispatch_before_remembered_action(
-            inferred_profile="workspace_edit",
-            request=block_rewrite_request,
-            target_type="file",
-            remembered_path=lambda request: request[0],
-            action=lambda request: self.rewrite_helper.handle_block_rewrite(
-                user_id,
-                request[0],
-                request[1],
-                request[2],
-            ),
-            intent=INTENT_BLOCK_REWRITE,
-        )
-        if dispatch_outcome is not None:
-            return dispatch_outcome
-
-        replace_request = self._extract_replace_request(normalized_message)
-        dispatch_outcome = dispatch_before_remembered_action(
-            inferred_profile="workspace_edit",
-            request=replace_request,
-            target_type="file",
-            remembered_path=lambda request: request[0],
-            action=lambda request: self.tool_catalog.runtime.preview_edit_file(
-                request[0],
-                request[1],
-                request[2],
-                owner_user_id=user_id,
-            ),
-            intent=INTENT_REPLACE,
-        )
-        if dispatch_outcome is not None:
-            return dispatch_outcome
-
-        rewrite_request = self._extract_rewrite_request(normalized_message)
-        dispatch_outcome = dispatch_before_remembered_action(
-            inferred_profile="workspace_edit",
-            request=rewrite_request,
-            target_type="file",
-            remembered_path=lambda request: request[0],
-            action=lambda request: self.tool_catalog.runtime.preview_write_file(
-                request[0],
-                request[1],
-                owner_user_id=user_id,
-            ),
-            intent=INTENT_REWRITE,
-        )
-        if dispatch_outcome is not None:
-            return dispatch_outcome
-
-        append_request = self._extract_append_request(normalized_message)
-        dispatch_outcome = dispatch_before_remembered_action(
-            inferred_profile="workspace_edit",
-            request=append_request,
-            target_type="file",
-            remembered_path=lambda request: request[0],
-            action=lambda request: self.tool_catalog.runtime.preview_append_file(
-                request[0],
-                request[1],
-                position=request[2],
-                owner_user_id=user_id,
-            ),
-            intent=INTENT_APPEND,
-        )
-        if dispatch_outcome is not None:
-            return dispatch_outcome
-
-        rename_paths = self._extract_rename_paths(normalized_message)
-        dispatch_outcome = dispatch_after_remembered_action(
-            inferred_profile="workspace_edit",
-            request=rename_paths,
-            target_type="file",
-            remembered_path=lambda request: request[1],
-            blocked_prefixes=("未找到源路径", "路径不允许访问", "目标路径无效"),
-            action=lambda request: self.tool_catalog.runtime.rename_path(request[0], request[1]),
-            intent=INTENT_RENAME,
-        )
-        if dispatch_outcome is not None:
-            return dispatch_outcome
 
         return FastPathOutcome.miss()
 
@@ -294,125 +163,6 @@ class FastPathRouter:
         merged = merge_tool_profile(current, inferred)
         if merged != normalize_tool_profile(current):
             self.session_service.set_tool_profile(user_id, merged)
-
-    def _extract_replace_request(self, message: str) -> Optional[Tuple[str, str, str]]:
-        extracted = extract_replace_request(message)
-        if not extracted:
-            return None
-        raw_path, find_text, replace_text = extracted
-        path = self.path_resolver.normalize_path_fragment(raw_path)
-        path = self.path_resolver.resolve_existing_path_hint(
-            path,
-            expect_file=True,
-            action="preview_edit_file",
-            payload={
-                "find_text": find_text,
-                "replace_text": replace_text,
-            },
-        )
-        if path and find_text:
-            return path, find_text, replace_text
-        return None
-
-    def _extract_rewrite_request(self, message: str) -> Optional[Tuple[str, str]]:
-        extracted = extract_rewrite_request(message)
-        if not extracted:
-            return None
-        raw_path, content = extracted
-        path = self.path_resolver.normalize_path_fragment(raw_path)
-        path = self.path_resolver.resolve_existing_path_hint(
-            path,
-            expect_file=True,
-            action="preview_write_file",
-            payload={"content": content},
-        )
-        if path:
-            return path, content
-        return None
-
-    def _extract_block_rewrite_request(self, message: str) -> Optional[Tuple[str, str, str]]:
-        extracted = extract_block_rewrite_request(message)
-        if not extracted:
-            return None
-        raw_path, target, instruction = extracted
-        path = self.path_resolver.normalize_path_fragment(raw_path)
-        path = self.path_resolver.resolve_existing_path_hint(
-            path,
-            expect_file=True,
-            action="rewrite_block",
-            payload={
-                "target": target,
-                "instruction": instruction,
-            },
-        )
-        if path:
-            return path, target, instruction
-        return None
-
-    def _extract_append_request(self, message: str) -> Optional[Tuple[str, str, str]]:
-        extracted = extract_append_request(message)
-        if not extracted:
-            return None
-        raw_path, content, position = extracted
-        path = self.path_resolver.normalize_path_fragment(raw_path)
-        path = self.path_resolver.resolve_existing_path_hint(
-            path,
-            expect_file=True,
-            action="preview_append_file",
-            payload={
-                "content": content,
-                "position": position,
-            },
-        )
-        if path:
-            return path, content, position
-        return None
-
-    def _extract_rename_paths(self, message: str) -> Optional[Tuple[str, str]]:
-        extracted = extract_rename_paths(message)
-        if extracted:
-            raw_source, raw_target = extracted
-            source = self.path_resolver.normalize_path_fragment(raw_source)
-            target = self.path_resolver.normalize_path_fragment(raw_target)
-            source = self.path_resolver.resolve_existing_path_hint(
-                source,
-                action="rename_path",
-                payload={"target_path": target},
-            )
-            if not source or not target:
-                return None
-
-            target_path = PurePosixPath(target)
-            if len(target_path.parts) == 1 and source not in {".", ""}:
-                source_parent = PurePosixPath(source).parent
-                if str(source_parent) != ".":
-                    target = str(source_parent / target_path.name)
-            return source, target
-        return self._extract_followup_rename_target(message)
-
-    def _extract_followup_rename_target(self, message: str) -> Optional[Tuple[str, str]]:
-        target = extract_followup_rename_target(message)
-        if not target:
-            return None
-
-        last_target = self.session_service.get_last_workspace_target(self.path_resolver.current_user_id)
-        if str(last_target.get("type", "")).strip() != "file":
-            return None
-
-        source = str(last_target.get("path", "")).strip()
-        if not source:
-            return None
-
-        target = self.path_resolver.normalize_path_fragment(target)
-        if not target:
-            return None
-
-        target_path = PurePosixPath(target)
-        if len(target_path.parts) == 1 and source not in {".", ""}:
-            source_parent = PurePosixPath(source).parent
-            if str(source_parent) != ".":
-                target = str(source_parent / target_path.name)
-        return source, target
 
     def _remember_browse_result(
         self,

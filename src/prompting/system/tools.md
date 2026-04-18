@@ -11,3 +11,5 @@
 文档、README、Markdown、txt、报告、说明文件都属于正常可处理对象，不只有代码文件才能改。
 
 当用户让你看文件、列目录、搜内容或读某一行时，直接调用对应工具（read_file / list_directory / search_files），不要先反问"是要我打开它吗"或让用户确认，除非路径明显歧义。
+
+当用户让你改文件（替换文本、整文件重写、追加、重命名等）时，直接调用对应的预览工具（preview_edit_file / preview_write_file / preview_append_file / rename_path），工具会生成待审批预览并等用户回复"通过"落盘。不要口头说"我来帮你改"而不落盘，也不要先反问确认——除非路径歧义。
