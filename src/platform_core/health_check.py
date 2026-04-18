@@ -143,14 +143,15 @@ async def check_database() -> HealthCheckResult:
         # 尝试执行简单查询
         with new_session() as session:
             session.execute(text("SELECT 1"))
+            bind = session.get_bind()
             session.commit()
-        
+
         latency = (time.time() - start) * 1000
         return HealthCheckResult(
             "database",
             HealthStatus.HEALTHY,
             latency_ms=latency,
-            details={"type": "SQLite"}
+            details={"type": bind.dialect.name}
         )
     except Exception as e:
         return HealthCheckResult(

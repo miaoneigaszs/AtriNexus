@@ -14,31 +14,7 @@ import uuid
 class CommandExecutionPolicy:
     """轻量命令执行策略。"""
 
-    safe_bins: Tuple[str, ...] = (
-        "git",
-        "python",
-        "python3",
-        "pytest",
-        "uv",
-        "pip",
-        "pip3",
-        "ls",
-        "pwd",
-        "cat",
-        "head",
-        "tail",
-        "rg",
-    )
     shell_operator_tokens: Tuple[str, ...] = ("|", "||", "&", "&&", ";", ">", ">>", "<", "2>", "$(", "`")
-    blocked_patterns: Tuple[str, ...] = (
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "mkfs",
-        "format ",
-        ":(){:|:&};:",
-    )
     confirm_patterns: Tuple[str, ...] = (
         "rm -rf",
         "rm -fr",
@@ -461,8 +437,6 @@ class WorkspaceRuntime:
 
     def _build_command_plan(self, command: str) -> CommandExecutionPlan:
         normalized = " ".join(command.lower().split())
-        if any(pattern in normalized for pattern in self.command_policy.blocked_patterns):
-            return CommandExecutionPlan(mode="deny", reason="blocked-pattern")
         if any(pattern in normalized for pattern in self.command_policy.confirm_patterns):
             return CommandExecutionPlan(mode="confirm", reason="confirm-pattern")
         if any(token in command for token in self.command_policy.shell_operator_tokens):
@@ -476,10 +450,7 @@ class WorkspaceRuntime:
         if not argv:
             return CommandExecutionPlan(mode="deny", reason="empty")
 
-        executable = Path(argv[0]).name.lower()
-        if executable not in self.command_policy.safe_bins:
-            return CommandExecutionPlan(mode="confirm", reason="unknown-bin")
-        return CommandExecutionPlan(mode="direct", reason="safe-bin", argv=argv)
+        return CommandExecutionPlan(mode="direct", reason="direct", argv=argv)
 
     def _store_pending_command(self, command: str, timeout_seconds: int, owner_user_id: Optional[str]) -> str:
         confirm_id = uuid.uuid4().hex[:12]
