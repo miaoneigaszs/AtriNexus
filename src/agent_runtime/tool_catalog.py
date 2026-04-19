@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from src.ai.types import ToolSpec
 from src.knowledge.kb_tools import build_kb_list_assets_response, build_kb_search_response
 from src.agent_runtime.runtime import WorkspaceRuntime
+from src.agent_runtime.clarify_store import mark_clarify
 from src.agent_runtime.todo_store import TodoItem, VALID_STATUSES, todo_store
 from src.agent_runtime.tool_profiles import (
     normalize_tool_profile,
@@ -163,6 +164,34 @@ def _format_todo_reply(items: List["TodoItem"], *, action: str) -> str:
     return "\n".join(lines)
 
 
+def _run_clarify_tool(kwargs: Dict[str, Any]) -> str:
+    """Clarify handler：写入 clarify 信号，返回拼好的问题 + 候选文本。
+
+    Handler 本身没有副作用的"执行"，它只是（a）把问题送给用户，（b）终止本轮
+    agent run。后者由 agent_loop 读 CLARIFY_PENDING 完成。
+    """
+    question = str(kwargs.get("question", "")).strip()
+    if not question:
+        return "clarify 工具失败：必须传入非空的 question。"
+
+    raw_options = kwargs.get("options")
+    options: List[str] = []
+    if isinstance(raw_options, list):
+        for item in raw_options:
+            text = str(item).strip()
+            if text:
+                options.append(text)
+
+    if options:
+        numbered = "\n".join(f"{idx}. {opt}" for idx, opt in enumerate(options, start=1))
+        formatted = f"{question}\n\n{numbered}"
+    else:
+        formatted = question
+
+    mark_clarify(formatted)
+    return formatted
+
+
 # ── ToolCatalog ─────────────────────────────────────────────────────────
 
 
@@ -230,10 +259,11 @@ class ToolCatalog:
                 id="core",
                 label="基础",
                 profile_tag="core",
-                compact_line="读当前本地时间、维护本轮待办清单。",
+                compact_line="读当前本地时间、维护本轮待办清单、向用户澄清。",
                 detailed_lines=[
                     "- get_current_time: 读当前本地时间。",
                     "- todo: 维护本轮会话的待办清单——省略 todos 即读当前列表；传入 todos 则写入（merge=false 替换全部，merge=true 按 id 合并）。适合超过 3 步的任务。",
+                    "- clarify: 需要用户补信息才能继续时调它。填 question（必要），可选 options（给 2-4 个候选）。调用后本轮 run 立即结束，question 发给用户；用户的下一条消息会带着答案再次进入 agent loop。",
                 ],
                 enabled_when=lambda _self, _profile: True,
                 build_tools=lambda self, user_id: self._build_core_tools(user_id),
@@ -366,6 +396,37 @@ class ToolCatalog:
                     },
                 ),
                 handler=_sync_handler(lambda **kwargs: _run_todo_tool(user_id, kwargs)),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="clarify",
+                    description=(
+                        "Ask the user a clarifying question when you cannot confidently "
+                        "decide what to do. Calling this ends the current agent run "
+                        "immediately; the question is sent to the user and their next "
+                        "message will re-enter the agent with the answer in context."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "question": _string_field(
+                                "The clarifying question to ask the user. Be specific."
+                            ),
+                            "options": {
+                                "type": "array",
+                                "description": (
+                                    "Optional 2-4 candidate answers to offer the user. "
+                                    "Omit when the question is open-ended."
+                                ),
+                                "items": {"type": "string"},
+                                "maxItems": 4,
+                            },
+                        },
+                        "required": ["question"],
+                        "additionalProperties": False,
+                    },
+                ),
+                handler=_sync_handler(lambda **kwargs: _run_clarify_tool(kwargs)),
             ),
         ]
 

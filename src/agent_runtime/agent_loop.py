@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.agent_runtime.context_engine import ContextEngine
+from src.agent_runtime.clarify_store import reset_clarify, take_clarify
 from src.agent_runtime.hooks import (
     AfterToolCallContext,
     AgentHooks,
@@ -110,6 +111,9 @@ async def run_agent_loop(
     total_usage = Usage()
     last_text = ""
     stop_reason = ""
+
+    # 每个 run 清一次 clarify 信号；上一次 run 留下的残留都当作无效。
+    reset_clarify()
 
     for iteration in range(1, max_iterations + 1):
         if abort_requested():
@@ -236,6 +240,16 @@ async def run_agent_loop(
                 result=result_text,
                 status="error" if is_error else "ok",
             ))
+
+        clarify_question = take_clarify()
+        if clarify_question:
+            return LoopResult(
+                text=clarify_question,
+                usage=total_usage,
+                stop_reason="clarify",
+                iterations=iteration,
+                tool_events=tool_events,
+            )
 
     logger.warning("Agent loop 触达 max_iterations=%s，强制结束", max_iterations)
     messages.append(SystemMessage(content=f"[已达到最大轮数 {max_iterations}，停止继续工具调用。请直接给出当前结论。]"))
