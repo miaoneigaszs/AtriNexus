@@ -393,7 +393,9 @@ class AgentToolGuard:
         hint_path = path or "文件"
         return (
             f"{header}\n\n{trimmed_body}\n\n"
-            f"[文件内容较长，已只保留前半段。若要继续，请指定更小范围，例如“{hint_path}最后一行”或“{hint_path} 某段内容”。]"
+            f"[文件内容较长，已只保留前半段。若要读后续内容，再次调用 read_file "
+            f"并指定 offset=N（下一段的起始行号）；或传 limit 限制每段行数。"
+            f"路径：{hint_path}。]"
         )
 
     def _maybe_truncate(self, text: str) -> str:
