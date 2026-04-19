@@ -2,100 +2,76 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AtriNexus is a WeCom-based personal AI assistant for persistent conversation, memory, knowledge-base tooling, and lightweight workspace actions.
+AtriNexus is a WeCom-based personal AI assistant focused on long-running conversation, multi-layer memory, knowledge retrieval, and safe workspace actions.
 
-It is designed for a real long-running personal usage scenario rather than a generic chatbot demo. The current runtime path is:
+It is designed for real, long-running personal usage rather than a generic chatbot demo. A production deployment runs on:
 
-- WeCom as the chat entrypoint
-- FastAPI as the service layer
+- WeCom as the chat entry point
+- FastAPI service layer
 - PostgreSQL for conversation, memory, and diary data
-- Qdrant for vector memory storage
+- Qdrant for vector memory
 - `atrinexus-rag-sdk` for knowledge-base retrieval
-- A **self-built ~500-line agent loop** for the agent/tool layer (no LangChain)
 
-The current runtime is no longer a simple "chat + attached tools" stack. It now centers on:
+## Highlights
 
-- `PromptManager` for layered prompt assembly
-- `ToolProfile` for session-stable tool exposure
-- `FastPathRouter` for deterministic file/tool requests
-- Hook-based agent runtime (`before_tool_call` / `after_tool_call` / `transform_context` / `on_response`) for model/tool governance
-- `UserRuntimeRegistry` for per-user run control (abort + follow-up queue)
-- `ContextEngine` for pluggable context-window compression
+- Long-lived WeCom conversations with persistent memory and daily diary generation
+- Knowledge-base upload and on-demand retrieval through agent tools
+- Safe workspace actions: paged file reading, glob and content search, preview-confirmed edits
+- Multi-step task support via an explicit todo tool and a clarification tool for ambiguous requests
+- Per-session capability profiles and a layered prompt assembly pipeline
+- Operational observability: `/health`, `/health/simple`, `/metrics`, and optional trajectory logging
 
 ## What It Does
 
-- WeCom conversation handling
-- Persistent short-term and core memory
-- Daily diary generation from conversation history
-- Knowledge-base upload and retrieval
-- Lightweight agent actions from chat
-- System health and Prometheus metrics
-- Web pages for memory, settings, and knowledge upload
-
-## Current Capabilities
-
 ### 1. Personal assistant chat in WeCom
 
-The assistant is built around WeCom callback handling and long-running personal conversation.
+- Natural text conversation
+- Image recognition
+- Scheduled messages
+- Memory-aware replies
+- Knowledge-base lookup via agent tools
 
-It supports:
+### 2. Multi-layer memory
 
-- normal text conversation
-- image recognition integration
-- scheduled messages
-- memory-aware replies
-- knowledge-base lookup through agent tools
+- Short-term conversation history
+- Core memory of persistent facts
+- Vector memory for semantic recall
+- Daily diary generation from conversation history
 
-### 2. Memory system
+Storage split:
 
-The project keeps multiple memory layers:
+- PostgreSQL — conversation history, short-term memory, core memory, diaries
+- Qdrant — vector memory
 
-- short-term memory
-- core memory
-- vector memory
-- diary generation from conversation history
+### 3. Knowledge-base retrieval
 
-Current storage split:
-
-- PostgreSQL stores conversation history, short-term memory, core memory, and diaries
-- Qdrant stores vector memory
-
-### 3. RAG with SDK-first design
-
-The default RAG path now uses `atrinexus-rag-sdk` instead of continuing to expand a custom in-project RAG stack.
-
-The current codebase now uses:
-
-- `SdkRAGService`
+- `SdkRAGService` backed by `atrinexus-rag-sdk`
 - SDK-managed namespace per user
-- separate Qdrant-backed RAG storage
+- Dedicated Qdrant instance for RAG
+- Retrieval is agent-driven: normal messages skip front-loaded retrieval; the agent calls KB tools only when needed
 
-### 4. Lightweight execution abilities
+### 4. Workspace actions
 
-The assistant can perform basic workspace actions from chat:
+The assistant can perform the following actions from chat:
 
-- run commands
-- read files
-- search files
-- write files
-- replace text in files
+- **Read** — `read_file` with 1-indexed line-numbered output and `offset` / `limit` paging for long files
+- **Explore** — `list_directory`, `search_files` for text search, `glob` for pattern-based path lookup
+- **Edit** — `preview_edit_file` for precise replace, `preview_write_file` for full rewrite, `preview_append_file` for head/tail append, `rename_path` for rename or move
+- **Execute** — read-only command pipelines (e.g. `find`, `du`, `wc`, `stat`, `tree`) run directly; other commands require explicit user confirmation
 
-Workspace modifications follow a preview-first flow:
+All file modifications follow a preview-first flow: a diff is generated first and written only after the user replies with approval (`通过` / `确认`).
 
-- generate a preview / diff first
-- require explicit confirmation before applying changes
+### 5. Task orchestration
 
-This is intentionally lightweight. The goal is not to be a full AI IDE or a general-purpose autonomous agent platform.
+- **Todo tool** — per-session todo list the agent maintains across turns; state rides with the system prompt so it survives context compaction
+- **Clarify tool** — when a request is ambiguous, the agent asks a clarifying question and yields back to the user mid-run; the user's next message re-enters the loop with the answer in context
 
-### 5. Operational visibility
+### 6. Operational visibility
 
-The service exposes:
-
-- `/health`
-- `/health/simple`
-- `/metrics`
-
-It is designed to sit behind nginx and works with external monitoring such as Prometheus and Grafana.
+- `/health` — full health check (DB, Qdrant, RAG SDK, WeCom credentials)
+- `/health/simple` — lightweight liveness probe
+- `/metrics` — Prometheus metrics for request counts, token usage, rate-limit state
+- Trajectory logging (optional) — per-turn JSONL records for offline review and evaluation
 
 ## Architecture Overview
 
@@ -104,23 +80,31 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 - `run.py`
 - `src/app/server.py`
 
-### Main runtime path
+### Conversation pipeline
 
-- `src/conversation/message_handler.py`
-- `src/conversation/context_builder.py`
-- `src/agent_runtime/agent_service.py`
-- `src/agent_runtime/agent_loop.py`
-- `src/prompting/prompt_manager.py`
-- `src/conversation/fast_path_router.py`
+- `src/conversation/message_handler.py` — ingress orchestration (dedupe, pending confirmation, fast-path, agent loop)
+- `src/conversation/context_builder.py` — per-turn memory and mode assembly
+- `src/conversation/fast_path_router.py` — deterministic short-path for state-machine replies
+- `src/prompting/prompt_manager.py` — layered prompt assembly (static shell + runtime capability snapshot + persona + memory)
 
-### Agent runtime internals
+### Agent runtime
 
-- `src/agent_runtime/hooks.py` — four-hook protocol (before/after tool, transform context, on response)
-- `src/agent_runtime/default_hooks.py` — composes tool guard + prompt caching + rate-limit capture
-- `src/agent_runtime/user_runtime.py` — per-user abort + follow-up queue
+- `src/agent_runtime/agent_service.py` — run lifecycle, cancellation, follow-up queue
+- `src/agent_runtime/agent_loop.py` — tool-calling loop with streaming responses
+- `src/agent_runtime/tool_catalog.py` — declarative tool registry with profile-driven exposure
+- `src/agent_runtime/tool_profiles.py` — capability profiles (`chat`, `workspace_read`, `workspace_edit`, `workspace_exec`, `full`)
+- `src/agent_runtime/agent_tool_guard.py` — tool-call validation, path repair, loop guard, result shaping
+- `src/agent_runtime/hooks.py` — four extension hooks (`before_tool_call`, `after_tool_call`, `transform_context`, `on_response`)
 - `src/agent_runtime/context_engine.py` — pluggable context-window compression
-- `src/ai/providers/openai_compat.py` — self-built OpenAI-compatible streaming adapter
-- `src/ai/stream.py` — SSE parser + tool-call accumulator
+- `src/agent_runtime/user_runtime.py` — per-user run claim, abort signal, follow-up queue
+- `src/agent_runtime/todo_store.py` — per-session todo state
+- `src/agent_runtime/clarify_store.py` — mid-run clarify signal
+
+### Provider layer
+
+- `src/ai/providers/openai_compat.py` — OpenAI-compatible streaming client
+- `src/ai/stream.py` — SSE parsing and tool-call accumulation
+- `src/ai/llm_service.py`, `src/ai/embedding_service.py`, `src/ai/model_manager.py` — model coordination
 
 ### Memory and diary
 
@@ -129,25 +113,18 @@ It is designed to sit behind nginx and works with external monitoring such as Pr
 - `src/features/diary_service.py`
 - `src/platform_core/database.py`
 
-### RAG
+### Knowledge base
 
 - `src/knowledge/rag_service.py`
 - `src/knowledge/kb_tools.py`
 
-Knowledge-base retrieval is now agent-driven:
+### Workspace runtime
 
-- normal messages no longer go through front-loaded KB retrieval
-- the agent uses KB tools on demand
+- `src/agent_runtime/runtime.py` — file I/O, search, command execution policy, preview change tracking
 
 ### Vector storage
 
 - `src/platform_core/vector_store/qdrant.py`
-
-### AI services
-
-- `src/ai/llm_service.py`
-- `src/ai/embedding_service.py`
-- `src/ai/model_manager.py`
 
 ## Tech Stack
 
@@ -159,14 +136,11 @@ Knowledge-base retrieval is now agent-driven:
 - WeCom / `wechatpy`
 - APScheduler
 - Prometheus client
-- httpx (async HTTP for the self-built provider layer)
+- httpx
 
 ## Project Structure
 
-Source code is organized by capability domain, not by framework. `src/wecom/`
-no longer occupies a top-level slot because WeCom is just one current
-ingress — future Discord / Slack / CLI adapters would sit alongside it
-under `ingress/`.
+Source code is organized by capability domain rather than by framework.
 
 ```text
 AtriNexus/
@@ -174,17 +148,17 @@ AtriNexus/
 ├── pyproject.toml
 ├── requirements.txt
 ├── src/
-│   ├── app/              # application assembly, startup
+│   ├── app/              # application assembly and startup
 │   ├── ingress/          # WeCom callback, HTTP routers, middleware
 │   ├── conversation/     # message orchestration, fast-path, reply cleaner
-│   ├── agent_runtime/    # self-built agent loop, hooks, tool catalog, context engine
-│   ├── prompting/        # prompt assembly + all prompt markdown resources
-│   ├── memory/           # three-layer memory + context + updates
+│   ├── agent_runtime/    # agent loop, tool catalog, hooks, context engine
+│   ├── prompting/        # prompt assembly and prompt markdown resources
+│   ├── memory/           # three-layer memory + context + update orchestration
 │   ├── knowledge/        # RAG service + KB agent tools
-│   ├── ai/               # self-built provider layer (types, registry, stream, providers/)
+│   ├── ai/               # provider adapters and streaming
 │   ├── workspace/        # workspace capabilities
-│   ├── platform_core/    # DB, session, token monitor, vector store, utils
-│   ├── features/         # diary, web templates
+│   ├── platform_core/    # database, session, token monitor, vector store, utilities
+│   ├── features/         # diary service, web templates
 │   └── tests/
 ├── data/
 │   ├── config/
@@ -195,21 +169,13 @@ AtriNexus/
 └── docs/
 ```
 
-See `docs/PROJECT_STRUCTURE.md` for the full rationale and module mapping.
+See `docs/PROJECT_STRUCTURE.md` for module responsibilities.
 
 ## Configuration
 
-The main runtime configuration lives in:
+Runtime configuration lives in `data/config/config.json`. Only a sanitized template (`data/config/config.json.template`) is kept in the repository.
 
-- `data/config/config.json`
-
-The repository only keeps a sanitized template:
-
-- `data/config/config.json.template`
-
-The project expects non-sensitive runtime settings to remain in `config.json`.
-
-Sensitive values now support environment-variable overrides:
+Sensitive values are provided through environment variables:
 
 - `ATRINEXUS_DATABASE_URL`
 - `ATRINEXUS_LLM_API_KEY`
@@ -222,11 +188,14 @@ Sensitive values now support environment-variable overrides:
 - `ATRINEXUS_WECOM_ENCODING_AES_KEY`
 - `ATRINEXUS_ADMIN_PASSWORD`
 
-For local development, copy:
+Optional runtime toggles:
 
-- `.env.example -> .env`
+- `ATRINEXUS_FAST_PATH_INTENT` — `full` (default) or `disabled`. When `disabled`, deterministic fast-path routing is skipped; messages are handled end-to-end by the agent loop. Useful for A/B comparison.
+- `ATRINEXUS_TRAJECTORY_PATH` — absolute path to a JSONL file. When set, every turn is appended with user message, assistant reply, tool events, and routing metadata (`fast_path_hit`, `intent`).
+- `ATRINEXUS_AGENT_CONTEXT_LENGTH` — context window size used by the compressor (default `32000`).
+- `ATRINEXUS_AGENT_MAX_ITERATIONS` — maximum tool-call iterations per turn (default `12`).
 
-Production should prefer systemd `Environment=` / `EnvironmentFile=` instead of relying on a checked-out `.env`.
+For local development, copy `.env.example` to `.env`. Production should prefer systemd `Environment=` / `EnvironmentFile=` over a checked-in `.env`.
 
 ## Running Locally
 
@@ -246,15 +215,11 @@ python -m pip install -r requirements.txt
 
 ### 2. Prepare config
 
-Create your local runtime config from the template:
-
 ```bash
 cp data/config/config.json.template data/config/config.json
 ```
 
-Then fill in your real settings.
-
-Optional: copy `.env.example` to `.env` and place secrets there instead of writing them back into `config.json`.
+Then fill in runtime settings. Secrets can also be placed in `.env`.
 
 ### 3. Start the service
 
@@ -271,17 +236,15 @@ curl http://127.0.0.1:8080/health
 
 ## Deployment Notes
 
-The project is intended to run behind nginx with a public WeCom callback endpoint.
-
-Typical production layout includes:
+The project runs behind nginx with a public WeCom callback endpoint. Typical production layout:
 
 - systemd-managed `run.py`
-- systemd service file: `deployment/atrinexus.service`
+- systemd unit file: `deployment/atrinexus.service`
 - nginx reverse proxy
-- `/health` and `/metrics` exposure
-- WeCom callback routing
+- `/health` and `/metrics` exposed to the monitoring stack
+- WeCom callback routed to the service
 
-The VPS bootstrap script installs that same service name:
+VPS bootstrap:
 
 ```bash
 sudo bash deployment/setup_vps.sh
@@ -290,30 +253,16 @@ sudo systemctl status atrinexus
 sudo journalctl -u atrinexus -f
 ```
 
-## Important Notes
-
-- The agent runtime is now fully self-built. LangChain, langchain-openai, langchain-core and langgraph are no longer dependencies; the provider layer is ~500 lines of httpx-based code under `src/ai/`.
-- The runtime path is centered on Qdrant, `atrinexus-rag-sdk`, and the self-built provider layer.
-- PostgreSQL is the source of truth for conversation history, short-term memory, core memory, and diaries.
-- Qdrant local state under `data/vectordb_qdrant/` is runtime data and is not tracked in git.
-- KB lookup is exposed as agent tools instead of a front-routed retrieval step on every normal message.
-- The project intentionally stays lightweight instead of growing into a general-purpose agent platform.
-- When the runtime structure changes, update `README.md` and `README.zh-CN.md` in the same change to keep architecture notes in sync.
-
 ## Who This Is For
 
-AtriNexus is a better fit for:
+AtriNexus suits:
 
-- personal AI assistant experiments
-- WeCom-based assistant deployment
-- long-running memory-centric assistant use
+- personal AI assistant deployments
+- WeCom-based assistant use cases
+- long-running memory-centric assistants
 - practical RAG + memory + tool integration
 
-It is not intended to be:
-
-- a generic agent platform
-- a polished SaaS product
-- a framework for every use case
+It is not designed to be a generic agent platform or a universal SaaS framework.
 
 ## License
 
