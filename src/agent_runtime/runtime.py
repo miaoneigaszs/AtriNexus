@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import difflib
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -32,6 +33,27 @@ class CommandExecutionPolicy:
         "git reset --hard",
         "git checkout --",
     )
+    safe_bin_readonly: Tuple[str, ...] = (
+        "find",
+        "du",
+        "wc",
+        "stat",
+        "file",
+        "which",
+        "env",
+        "tree",
+        "basename",
+        "dirname",
+        "realpath",
+    )
+
+
+# 命令分隔符：用于切割 "cmd1 | cmd2; cmd3 && cmd4" 之类的 pipeline，
+# 每段都要独立判定是否 readonly。`&&` / `||` 必须放在单字符 `&` / `|` 之前，
+# 否则 alternation 会先匹配单字符。
+_PIPELINE_SEPARATORS = re.compile(r"\|\||&&|\||;|&")
+# 重定向操作符：右侧是文件名，不是命令——只保留左侧做 readonly 判定。
+_REDIRECT_OPERATORS = re.compile(r"2>|>>|>|<")
 
 
 @dataclass(frozen=True)
@@ -157,10 +179,14 @@ class WorkspaceRuntime:
 
         stdout = completed.stdout.strip()
         stderr = completed.stderr.strip()
+        mode_label = {
+            "direct": "direct",
+            "shell-safe": "shell-readonly",
+        }.get(plan.mode, "confirmed-shell")
         sections = [
             f"命令: {command}",
             f"退出码: {completed.returncode}",
-            f"执行模式: {'direct' if plan.mode == 'direct' else 'confirmed-shell'}",
+            f"执行模式: {mode_label}",
         ]
         if stdout:
             sections.append(f"标准输出:\n{self._truncate_text(stdout, self.MAX_OUTPUT_CHARS)}")
@@ -533,6 +559,8 @@ class WorkspaceRuntime:
         if any(pattern in normalized for pattern in self.command_policy.confirm_patterns):
             return CommandExecutionPlan(mode="confirm", reason="confirm-pattern")
         if any(token in command for token in self.command_policy.shell_operator_tokens):
+            if self._is_readonly_pipeline(command):
+                return CommandExecutionPlan(mode="shell-safe", reason="safe-readonly")
             return CommandExecutionPlan(mode="confirm", reason="shell-operator")
 
         try:
@@ -544,6 +572,50 @@ class WorkspaceRuntime:
             return CommandExecutionPlan(mode="deny", reason="empty")
 
         return CommandExecutionPlan(mode="direct", reason="direct", argv=argv)
+
+    def _is_readonly_pipeline(self, command: str) -> bool:
+        """Return True 当整条 shell 命令里每个管道段都只调 SAFE_BIN_READONLY。
+
+        接受：`|`、`;`、`&&`、`||`、`&`，以及 `>`、`>>`、`<`、`2>` 这类把文件名作为
+        RHS 的重定向（LHS 的命令会被单独校验）。拒绝：`$(...)` 或 backtick 命令替换
+        ——里面可以藏任何东西，一律走确认路径。
+        """
+        if "$(" in command or "`" in command:
+            return False
+
+        segments = _PIPELINE_SEPARATORS.split(command)
+        saw_any = False
+        for segment in segments:
+            command_part = _REDIRECT_OPERATORS.split(segment, maxsplit=1)[0]
+            tokens = command_part.strip().split()
+            if not tokens:
+                continue
+            if not self._is_readonly_command_tokens(tokens):
+                return False
+            saw_any = True
+        return saw_any
+
+    def _is_readonly_command_tokens(self, tokens: List[str]) -> bool:
+        """校验一段 argv 是否落在 SAFE_BIN_READONLY 里。
+
+        特殊处理 `env` 前缀：`env FOO=bar realcmd` —— 真正跑的是 realcmd，必须
+        realcmd 也在白名单里。`env` 单独不带参数只是打印环境变量，保留为 readonly。
+        """
+        if not tokens:
+            return False
+        readonly = set(self.command_policy.safe_bin_readonly)
+        name = tokens[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+        if name != "env":
+            return name in readonly
+
+        if len(tokens) == 1:
+            return True
+        for tok in tokens[1:]:
+            if "=" in tok and not tok.startswith("-") and not tok.startswith("="):
+                continue
+            real = tok.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+            return real in readonly
+        return True
 
     def _store_pending_command(self, command: str, timeout_seconds: int, owner_user_id: Optional[str]) -> str:
         confirm_id = uuid.uuid4().hex[:12]
