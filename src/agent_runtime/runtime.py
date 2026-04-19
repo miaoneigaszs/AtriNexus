@@ -188,7 +188,8 @@ class WorkspaceRuntime:
             lines.append(f"... 其余 {len(entries) - 200} 项已省略")
         return "\n".join(lines)
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
+        """读取文件，行号从 1 起按 offset/limit 分页；输出带行号（对标 Claude Code Read）。"""
         target, error = self.resolve_path_or_error(path)
         if error:
             return error
@@ -198,12 +199,56 @@ class WorkspaceRuntime:
             return f"目标不是文件: {path}"
 
         text = target.read_text(encoding="utf-8", errors="ignore")
-        if len(text) > self.MAX_FILE_CHARS:
-            text = text[: self.MAX_FILE_CHARS]
-            suffix = "\n\n[内容过长，已截断]"
-        else:
-            suffix = ""
-        return f"文件: {self.to_relative(target)}\n\n{text}{suffix}"
+        all_lines = text.splitlines()
+        total_lines = len(all_lines)
+
+        if total_lines == 0:
+            return f"文件: {self.to_relative(target)}\n\n[文件为空]"
+
+        start_idx = max(0, (offset or 1) - 1)
+        if start_idx >= total_lines:
+            return (
+                f"文件: {self.to_relative(target)} (共 {total_lines} 行)\n\n"
+                f"[offset={offset} 超过文件末尾]"
+            )
+
+        end_idx = total_lines if not limit or limit <= 0 else min(total_lines, start_idx + limit)
+        sliced = all_lines[start_idx:end_idx]
+
+        numbered_body = "\n".join(
+            f"{start_idx + i + 1:>6}\t{line}" for i, line in enumerate(sliced)
+        )
+
+        total_chars_used = sum(len(line) for line in sliced) + len(sliced)
+        truncated_by_chars = False
+        if total_chars_used > self.MAX_FILE_CHARS:
+            kept_lines: List[str] = []
+            running = 0
+            for i, line in enumerate(sliced):
+                addition = len(line) + 1
+                if running + addition > self.MAX_FILE_CHARS and kept_lines:
+                    break
+                kept_lines.append(f"{start_idx + i + 1:>6}\t{line}")
+                running += addition
+            numbered_body = "\n".join(kept_lines)
+            end_idx = start_idx + len(kept_lines)
+            truncated_by_chars = True
+
+        last_line_no = start_idx + (end_idx - start_idx)
+        header = (
+            f"文件: {self.to_relative(target)} "
+            f"(第 {start_idx + 1}-{last_line_no} 行，共 {total_lines} 行)"
+        )
+        suffix_parts: List[str] = []
+        if last_line_no < total_lines:
+            suffix_parts.append(
+                f"[仍剩 {total_lines - last_line_no} 行未读，"
+                f"用 offset={last_line_no + 1} 继续读取]"
+            )
+        if truncated_by_chars:
+            suffix_parts.append("[本段按字符数截断]")
+        suffix = ("\n\n" + "\n".join(suffix_parts)) if suffix_parts else ""
+        return f"{header}\n\n{numbered_body}{suffix}"
 
     def read_file_line(self, path: str, position: str = "last") -> str:
         """读取文件首行或末行，适合简单、确定性的文件提问。"""
@@ -429,6 +474,54 @@ class WorkspaceRuntime:
             dirnames[:] = [name for name in dirnames if name not in self.SKIP_DIRS]
             for filename in filenames:
                 yield Path(current_root) / filename
+
+    MAX_GLOB_RESULTS = 200
+
+    def glob_paths(self, pattern: str, path: str = ".") -> str:
+        """按 glob 模式搜文件/目录路径，只返路径清单（不读内容）。
+
+        pattern 支持标准 glob（`*.py` / `src/**/*.md`）；path 指定 glob 根，
+        默认 workspace 根。SKIP_DIRS 里的目录（.git / node_modules 等）自动跳过。
+        """
+        cleaned_pattern = (pattern or "").strip()
+        if not cleaned_pattern:
+            return "缺少 glob 模式"
+
+        root, error = self.resolve_path_or_error(path)
+        if error:
+            return error
+        if not root.exists():
+            return f"路径不存在: {path}"
+
+        try:
+            raw_matches = sorted(root.glob(cleaned_pattern))
+        except (ValueError, OSError) as exc:
+            return f"glob 失败: {exc}"
+
+        filtered: List[str] = []
+        for candidate in raw_matches:
+            try:
+                relative = candidate.relative_to(self.workspace_root)
+            except ValueError:
+                continue
+            parts = relative.parts
+            if any(part in self.SKIP_DIRS for part in parts):
+                continue
+            filtered.append(str(relative).replace("\\", "/"))
+            if len(filtered) >= self.MAX_GLOB_RESULTS:
+                break
+
+        if not filtered:
+            return f"未匹配任何路径: pattern={cleaned_pattern!r}, path={path!r}"
+
+        lines = [f"匹配 {len(filtered)} 项（pattern={cleaned_pattern!r}, path={path!r}）:"]
+        lines.extend(filtered)
+        if len(raw_matches) > self.MAX_GLOB_RESULTS:
+            lines.append(
+                f"[仅保留前 {self.MAX_GLOB_RESULTS} 项，"
+                f"原始匹配共 {len(raw_matches)} 项，请缩小 pattern 或 path]"
+            )
+        return "\n".join(lines)
 
     def _truncate_text(self, text: str, limit: int) -> str:
         if len(text) <= limit:

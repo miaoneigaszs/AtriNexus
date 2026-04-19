@@ -242,10 +242,11 @@ class ToolCatalog:
                 id="workspace-read",
                 label="文件读取",
                 profile_tag="workspace-read",
-                compact_line="列目录、读文件、搜内容。",
+                compact_line="列目录、读文件（支持分页）、glob 路径、搜内容。",
                 detailed_lines=[
                     "- list_directory: 列目录。",
-                    "- read_file: 读文件。",
+                    "- read_file: 读文件，带行号；用 offset/limit 分页读长文件。",
+                    "- glob: 按 glob 模式找路径（只返清单，不读内容）。",
                     "- search_files: 按关键词搜文件内容。",
                 ],
                 enabled_when=lambda _self, profile: should_enable_workspace_read(profile),
@@ -374,11 +375,14 @@ class ToolCatalog:
         def _list_directory(path: str = ".") -> str:
             return runtime.list_directory(path)
 
-        def _read_file(path: str) -> str:
-            return runtime.read_file(path)
+        def _read_file(path: str, offset: Optional[int] = None, limit: Optional[int] = None) -> str:
+            return runtime.read_file(path, offset=offset, limit=limit)
 
         def _search_files(query: str, path: str = ".") -> str:
             return runtime.search_files(query, path)
+
+        def _glob(pattern: str, path: str = ".") -> str:
+            return runtime.glob_paths(pattern, path)
 
         return [
             RegisteredTool(
@@ -395,13 +399,53 @@ class ToolCatalog:
             RegisteredTool(
                 spec=ToolSpec(
                     name="read_file",
-                    description="Read file contents from the workspace.",
-                    parameters=_object_schema(
-                        {"path": _string_field("要读取的文件路径，相对 workspace 根目录")},
-                        ["path"],
+                    description=(
+                        "Read file contents from the workspace. Output is 1-indexed "
+                        "line-numbered. Use offset/limit to page through long files."
                     ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "path": _string_field("要读取的文件路径，相对 workspace 根目录"),
+                            "offset": {
+                                "type": "integer",
+                                "description": "1-indexed starting line (default 1).",
+                                "minimum": 1,
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum lines to return (omit for to-end).",
+                                "minimum": 1,
+                            },
+                        },
+                        "required": ["path"],
+                        "additionalProperties": False,
+                    },
                 ),
                 handler=_sync_handler(_read_file),
+            ),
+            RegisteredTool(
+                spec=ToolSpec(
+                    name="glob",
+                    description=(
+                        "Find paths by glob pattern relative to the workspace root. "
+                        "Returns a path list (no file contents). Use this to enumerate "
+                        "candidate files before deciding which to read."
+                    ),
+                    parameters=_object_schema(
+                        {
+                            "pattern": _string_field(
+                                "Glob 模式，例：`*.py`、`src/**/*.md`、`docs/**/*`。"
+                            ),
+                            "path": _string_field(
+                                "glob 根目录，相对 workspace 根（默认 '.'）。",
+                                default=".",
+                            ),
+                        },
+                        ["pattern"],
+                    ),
+                ),
+                handler=_sync_handler(_glob),
             ),
             RegisteredTool(
                 spec=ToolSpec(
