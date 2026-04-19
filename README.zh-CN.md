@@ -2,100 +2,76 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对话、记忆、知识库工具调用，以及轻量级工作区执行能力。
+AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对话、多层记忆、知识库工具调用和安全的工作区操作。
 
-它不是一个泛化聊天机器人 Demo，而是一个服务于真实长期个人使用场景的项目。当前默认运行路径是：
+它面向真实的长期个人使用场景，不是一个通用聊天机器人 Demo。生产部署主链路基于：
 
 - 企业微信作为聊天入口
 - FastAPI 作为服务层
-- PostgreSQL 存储对话、记忆和日记数据
+- PostgreSQL 存储对话、记忆与日记
 - Qdrant 存储向量记忆
 - `atrinexus-rag-sdk` 负责知识库检索
-- **自建 ~500 行 agent loop** 负责 agent 与工具调用层（已去 LangChain）
 
-当前运行时已经不再是简单的”聊天 + 挂几个工具”，而是围绕以下骨架组织：
+## 核心能力
 
-- `PromptManager` 负责分层 prompt 组装
-- `ToolProfile` 负责会话级稳定工具暴露
-- `FastPathRouter` 负责确定性文件/工具请求直达
-- 基于 hook 的 agent runtime（`before_tool_call` / `after_tool_call` / `transform_context` / `on_response`）负责模型与工具调用治理
-- `UserRuntimeRegistry` 负责 per-user run 控制（取消 + follow-up 队列）
-- `ContextEngine` 负责可插拔的上下文窗口压缩
+- 企业微信长期对话，带持久化记忆与每日日记
+- 知识库上传与按需检索（agent 工具按需触发）
+- 安全的工作区操作：分页读文件、glob 与全文搜索、预览式文件修改
+- 显式的待办工具和澄清工具支持多步任务
+- 会话级能力档位 + 分层 prompt 组装
+- 运行可观测：`/health` / `/health/simple` / `/metrics`，以及可选的轨迹落盘
 
-## 项目能做什么
-
-- 企业微信对话处理
-- 持久化短期记忆与核心记忆
-- 基于对话历史的每日日记生成
-- 知识库上传与检索
-- 聊天中触发轻量命令与文件操作
-- 健康检查与 Prometheus 指标
-- 记忆、设置、知识库上传等 Web 页面
-
-## 当前能力
+## 能力详情
 
 ### 1. 企业微信个人助手对话
 
-项目围绕企业微信回调和长期个人对话场景构建。
-
-支持：
-
-- 普通文本对话
+- 自然文本对话
 - 图像识别接入
 - 定时消息
 - 基于记忆的回复
 - 基于知识库工具的按需查询
 
-### 2. 记忆系统
+### 2. 多层记忆系统
 
-项目目前维护多层记忆：
+- 短期对话历史
+- 核心记忆（长期事实）
+- 向量记忆（语义检索）
+- 基于对话沉淀的每日日记
 
-- 短期记忆
-- 核心记忆
-- 向量记忆
-- 由对话沉淀生成的日记
+存储拆分：
 
-当前存储拆分：
+- PostgreSQL —— 对话历史、短期记忆、核心记忆、日记
+- Qdrant —— 向量记忆
 
-- PostgreSQL 存对话历史、短期记忆、核心记忆和日记
-- Qdrant 存向量记忆
+### 3. 知识库检索
 
-### 3. SDK 优先的 RAG 路径
-
-默认 RAG 路径已经切到 `atrinexus-rag-sdk`，不再继续把主项目堆成一套完整自实现 RAG 内核。
-
-当前代码基线直接使用：
-
-- `SdkRAGService`
+- `SdkRAGService` 基于 `atrinexus-rag-sdk`
 - 每个用户一个 SDK namespace
-- 独立的 Qdrant 支撑 RAG
+- 独立的 Qdrant 实例承载 RAG
+- 检索由 agent 驱动：普通消息不再前置跑 KB 检索，agent 需要时再调 KB 工具
 
-### 4. 轻量执行能力
+### 4. 工作区操作
 
-助手可以在聊天中执行基础工作区操作：
+助手在聊天中可执行以下操作：
 
-- 执行命令
-- 读取文件
-- 搜索文件
-- 写文件
-- 替换文件中的文本
+- **读取** —— `read_file` 输出带行号，`offset` / `limit` 分页读长文件
+- **浏览** —— `list_directory`、`search_files` 按文本搜、`glob` 按模式搜路径
+- **修改** —— `preview_edit_file` 精确替换、`preview_write_file` 整文件重写、`preview_append_file` 头尾追加、`rename_path` 重命名 / 移动
+- **执行** —— 只读命令管道（`find`、`du`、`wc`、`stat`、`tree` 等）直接放行；其他命令一律要用户确认
 
-文件修改默认走 preview-first 流程：
+所有文件修改走 preview-first 流程：先生成 diff，用户回复"通过" / "确认"后再落盘。
 
-- 先生成预览 / diff
-- 再等待用户明确确认后落盘
+### 5. 任务编排
 
-这部分是刻意保持轻量的。目标不是把项目做成 AI IDE 或通用 autonomous agent 平台。
+- **Todo 工具** —— 会话级待办清单，由 agent 跨轮维护；状态随 system prompt 下发，因此不会被上下文压缩清除
+- **Clarify 工具** —— 请求歧义时，agent 向用户发出澄清问题并结束本轮 run；用户的下一条消息作为答案再次进入 agent loop
 
-### 5. 运行可观测性
+### 6. 运行可观测性
 
-服务暴露：
-
-- `/health`
-- `/health/simple`
-- `/metrics`
-
-适合放在 nginx 后面运行，并配合 Prometheus / Grafana 使用。
+- `/health` —— 完整健康检查（数据库 / Qdrant / RAG SDK / 企微凭证）
+- `/health/simple` —— 轻量存活探针
+- `/metrics` —— Prometheus 指标（请求数、token 用量、速率限制状态）
+- 轨迹落盘（可选）—— 每轮 JSONL 记录用户消息、助手回复、工具事件、路由元数据（`fast_path_hit`、`intent`）
 
 ## 架构概览
 
@@ -104,23 +80,31 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - `run.py`
 - `src/app/server.py`
 
-### 主运行链路
+### 对话主链路
 
-- `src/conversation/message_handler.py`
-- `src/conversation/context_builder.py`
-- `src/agent_runtime/agent_service.py`
-- `src/agent_runtime/agent_loop.py`
-- `src/prompting/prompt_manager.py`
-- `src/conversation/fast_path_router.py`
+- `src/conversation/message_handler.py` —— 入口编排（去重、待审批、fast-path、agent loop）
+- `src/conversation/context_builder.py` —— 每轮记忆 / 模式组装
+- `src/conversation/fast_path_router.py` —— 确定性回复的短路径
+- `src/prompting/prompt_manager.py` —— 分层 prompt 组装（静态壳 + 运行时能力快照 + 风格 + 记忆）
 
-### Agent 运行时内部
+### Agent 运行时
 
-- `src/agent_runtime/hooks.py` —— 四 hook 协议（before/after tool、transform context、on response）
-- `src/agent_runtime/default_hooks.py` —— 组合工具守卫 + prompt 缓存 + 速率限制抓取
-- `src/agent_runtime/user_runtime.py` —— per-user 取消信号 + follow-up 队列
+- `src/agent_runtime/agent_service.py` —— run 生命周期、取消、follow-up 队列
+- `src/agent_runtime/agent_loop.py` —— 工具调用循环与流式响应
+- `src/agent_runtime/tool_catalog.py` —— 声明式工具注册，按档位暴露
+- `src/agent_runtime/tool_profiles.py` —— 能力档位（`chat` / `workspace_read` / `workspace_edit` / `workspace_exec` / `full`）
+- `src/agent_runtime/agent_tool_guard.py` —— 工具调用校验、路径修复、loop guard、结果整形
+- `src/agent_runtime/hooks.py` —— 四个扩展 hook（`before_tool_call` / `after_tool_call` / `transform_context` / `on_response`）
 - `src/agent_runtime/context_engine.py` —— 可插拔的上下文窗口压缩
-- `src/ai/providers/openai_compat.py` —— 自建的 OpenAI 兼容流式 provider
-- `src/ai/stream.py` —— SSE 解析 + tool-call 累积
+- `src/agent_runtime/user_runtime.py` —— per-user run 认领、取消信号、follow-up 队列
+- `src/agent_runtime/todo_store.py` —— 会话级 todo 状态
+- `src/agent_runtime/clarify_store.py` —— Run 中 clarify 信号
+
+### Provider 层
+
+- `src/ai/providers/openai_compat.py` —— OpenAI 兼容流式客户端
+- `src/ai/stream.py` —— SSE 解析与 tool-call 累积
+- `src/ai/llm_service.py`、`src/ai/embedding_service.py`、`src/ai/model_manager.py` —— 模型协调
 
 ### 记忆与日记
 
@@ -129,25 +113,18 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - `src/features/diary_service.py`
 - `src/platform_core/database.py`
 
-### RAG
+### 知识库
 
 - `src/knowledge/rag_service.py`
 - `src/knowledge/kb_tools.py`
 
-知识库路径现在已经改成 agent 按需调用：
+### 工作区运行时
 
-- 普通消息不再前置跑 KB 检索
-- 由 agent 在需要时调用知识库工具
+- `src/agent_runtime/runtime.py` —— 文件 I/O、搜索、命令执行策略、预览变更跟踪
 
 ### 向量存储
 
 - `src/platform_core/vector_store/qdrant.py`
-
-### AI 服务
-
-- `src/ai/llm_service.py`
-- `src/ai/embedding_service.py`
-- `src/ai/model_manager.py`
 
 ## 技术栈
 
@@ -159,12 +136,11 @@ AtriNexus 是一个基于企业微信的个人 AI 助手，重点面向长期对
 - 企业微信 / `wechatpy`
 - APScheduler
 - Prometheus client
-- httpx（自建 provider 层的异步 HTTP）
+- httpx
 
 ## 项目结构
 
-源码按能力域分层，不按框架分层。`src/wecom/` 不再占顶层——企微只是当前的
-一个接入方式，以后接 Discord / Slack / CLI 时会平级放在 `ingress/` 下。
+源码按能力域分层，不按框架分层。
 
 ```text
 AtriNexus/
@@ -172,14 +148,14 @@ AtriNexus/
 ├── pyproject.toml
 ├── requirements.txt
 ├── src/
-│   ├── app/              # 应用装配、启动入口
+│   ├── app/              # 应用装配与启动
 │   ├── ingress/          # 企微回调、HTTP 路由、中间件
 │   ├── conversation/     # 消息编排、快速通道、回复清理
-│   ├── agent_runtime/    # 自建 agent loop、hook、工具目录、context engine
-│   ├── prompting/        # prompt 组装 + 所有 prompt markdown 资源
+│   ├── agent_runtime/    # agent loop、工具目录、hook、context engine
+│   ├── prompting/        # prompt 组装与 prompt markdown 资源
 │   ├── memory/           # 三层记忆 + 上下文 + 更新编排
 │   ├── knowledge/        # RAG 服务 + KB agent 工具
-│   ├── ai/               # 自建 provider 层（types / registry / stream / providers/）
+│   ├── ai/               # Provider 适配与流式解析
 │   ├── workspace/        # 工作区能力
 │   ├── platform_core/    # 数据库、会话、token 监控、向量存储、工具函数
 │   ├── features/         # 日记、web 模板
@@ -193,21 +169,13 @@ AtriNexus/
 └── docs/
 ```
 
-详细职责与迁移映射见 `docs/PROJECT_STRUCTURE.md`。
+详见 `docs/PROJECT_STRUCTURE.md`。
 
 ## 配置
 
-主运行配置位于：
+运行配置位于 `data/config/config.json`，仓库中只保留脱敏模板 `data/config/config.json.template`。
 
-- `data/config/config.json`
-
-仓库中只保留脱敏模板：
-
-- `data/config/config.json.template`
-
-项目建议把非敏感运行参数保留在这里。
-
-敏感值现在支持环境变量覆盖：
+敏感值通过环境变量注入：
 
 - `ATRINEXUS_DATABASE_URL`
 - `ATRINEXUS_LLM_API_KEY`
@@ -220,11 +188,14 @@ AtriNexus/
 - `ATRINEXUS_WECOM_ENCODING_AES_KEY`
 - `ATRINEXUS_ADMIN_PASSWORD`
 
-本地开发可以：
+可选运行开关：
 
-- `.env.example -> .env`
+- `ATRINEXUS_FAST_PATH_INTENT` —— `full`（默认）或 `disabled`。设为 `disabled` 时跳过确定性 fast-path，消息全部交 agent loop 处理，方便 A/B 对比。
+- `ATRINEXUS_TRAJECTORY_PATH` —— JSONL 文件绝对路径。设定后每轮会追加一条记录（用户消息、助手回复、工具事件，以及路由元数据 `fast_path_hit` / `intent`）。
+- `ATRINEXUS_AGENT_CONTEXT_LENGTH` —— 压缩器使用的上下文窗口大小（默认 `32000`）。
+- `ATRINEXUS_AGENT_MAX_ITERATIONS` —— 每轮最大工具调用迭代数（默认 `12`）。
 
-生产环境更推荐使用 systemd 的 `Environment=` / `EnvironmentFile=` 注入，而不是依赖工作区里的 `.env`。
+本地开发可 `cp .env.example .env`。生产部署优先使用 systemd 的 `Environment=` / `EnvironmentFile=`，不依赖仓库里的 `.env`。
 
 ## 本地运行
 
@@ -236,7 +207,7 @@ AtriNexus/
 uv sync
 ```
 
-或使用 `pip`：
+或 `pip`：
 
 ```bash
 python -m pip install -r requirements.txt
@@ -244,15 +215,11 @@ python -m pip install -r requirements.txt
 
 ### 2. 准备配置
 
-从模板创建本地配置：
-
 ```bash
 cp data/config/config.json.template data/config/config.json
 ```
 
-然后填入真实参数。
-
-如需把密钥从配置文件迁出去，可以再把 `.env.example` 复制为 `.env`，将敏感值写入 `.env`。
+填入运行参数。密钥可放在 `.env` 里。
 
 ### 3. 启动服务
 
@@ -269,40 +236,34 @@ curl http://127.0.0.1:8080/health
 
 ## 部署说明
 
-项目默认适合运行在 nginx 后面，并通过公网企业微信回调地址接收消息。
-
-典型生产结构包括：
+项目默认运行在 nginx 后面，接收公网企微回调。典型生产布局：
 
 - 由 systemd 管理 `run.py`
+- systemd unit 文件：`deployment/atrinexus.service`
 - nginx 反向代理
-- 暴露 `/health` 与 `/metrics`
-- 企业微信回调转发
+- 向监控栈暴露 `/health` 与 `/metrics`
+- 企业微信回调转发到服务
 
-## 重要说明
+VPS 一键引导：
 
-- Agent 运行时已完全自建，不再依赖 langchain / langchain-openai / langchain-core / langgraph；provider 层是 `src/ai/` 下基于 httpx 的 ~500 行代码。
-- 当前运行主路径基于 Qdrant、`atrinexus-rag-sdk` 和自建 provider 层。
-- PostgreSQL 是对话历史、短期记忆、核心记忆和日记的事实来源。
-- `data/vectordb_qdrant/` 属于本地运行状态数据，不纳入 Git 跟踪。
-- 知识库查询已经从”每条普通消息前置检索”收口为 agent 工具按需调用。
-- 项目刻意保持轻量，不朝通用 Agent 平台方向膨胀。
-- 运行时结构改动时，需要在同一个变更里同步更新 `README.md` 和 `README.zh-CN.md`，保持主链说明一致。
+```bash
+sudo bash deployment/setup_vps.sh
+sudo systemctl start atrinexus
+sudo systemctl status atrinexus
+sudo journalctl -u atrinexus -f
+```
 
 ## 适合谁
 
-AtriNexus 更适合：
+AtriNexus 适合：
 
-- 个人 AI 助手实验
-- 基于企业微信的助手部署
-- 强调长期记忆的助手使用场景
+- 个人 AI 助手部署
+- 基于企业微信的助手场景
+- 强调长期记忆的助手使用
 - 实用型 RAG + memory + tool integration
 
-它并不打算成为：
-
-- 通用 Agent 平台
-- 打磨完善的 SaaS 产品
-- 面向所有场景的通用框架
+它不打算成为通用 Agent 平台或面向所有场景的 SaaS 框架。
 
 ## 协议
 
-MIT。见 [LICENSE](LICENSE)。
+MIT。详见 [LICENSE](LICENSE)。
