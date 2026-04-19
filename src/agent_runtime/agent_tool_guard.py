@@ -39,7 +39,20 @@ RUN_COMMAND_TOOL_NAME = "run_command"
 READ_FILE_TOOL_NAME = "read_file"
 LIST_DIRECTORY_TOOL_NAME = "list_directory"
 SEARCH_FILES_TOOL_NAME = "search_files"
+GLOB_TOOL_NAME = "glob"
 EXPLORATION_TOOL_NAMES = {LIST_DIRECTORY_TOOL_NAME, SEARCH_FILES_TOOL_NAME}
+
+# 只读浏览类工具：重复调用通常是在换 query / offset / limit 继续翻内容，不是
+# 死循环。对这些工具放宽重复上限，并且判重签名只看 tool_name + primary_path，
+# 避免 offset=10 / offset=20 被当成"同一签名"触发 loop guard。
+RELAXED_LOOP_TOOL_NAMES = {
+    SEARCH_FILES_TOOL_NAME,
+    LIST_DIRECTORY_TOOL_NAME,
+    READ_FILE_TOOL_NAME,
+    GLOB_TOOL_NAME,
+}
+RELAXED_TOOL_REPEAT_COUNT = 4
+
 MAX_LIST_DIRECTORY_LINES = 40
 MAX_SEARCH_RESULT_LINES = 20
 MAX_READ_FILE_CHARS = 2500
@@ -227,7 +240,8 @@ class AgentToolGuard:
         if len(recent_signatures) > MAX_TOOL_HISTORY:
             del recent_signatures[0]
 
-        if counts[signature] > MAX_TOOL_REPEAT_COUNT:
+        repeat_limit = self._repeat_limit_for(tool_name)
+        if counts[signature] > repeat_limit:
             return (
                 f"工具 {tool_name} 已重复尝试同样的参数多次，请停止绕圈，"
                 "改用别的工具、直接给出结论，或先向用户确认目标。"
@@ -237,6 +251,7 @@ class AgentToolGuard:
             len(recent_signatures) >= 4
             and recent_signatures[-1] == recent_signatures[-3]
             and recent_signatures[-2] == recent_signatures[-4]
+            and recent_signatures[-1] != recent_signatures[-2]
         ):
             return (
                 f"工具链出现来回循环：{tool_name}。请不要继续重复试探，"
@@ -250,6 +265,12 @@ class AgentToolGuard:
             )
 
         return None
+
+    @staticmethod
+    def _repeat_limit_for(tool_name: str) -> int:
+        if tool_name in RELAXED_LOOP_TOOL_NAMES:
+            return RELAXED_TOOL_REPEAT_COUNT
+        return MAX_TOOL_REPEAT_COUNT
 
     def record_tool_outcome(self, tool_name: str, tool_args: Any, status: str, content: str) -> None:
         loop_state = TOOL_LOOP_STATE.get()
@@ -406,6 +427,9 @@ class AgentToolGuard:
     # ── Shared utilities ────────────────────────────────────────────────
 
     def build_tool_signature(self, tool_name: str, tool_args: Any) -> str:
+        if tool_name in RELAXED_LOOP_TOOL_NAMES:
+            primary_path = self.extract_primary_path(tool_args)
+            return f"{tool_name}:path={primary_path}"
         try:
             serialized = json.dumps(tool_args, sort_keys=True, ensure_ascii=False, default=str)
         except TypeError:
