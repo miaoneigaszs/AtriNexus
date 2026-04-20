@@ -5,6 +5,7 @@ WeCom 消息处理器（重构版）
 
 import logging
 import os
+from typing import List
 
 from sqlalchemy.exc import IntegrityError
 
@@ -38,6 +39,58 @@ logger = logging.getLogger('wecom')
 
 # 用户口语里常见的取消指令。不走正则是因为 WeCom 用户可能加标点/空格/"吧"。
 _ABORT_TRIGGERS = ("取消", "停止", "别弄了", "不做了", "算了", "stop", "cancel", "abort")
+
+# 长 confirm_reply 的展示阈值：超过即给用户精简版，原文仍进上下文供 agent 下一轮使用。
+_COMPACT_CONFIRM_REPLY_MAX_LINES = 25
+_COMPACT_CONFIRM_REPLY_MAX_CHARS = 1500
+_COMPACT_CONFIRM_REPLY_PREVIEW_LINES = 8
+
+
+def _compact_confirm_reply_for_user(confirm_reply: str) -> str:
+    """长确认回复精简后给用户，原文仍保留在 ChatMessage / short_memory 里。
+
+    短输出直接原样返回；超过行数或字符阈值时，拼一个只含元信息+前几行预览的
+    紧凑版，并提示用户可以让 agent 总结/展开。
+    """
+    if not confirm_reply:
+        return confirm_reply
+
+    lines = confirm_reply.splitlines()
+    total_chars = len(confirm_reply)
+    if len(lines) <= _COMPACT_CONFIRM_REPLY_MAX_LINES and total_chars <= _COMPACT_CONFIRM_REPLY_MAX_CHARS:
+        return confirm_reply
+
+    header_lines: List[str] = []
+    stdout_body: List[str] = []
+    seen_stdout_marker = False
+    for line in lines:
+        if line.startswith("标准输出:"):
+            seen_stdout_marker = True
+            continue
+        if seen_stdout_marker:
+            stdout_body.append(line)
+        elif line.startswith(("命令:", "退出码:", "执行模式:")):
+            header_lines.append(line)
+
+    if not header_lines and not stdout_body:
+        head_preview = "\n".join(lines[:_COMPACT_CONFIRM_REPLY_PREVIEW_LINES])
+        return (
+            f"✓ 命令已执行\n{head_preview}\n\n"
+            f"（完整输出共 {len(lines)} 行 / {total_chars} 字符，已存入上下文；"
+            "需要我总结或展开请直接说）"
+        )
+
+    preview = "\n".join(stdout_body[:_COMPACT_CONFIRM_REPLY_PREVIEW_LINES])
+    parts = ["✓ 命令已执行"]
+    if header_lines:
+        parts.append("\n".join(header_lines))
+    if preview:
+        parts.append(f"输出预览（前 {_COMPACT_CONFIRM_REPLY_PREVIEW_LINES} 行）:\n{preview}")
+    parts.append(
+        f"（完整输出共 {len(lines)} 行 / {total_chars} 字符，已存入上下文；"
+        "需要我总结或展开请直接说）"
+    )
+    return "\n\n".join(parts)
 
 
 def _looks_like_abort(content: str) -> bool:
@@ -190,7 +243,7 @@ class MessageHandler:
                 assistant_reply=confirm_reply,
                 intent=INTENT_PENDING_RESOLUTION,
             )
-            await self.client.send_text_async(user_id, confirm_reply)
+            await self.client.send_text_async(user_id, _compact_confirm_reply_for_user(confirm_reply))
             return
 
         # 3. `/agent` 前缀：用户显式绕过 FastPath 意图路由，进 agent loop。
