@@ -34,6 +34,7 @@ class CommandExecutionPolicy:
         "git checkout --",
     )
     safe_bin_readonly: Tuple[str, ...] = (
+        # 文件系统与路径元信息
         "find",
         "du",
         "wc",
@@ -45,6 +46,43 @@ class CommandExecutionPolicy:
         "basename",
         "dirname",
         "realpath",
+        "ls",
+        "pwd",
+        # 文本输出
+        "echo",
+        "printf",
+        # 文件读取
+        "cat",
+        "head",
+        "tail",
+        "nl",
+        # 系统状态
+        "free",
+        "uptime",
+        "top",
+        "ps",
+        "df",
+        "lsblk",
+        # 硬件信息
+        "nproc",
+        "lscpu",
+        "uname",
+        # 身份与时间
+        "whoami",
+        "hostname",
+        "date",
+        "id",
+        # 文本处理
+        "grep",
+        "egrep",
+        "fgrep",
+        "sort",
+        "uniq",
+        "cut",
+        # 加速器状态
+        "nvidia-smi",
+        "rocm-smi",
+        "vainfo",
     )
 
 
