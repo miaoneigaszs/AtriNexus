@@ -146,6 +146,52 @@ class PendingConfirmationHandlerTest(unittest.TestCase):
 
         self.assertEqual(result, "apply:chg-1:u1")
 
+    def test_numeric_one_confirms_pending_command_when_no_workspace_resolution(self):
+        self.reply_service.latest_command_id = "cmd-42"
+
+        result = self._handle("1")
+
+        self.assertEqual(result, "confirm:cmd-42:u1")
+        self.assertIn(("confirm_pending_command", "cmd-42", "u1"), self.reply_service.calls)
+
+    def test_numeric_one_applies_pending_change_when_no_workspace_resolution(self):
+        self.reply_service.latest_change_id = "chg-9"
+        self.reply_service.latest_command_id = "cmd-42"
+
+        result = self._handle("1")
+
+        self.assertEqual(result, "apply:chg-9:u1")
+        self.assertIn(("apply_pending_change", "chg-9", "u1"), self.reply_service.calls)
+        self.assertNotIn(("confirm_pending_command", "cmd-42", "u1"), self.reply_service.calls)
+
+    def test_numeric_two_cancels_pending_command_when_no_workspace_resolution(self):
+        self.reply_service.latest_command_id = "cmd-7"
+
+        result = self._handle("2")
+
+        self.assertEqual(result, "discard-command:cmd-7:u1")
+        self.assertIn(("discard_pending_command", "cmd-7", "u1"), self.reply_service.calls)
+
+    def test_numeric_two_discards_pending_change_when_no_workspace_resolution(self):
+        self.reply_service.latest_change_id = "chg-3"
+        self.reply_service.latest_command_id = "cmd-7"
+
+        result = self._handle("2")
+
+        self.assertEqual(result, "discard-change:chg-3:u1")
+        self.assertIn(("discard_pending_change", "chg-3", "u1"), self.reply_service.calls)
+        self.assertNotIn(("discard_pending_command", "cmd-7", "u1"), self.reply_service.calls)
+
+    def test_numeric_one_without_any_pending_returns_none(self):
+        result = self._handle("1")
+
+        self.assertIsNone(result)
+        self.assertNotIn(
+            ("confirm_pending_command", None, "u1"),
+            [(c[0], c[1] if len(c) > 1 else None, c[2] if len(c) > 2 else None)
+             for c in self.reply_service.calls],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

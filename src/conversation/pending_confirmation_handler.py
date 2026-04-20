@@ -30,6 +30,28 @@ class PendingConfirmationHandler:
         if content in {"1", "2"} and workspace_resolution_reply is not None:
             return workspace_resolution_reply
 
+        if content in {"1", "2"} and workspace_resolution_reply is None:
+            latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
+            latest_command_id = self.reply_service.get_latest_pending_command_id(user_id)
+            if content == "1":
+                if latest_change_id:
+                    return await self._run_sync(
+                        self.reply_service.apply_pending_change, latest_change_id, user_id
+                    )
+                if latest_command_id:
+                    return await self._run_sync(
+                        self.reply_service.confirm_pending_command, latest_command_id, user_id
+                    )
+            else:
+                if latest_change_id:
+                    return await self._run_sync(
+                        self.reply_service.discard_pending_change, latest_change_id, user_id
+                    )
+                if latest_command_id:
+                    return await self._run_sync(
+                        self.reply_service.discard_pending_command, latest_command_id, user_id
+                    )
+
         if content in GENERIC_APPROVAL_WORDS:
             latest_change_id = self.reply_service.get_latest_pending_change_id(user_id)
             if latest_change_id:
