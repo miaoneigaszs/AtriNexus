@@ -184,6 +184,13 @@ class MessageHandler:
 
         confirm_reply = await self._handle_pending_action_confirmation(user_id, content_trim)
         if confirm_reply is not None:
+            state = self.session_service.get_session(user_id)
+            avatar_name = state.avatar_name or "ATRI"
+            await run_sync(self._save_chat_message, user_id, content_trim, confirm_reply, msg_id)
+            try:
+                await self.memory.after_reply_async(user_id, avatar_name, content_trim, confirm_reply)
+            except Exception as exc:
+                logger.error(f"confirm-reply 写入 short_memory 失败: {exc}")
             record_fast_path_turn(
                 user_id=user_id,
                 user_message=content_trim,
