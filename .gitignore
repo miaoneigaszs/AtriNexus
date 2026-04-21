@@ -145,6 +145,8 @@ cython_debug/
 # PyCharm
 .idea/
 *.iml
+.codex/
+.claude/
 
 docs/
 docs/*
