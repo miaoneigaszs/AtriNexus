@@ -13,6 +13,7 @@ import os
 import time
 import sys
 import io
+from contextlib import asynccontextmanager
 from logging.handlers import TimedRotatingFileHandler
 
 from fastapi import FastAPI, Request, Response
@@ -70,7 +71,17 @@ logging.basicConfig(
 logger = logging.getLogger('wecom')
 
 # ========== 创建 FastAPI 应用 ==========
-app = FastAPI(title="AtriNexus-WeCom", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+
+    from src.platform_core.http_pool import close_async_client, close_sync_client
+
+    await close_async_client()
+    close_sync_client()
+
+
+app = FastAPI(title="AtriNexus-WeCom", version="1.0.0", lifespan=lifespan)
 
 
 # ========== 中间件配置 ==========
@@ -209,17 +220,6 @@ app.include_router(config_router)
 app.include_router(tasks_router)
 app.include_router(diary_router)
 app.include_router(token_router)
-
-
-# ========== 生命周期事件 ==========
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """关闭共享客户端，避免连接池和句柄泄漏。"""
-    from src.platform_core.http_pool import close_async_client, close_sync_client
-
-    await close_async_client()
-    close_sync_client()
 
 
 # ========== 启动函数 ==========
