@@ -37,8 +37,9 @@ from src.ingress.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
 
-# 用户口语里常见的取消指令。不走正则是因为 WeCom 用户可能加标点/空格/"吧"。
-_ABORT_TRIGGERS = ("取消", "停止", "别弄了", "不做了", "算了", "stop", "cancel", "abort")
+# 当前有活跃 run 时，仅把规范化后的明确取消口令识别为 abort。
+_ABORT_COMMANDS = {"取消", "停止", "别弄了", "不做了", "算了", "stop", "cancel", "abort"}
+_ABORT_TRAILING_PUNCTUATION = "!?！？…。,，;；:：'\"`’”)]}】」』>"
 
 # 长 confirm_reply 的展示阈值：超过即给用户精简版，原文仍进上下文供 agent 下一轮使用。
 _COMPACT_CONFIRM_REPLY_MAX_LINES = 25
@@ -93,11 +94,16 @@ def _compact_confirm_reply_for_user(confirm_reply: str) -> str:
     return "\n\n".join(parts)
 
 
-def _looks_like_abort(content: str) -> bool:
+def _normalize_abort_command(content: str) -> str:
     text = (content or "").strip().lower()
-    if not text or len(text) > 16:
-        return False
-    return any(trigger in text for trigger in _ABORT_TRIGGERS)
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    return text.rstrip(_ABORT_TRAILING_PUNCTUATION).strip()
+
+
+def _is_abort_command(content: str) -> bool:
+    return _normalize_abort_command(content) in _ABORT_COMMANDS
 
 
 class MessageHandler:
@@ -220,9 +226,9 @@ class MessageHandler:
 
         content_trim = content.strip()
 
-        # 2. 当前用户已有活跃 agent run：取消请求立即处理；其他消息进 follow-up 队列
+        # 2. 当前用户已有活跃 agent run：明确取消口令立即处理；其他消息进 follow-up 队列
         if await self.reply_service.is_running(user_id):
-            if _looks_like_abort(content_trim):
+            if _is_abort_command(content_trim):
                 aborted = await self.reply_service.abort(user_id)
                 ack = "已请求取消，马上停下手里的活。" if aborted else "当前没有在处理的任务。"
                 await self.client.send_text_async(user_id, ack)
