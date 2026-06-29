@@ -1,18 +1,9 @@
-"""Per-user agent runtime 状态：活跃 run 跟踪 + follow-up 队列 + 取消信号。
+"""Per-user agent runtime state.
 
-对标 pi-mono 的 `Agent` 状态容器：一个用户在任何时刻最多只有一个活跃 run；
-用户在 run 期间发的消息会进 follow-up 队列，agent 本轮结束后再消化；用户
-主动要求取消时，通过 abort event 触发 `asyncio.CancelledError` 在下一个 hook
-边界停止。
-
-WeCom 场景下**不做**"mid-run steering 注入"——那需要把 LangChain 的 ainvoke
-切开重放；留到 Phase 4 自建 loop 时实现。
-
-**线程安全**：所有公开方法持 `asyncio.Lock`，保证同一 user_id 的并发操作看到
-一致视图。跨 event loop 共用同一 registry 不安全；WeCom 场景下 FastAPI 的
-单 event loop 模型足够。
+A user can have one active run at a time. Messages sent during that run are queued
+as follow-ups, and abort requests are exposed through an event checked between
+provider, hook, and tool boundaries.
 """
-
 from __future__ import annotations
 
 import asyncio

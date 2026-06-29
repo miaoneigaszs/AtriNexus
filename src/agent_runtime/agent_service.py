@@ -1,24 +1,10 @@
-"""AtriNexus 自建 agent 服务。
+"""AtriNexus agent service.
 
-替代 LangChain 的 `langchain.agents.create_agent`：用 PR11 的 OpenAICompatProvider
-+ PR12 的 run_agent_loop 串起来。
-
-对外接口与原 LangChainAgentService 保持一致：
-- generate_reply / generate_reply_async — 主入口
-- is_running / abort / queue_follow_up / drain_follow_up — run 控制
-- apply_pending_change / discard_pending_change / confirm_pending_command /
-  discard_pending_command / get_latest_pending_change_id /
-  get_latest_pending_command_id — 转发给 WorkspaceRuntime
-- tool_catalog / tool_guard / hooks / context_engine — 公开属性
-
-行为差异（PR12 落地）：
-- 不再依赖 langchain / langchain-openai / langchain-core
-- 不再走 middleware 装配；hook 由 agent_loop 直接调用
-- prompt caching 在 transform_context hook 中应用 dict 形式消息，对 Anthropic 路径
-  会真正生效（OpenAI 兼容代理对未知字段一般透传或忽略，不影响主流路径）
-- mid-loop context 压缩成为可能（每轮 invoke 前都会 preflight）
+AgentService owns the chat run lifecycle: context assembly, provider calls, tool
+execution, cancellation, follow-up queueing, pending workspace confirmations,
+and trajectory recording. MessageHandler uses this as the main chat entry point;
+background summarization and scheduled jobs use LLMService directly.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -388,12 +374,4 @@ def _estimate_messages(messages: Optional[List[Dict[str, Any]]]) -> int:
         return 0
     return max(1, total // 4)
 
-
-# ── 兼容旧名 ────────────────────────────────────────────────────────────
-
-
-# 旧 import 路径仍能用：from src.agent_runtime.agent_service import LangChainAgentService
-LangChainAgentService = AgentService
-
-
-__all__ = ["AgentService", "LangChainAgentService"]
+__all__ = ["AgentService"]

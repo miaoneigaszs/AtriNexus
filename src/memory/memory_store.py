@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from typing import Tuple
 
 from data.config import config
 from src.platform_core.database import ConversationCounter, MemorySnapshot
@@ -160,15 +159,6 @@ def build_context_from_short_memory(short_memory: list) -> list:
             context.append({"role": "assistant", "content": conv["bot"]})
     return context
 
-
-def get_memory_counters(user_id: str, avatar_name: str) -> Tuple[int, int]:
-    with new_session() as session:
-        try:
-            counter = _get_or_create_counter(session, user_id, avatar_name)
-            return (counter.count or 0, getattr(counter, "vector_count", 0) or 0)
-        except Exception as exc:
-            logger.error(f"获取记忆计数失败: {exc}")
-            return (0, 0)
 
 
 def _get_or_create_counter(session, user_id: str, avatar_name: str):

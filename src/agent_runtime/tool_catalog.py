@@ -1,15 +1,9 @@
-"""Agent 可用工具目录（框架中立）。
+"""Agent tool catalog.
 
-每个工具登记为 `RegisteredTool`：一个 `ToolSpec`（送给模型的 JSONSchema 描述）
-+ 一个异步 handler（接收已解析的 args dict，返回字符串结果）。
-
-Phase 4 替代 LangChain 后，本文件不再依赖任何外部 agent 框架。Tool 元数据
-直接以 OpenAI tool calling 协议的 JSONSchema 表达，避免任何中间层翻译。
-
-Profile 系统不变：会话 profile 决定哪些 section 暴露；fast-path 与
-before_tool_call hook 负责更细粒度的拦截 / 修复。
+Each tool is registered as a ToolSpec plus an async handler that accepts parsed
+arguments and returns a text observation. Session tool profiles decide which
+sections are exposed; hooks enforce finer-grained permission and safety checks.
 """
-
 from __future__ import annotations
 
 import asyncio

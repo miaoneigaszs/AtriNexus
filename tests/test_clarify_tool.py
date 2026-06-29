@@ -1,10 +1,4 @@
-"""PR22 — clarify 工具行为 + agent_loop 集成。
-
-直接测 `_run_clarify_tool` handler + clarify_store contextvar 流。agent_loop
-集成用 stub provider 跑一次 loop，保证 clarify 调用后 stop_reason == "clarify"
-且 text == 用户看到的澄清文本。
-"""
-
+"""Clarify tool behavior and agent-loop integration tests."""
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +26,7 @@ from src.ai.types import (
 )
 
 
-TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
+TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "src" / "agent_runtime" / "tool_catalog.py"
 
 
 # ── 单元测试：handler + contextvar ────────────────────────────────────────

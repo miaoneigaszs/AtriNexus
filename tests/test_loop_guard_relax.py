@@ -1,10 +1,4 @@
-"""PR21 — per-tool loop-guard 放宽。
-
-只读浏览类（search_files / list_directory / read_file / glob）重复上限放宽到 4，
-判重签名只看 tool_name + primary_path；run_command / preview_* / rename_path
-保持严格（全参数 + 上限 2）。
-"""
-
+"""Per-tool loop-guard behavior tests."""
 from __future__ import annotations
 
 import unittest

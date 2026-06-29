@@ -1,16 +1,10 @@
-"""Agent 运行时的横切 hook 接口。
+"""Agent runtime hook interfaces.
 
-把 pi-mono 的 `beforeToolCall / afterToolCall / transformContext / onResponse` 四
-个显式 hook 移植到 AtriNexus。接口完全框架中立——不依赖 LangChain——以便
-Phase 4 自建 agent loop 时可以直接复用，不用重写 hook 层。
-
-当前 Phase 3 阶段，agent 仍跑在 LangChain middleware 上，`middleware.py` 负责
-把这些 hook 调用翻译成 `wrap_tool_call` / `wrap_model_call`。等 Phase 4 去
-LangChain 后，翻译层消失，hook 直接被 agent_loop 调用，业务代码零改动。
-
-约定：所有 hook 返回 None 等价于"不修改"。返回 result 对象才表示覆盖。
+Hooks keep cross-cutting concerns outside the core loop: tool permission checks,
+result shaping, outbound context transforms, and response observation. Returning
+None means "leave the current value unchanged"; returning a result object applies
+the fields set on that object.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -90,7 +84,7 @@ class OnResponseContext:
 
     model: str
     response: Any
-    """Provider 原始响应（LangChain 阶段是 message list 的容器，Phase 4 后是 dict）。"""
+    """Provider 原始响应对象或响应摘要。"""
 
     response_metadata: Optional[Dict[str, Any]] = None
     """若 provider 暴露了 metadata / headers，提前抽出来传入。"""

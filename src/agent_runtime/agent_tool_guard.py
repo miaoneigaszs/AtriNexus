@@ -1,14 +1,9 @@
-"""工具调用前后的修正、护栏、结果整形。
+"""Tool-call guardrails and result shaping.
 
-本模块**框架中立**——不再依赖 LangChain。逻辑通过 `AgentHooks` 协议的
-`before_tool_call` / `after_tool_call` 方法暴露；LangChain 集成由
-`agent_runtime/middleware.py` 的翻译层负责，Phase 4 自建 agent loop 后翻译层
-消失，hook 直接被调用。
-
-Loop 检测仍靠 contextvar 做逐 run 隔离：agent 运行前 set_loop_state，结束后
-reset_loop_state，中间 record_tool_outcome 写入当前 run 的状态。
+AgentToolGuard validates tool arguments before execution, blocks unsafe calls,
+normalizes workspace paths, trims large observations, and tracks repeated tool
+failures for a single run.
 """
-
 from __future__ import annotations
 
 import asyncio

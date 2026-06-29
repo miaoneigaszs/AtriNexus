@@ -158,8 +158,8 @@ AtriNexus/
 │   ├── ai/               # Provider 适配与流式解析
 │   ├── workspace/        # 工作区能力
 │   ├── platform_core/    # 数据库、会话、token 监控、向量存储、工具函数
-│   ├── features/         # 日记、web 模板
-│   └── tests/
+│   └── features/         # 日记、web 模板
+├── tests/                # pytest 测试集
 ├── data/
 │   ├── config/
 │   ├── database/

@@ -1,5 +1,4 @@
-"""PR18 — todo_store 行为测试。"""
-
+"""TodoStore behavior tests."""
 from __future__ import annotations
 
 import unittest

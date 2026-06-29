@@ -19,7 +19,6 @@ router = APIRouter(tags=["企业微信回调"])
 # 初始化加密实例
 crypto = WeChatCrypto(TOKEN, ENCODING_AES_KEY, CORP_ID)
 
-
 @router.get("/api/wechat/callback")
 async def wechat_verify(msg_signature: str, timestamp: str, nonce: str, echostr: str):
     """企业微信服务器验证URL有效性"""

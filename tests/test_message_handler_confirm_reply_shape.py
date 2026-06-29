@@ -1,24 +1,15 @@
-"""PR31 — 长 confirm_reply 对用户友好展示。
-
-message_handler 顶层依赖 emoji / config 等在 CI 中可能不可用，
-直接 ast 抽取 _compact_confirm_reply_for_user 函数源码 + 常量，
-不 import 真实模块，保证测试无副作用。
-"""
-
+"""User-facing compact display tests for long confirm_reply content."""
 from __future__ import annotations
 
 import ast
-import os
-import sys
 import unittest
 from pathlib import Path
 
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 
 def _load_compact_fn():
-    module_path = Path(__file__).resolve().parents[1] / "conversation" / "message_handler.py"
+    module_path = Path(__file__).resolve().parents[1] / "src" / "conversation" / "message_handler.py"
     source = module_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 

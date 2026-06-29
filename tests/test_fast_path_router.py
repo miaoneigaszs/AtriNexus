@@ -3,9 +3,9 @@ from pathlib import Path
 import unittest
 
 
-ROUTER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_router.py"
-RESOLUTION_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_resolution.py"
-TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
+ROUTER_PATH = Path(__file__).resolve().parents[1] / "src" / "conversation" / "fast_path_router.py"
+RESOLUTION_PATH = Path(__file__).resolve().parents[1] / "src" / "conversation" / "fast_path_resolution.py"
+TOOL_CATALOG_PATH = Path(__file__).resolve().parents[1] / "src" / "agent_runtime" / "tool_catalog.py"
 
 
 class FastPathRouterStructureTest(unittest.TestCase):

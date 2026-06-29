@@ -1,15 +1,4 @@
-"""PR14 冒烟：browse 意图从 FastPath 下线后，agent 仍能通过工具处理。
-
-意在证明三个前提到位：
-1. 系统 prompt 里有明确引导，agent 遇到"看文件/列目录/搜内容"不会反问；
-2. ToolCatalog 的 `workspace-read` 段注册了 `list_directory` / `read_file` / `search_files`；
-3. `should_enable_workspace_read` 对 `workspace_read` 及以上档位放行。
-
-不在此处构造完整 provider mock 跑 agent loop —— 那需要 DB 等重依赖。真正
-的端到端回归由用户在 `/opt/AtriNexus-v1` 部署后做（"看看 src 目录"/"读 README"/
-"搜 fast_path"）。
-"""
-
+"""Smoke tests for browse requests handled through agent tools."""
 from __future__ import annotations
 
 import importlib.util
@@ -18,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_MD = REPO_ROOT / "src" / "prompting" / "system" / "tools.md"
 TOOL_CATALOG_PATH = REPO_ROOT / "src" / "agent_runtime" / "tool_catalog.py"
 

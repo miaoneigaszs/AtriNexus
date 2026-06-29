@@ -1,15 +1,9 @@
-"""默认 AgentHooks 组合：tool guard + prompt caching + rate limit capture。
+"""Default AgentHooks implementation.
 
-把 PR7 落地的 prompt_cache / rate_limit 工具和 PR8 的 AgentToolGuard 合并成
-一个满足 AgentHooks 协议的复合对象。业务侧只需要一个 `DefaultAgentHooks(...)`
-就把四个 hook 全部打开。
-
-注意：`transform_context` 当前依赖 provider 接收 dict 形式的消息。LangChain 的
-`ChatOpenAI` 在发送前会把 dict 转 `BaseMessage`，额外字段在这个过程中可能被
-丢弃。所以在 LangChain 路径下该 hook 实际生效取决于 provider；等 Phase 4 自建
-provider 层后会成为可靠路径。
+The default hook set combines tool permission checks, Anthropic prompt-cache
+markers, rate-limit header capture, and context-engine usage updates. Keeping
+these concerns behind AgentHooks keeps the main loop explicit and testable.
 """
-
 from __future__ import annotations
 
 import logging

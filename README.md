@@ -158,8 +158,8 @@ AtriNexus/
 │   ├── ai/               # provider adapters and streaming
 │   ├── workspace/        # workspace capabilities
 │   ├── platform_core/    # database, session, token monitor, vector store, utilities
-│   ├── features/         # diary service, web templates
-│   └── tests/
+│   └── features/         # diary service, web templates
+├── tests/                # pytest suite
 ├── data/
 │   ├── config/
 │   ├── database/

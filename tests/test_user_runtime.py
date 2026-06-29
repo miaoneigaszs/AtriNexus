@@ -1,20 +1,8 @@
-"""PR9 steering/abort/follow-up 队列聚焦测试。
-
-覆盖：
-- PendingMessageQueue 两种 drain 模式
-- UserRuntimeRegistry claim_run / abort / queue_follow_up 的生命周期
-- CURRENT_ABORT_EVENT contextvar 在 claim_run 内外的可见性
-- AgentToolGuard.before_tool_call 在 abort 被置位时抛 CancelledError
-"""
-
+"""User runtime steering, abort, and follow-up queue tests."""
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.agent_runtime.agent_tool_guard import AgentToolGuard
 from src.agent_runtime.hooks import BeforeToolCallContext

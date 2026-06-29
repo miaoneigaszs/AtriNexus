@@ -1,5 +1,4 @@
 apscheduler==3.10.4
-asyncpg>=0.30.0
 certifi>=2026.1.4
 colorama>=0.4.6
 cryptography>=3.0.0
@@ -7,8 +6,6 @@ emoji==2.10.1
 fastapi>=0.115.0
 httpx-ws==0.7.2
 jieba
-langchain>=1.2.0
-langchain-openai>=1.0.0
 rank_bm25
 openai>=2.21.0
 Pillow>=10.0.0

@@ -1,8 +1,9 @@
-"""
-WeCom 消息处理器（重构版）
-负责消息处理流程的编排，将具体逻辑委托给各个处理器
-"""
+"""WeCom message orchestration.
 
+MessageHandler verifies inbound messages, handles commands and fast-path replies,
+invokes the agent service for normal chat, persists chat history, and triggers
+memory updates.
+"""
 import logging
 import os
 from typing import List
@@ -38,7 +39,7 @@ from src.ingress.middleware.dedup_middleware import DedupMiddleware
 logger = logging.getLogger('wecom')
 
 # 当前有活跃 run 时，仅把规范化后的明确取消口令识别为 abort。
-_ABORT_COMMANDS = {"取消", "停止", "别弄了", "不做了", "算了", "stop", "cancel", "abort"}
+_ABORT_COMMANDS = {"取消", "停止", "别弄了", "不做了", "算了", "停", "停停停", "先别做", "stop", "cancel", "abort", "no"}
 _ABORT_TRAILING_PUNCTUATION = "!?！？…。,，;；:：'\"`’”)]}】」』>"
 
 # 长 confirm_reply 的展示阈值：超过即给用户精简版，原文仍进上下文供 agent 下一轮使用。
@@ -95,6 +96,7 @@ def _compact_confirm_reply_for_user(confirm_reply: str) -> str:
 
 
 def _normalize_abort_command(content: str) -> str:
+    """对用户消息做清理，去空格、尾标点、字符小写等操作，返回处理后字符串"""
     text = (content or "").strip().lower()
     if not text:
         return ""
@@ -103,11 +105,12 @@ def _normalize_abort_command(content: str) -> str:
 
 
 def _is_abort_command(content: str) -> bool:
+    """将用户消息和中止字典中的元素做精确匹配"""
     return _normalize_abort_command(content) in _ABORT_COMMANDS
 
 
 class MessageHandler:
-    """企业微信消息处理器 - 重构版"""
+    """企业微信消息处理器"""
 
     def __init__(self, wecom_client: WeComClient):
         """初始化消息处理器"""

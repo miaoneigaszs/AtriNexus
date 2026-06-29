@@ -1,8 +1,7 @@
-"""PR20 — SAFE_BIN_READONLY: 只读命令 pipeline 直接放行（不需要确认）。
+"""Readonly command planning tests.
 
-单元测试 `_build_command_plan` 的判定逻辑；不实际 subprocess.run 避免平台依赖。
+Unit tests cover WorkspaceRuntime._build_command_plan without running subprocesses.
 """
-
 from __future__ import annotations
 
 import tempfile
@@ -60,7 +59,7 @@ class ReadonlyPipelinePlanTest(unittest.TestCase):
 
     def test_env_prefix_without_pipeline_stays_direct(self):
         # No shell operators → direct argv path; the env-readonly check only
-        # kicks in for pipelines. Non-pipeline commands keep their pre-PR20
+        # kicks in for pipelines. Non-pipeline commands keep their previous
         # behavior (argv exec with shell=False).
         plan = self._plan("env FOO=bar find src")
         self.assertEqual(plan.mode, "direct")
@@ -114,10 +113,10 @@ class SafeBinReadonlyPolicyTest(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(set(policy.safe_bin_readonly)))
 
-    def test_pr30_expansion_includes_common_inspection_bins(self):
-        """PR30: 扩容后必须覆盖运维排查常用只读命令。"""
+    def test_expansion_includes_common_inspection_bins(self):
+        """Common inspection commands should be treated as readonly."""
         policy = CommandExecutionPolicy()
-        expected_pr30 = {
+        expected_inspection_bins = {
             # 输出类
             "echo", "printf",
             # 文件读
@@ -135,17 +134,17 @@ class SafeBinReadonlyPolicyTest(unittest.TestCase):
             # 加速器
             "nvidia-smi", "rocm-smi", "vainfo",
         }
-        self.assertTrue(expected_pr30.issubset(set(policy.safe_bin_readonly)))
+        self.assertTrue(expected_inspection_bins.issubset(set(policy.safe_bin_readonly)))
 
-    def test_pr30_expansion_excludes_write_capable_bins(self):
-        """PR30 必须显式拒绝 sed/awk/xargs/tee 等可写入命令。"""
+    def test_expansion_excludes_write_capable_bins(self):
+        """Write-capable commands must stay outside the readonly allowlist."""
         policy = CommandExecutionPolicy()
         forbidden = {"sed", "awk", "xargs", "tee", "dd", "cp", "chmod", "chown"}
         self.assertEqual(set(policy.safe_bin_readonly) & forbidden, set())
 
 
-class PR30ReadonlyPipelineTest(unittest.TestCase):
-    """PR30: 扩容 SAFE_BIN_READONLY 后，常见运维排查 pipeline 应走 shell-safe。"""
+class ExpandedReadonlyPipelineTest(unittest.TestCase):
+    """Common readonly inspection pipelines should use shell-safe mode."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

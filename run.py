@@ -1,6 +1,7 @@
 """
 主程序入口文件
 负责启动 AtriNexus-WeCom 企业微信服务
+读取环境变量 WECOM_HOST 和 WECOM_PORT，导入server.py中的start_server函数，启动FastAPI服务
 """
 
 import os
@@ -15,13 +16,10 @@ if sys.platform.startswith('win'):
 # 禁止生成__pycache__文件夹
 sys.dont_write_bytecode = True
 
-# 将项目根目录添加到Python路径
+# 允许从任意工作目录执行 run.py 时仍能导入 src 和 data 包。
 root_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(root_dir)
-
-# 将src目录添加到Python路径
-src_path = os.path.join(root_dir, 'src')
-sys.path.append(src_path)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 
 def main():
@@ -30,13 +28,6 @@ def main():
     print("  AtriNexus-WeCom 企业微信智能伙伴")
     print("=" * 50)
     print()
-
-    # 清理缓存
-    try:
-        from src.platform_core.cleanup import cleanup_pycache
-        cleanup_pycache()
-    except Exception:
-        pass
 
     # 确保必要目录存在
     required_dirs = ['data', 'logs', 'data/config', 'data/database']
