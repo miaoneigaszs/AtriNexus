@@ -135,7 +135,7 @@ register(ModelCapabilities(
     context_length=128_000,
 ))
 
-# Anthropic（PR11 不实现 native provider，但能力先登记好；PR13 接 native 时复用）
+# Anthropic capability entries used for cache-control decisions.
 register(ModelCapabilities(
     model_id="claude-3-5-sonnet",
     provider="anthropic",

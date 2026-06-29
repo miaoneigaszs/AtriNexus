@@ -190,6 +190,8 @@ src/autoupdate/cloud/*
 *.md
 *.txt
 # 但保留以下重要文档
+!docs/
+!docs/PROJECT_STRUCTURE.md
 !README.md
 !Thanks.md
 !/项目技术文档.md

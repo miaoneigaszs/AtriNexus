@@ -1,22 +1,15 @@
-"""PR8 hook 化的聚焦测试。
+"""Focused tests for agent hooks and default hook behavior.
 
-覆盖：
-- AgentHooks 协议与 NoopAgentHooks 的基本约定
-- AgentToolGuard 的 before/after 流程（repair / validate / loop guard / shape）
-- DefaultAgentHooks 的 transform_context（Anthropic 场景）和 on_response（rate limit 抓取）
+Covers the AgentHooks protocol, AgentToolGuard before/after flow, Anthropic
+prompt-cache context transforms, and rate-limit response observation.
 """
-
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.agent_runtime.agent_tool_guard import (
     MAX_TOOL_REPEAT_COUNT,

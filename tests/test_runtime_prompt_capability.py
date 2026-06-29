@@ -1,11 +1,4 @@
-"""PR16 — 概览能力下沉到系统 prompt 的行为测试。
-
-验证 `PromptManager.build_runtime_prompt` 在收到 `current_mode` + tool 档位 +
-详细工具摘要时，会拼出带有"你现在的能力"snapshot 的 runtime 段——
-让 agent 被问到"有哪些工具"/"当前是什么模式"时能直接作答，不再依赖
-hardcoded overview 分支。
-"""
-
+"""Runtime prompt capability tests."""
 from __future__ import annotations
 
 import unittest

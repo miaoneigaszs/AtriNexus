@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import ast
-import os
-import sys
 import unittest
 from pathlib import Path
 
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 
 def _load_abort_helpers():
-    module_path = Path(__file__).resolve().parents[1] / "conversation" / "message_handler.py"
+    module_path = Path(__file__).resolve().parents[1] / "src" / "conversation" / "message_handler.py"
     source = module_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 

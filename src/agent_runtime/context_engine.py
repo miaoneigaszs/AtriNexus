@@ -1,19 +1,9 @@
-"""Context 窗口管理：可插拔的 ContextEngine 基类 + 一个轻量默认实现。
+"""Context-window management for a single agent run.
 
-参考 hermes-agent/agent/context_engine.py。设计目标：
-- 把"什么时候压缩 / 怎么压缩"做成可替换的策略插槽
-- 默认实现简单可靠（头尾保留 + 中段省略），不依赖 LLM
-- 留出未来上 LLM 摘要 / DAG / LCM 等更聪明引擎的入口
-
-**与 memory 的边界**：本模块只管单次 agent run 内"塞给模型的消息列表"是否
-超过 context window，必要时缩短它。它**不**碰 src/memory/ 的三层长期记忆——
-那是跨会话长期记忆，与 context window 压缩正交。
-
-**当前生效路径**（LangChain 阶段）：service 在每次 agent.ainvoke 之前做一次
-preflight 压缩；ainvoke 返回后从 usage 元数据更新 token 计数。Phase 4 自建
-loop 后会获得"每轮工具调用之间也压缩"的能力。
+ContextEngine decides when model-bound messages are too large and compresses them
+before the next provider call. It only manages the short-lived message window;
+long-term memory remains in src/memory.
 """
-
 from __future__ import annotations
 
 import logging

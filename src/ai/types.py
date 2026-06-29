@@ -1,16 +1,9 @@
-"""AtriNexus 自建 AI 层的标准类型。
+"""Framework-neutral AI runtime types.
 
-对标 pi-mono `packages/ai/src/types.ts`，但只取当前 agent loop 真正用到的子集：
-消息（user / assistant / tool result）、工具调用、用量、流事件。Phase 4 自建的
-agent loop（PR12）和未来更多 ingress 都将围绕这些类型工作。
-
-设计原则：
-- 标准 OpenAI 风格 dict 兼容：每个类型都能 `to_openai_dict()` 直接送 SDK
-- 框架中立：不引入 LangChain / pi-ai / 任何 SDK 类型
-- TextContent / ImageContent 区分让多模态有自然落点
-- 每个 dataclass 都是只读语义（mutate 时复制再改）
+These dataclasses describe messages, tool calls, usage, and stream events used by
+the provider layer and agent loop. They convert to OpenAI-compatible dictionaries
+without importing any SDK-specific types.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,22 +1,10 @@
-"""PR11 自建 ai/ provider 层聚焦测试。
-
-覆盖：
-- types: dataclass to_openai_dict 形态、tool_call args JSON 化、Usage merge
-- registry: 已登记 model 命中、前缀匹配、未命中走默认
-- stream: SSE 行解析、StreamAccumulator 聚合 chunk → text + tool_call + usage
-- openai_compat: payload 构造、HTTP 错误转 StreamError、流式 happy path（mock httpx）
-"""
-
+"""Focused tests for the framework-neutral AI provider layer."""
 from __future__ import annotations
 
 import asyncio
 import json
-import os
-import sys
 import unittest
 from typing import AsyncIterator, List
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.ai.providers.base import ProviderRequest
 from src.ai.providers.openai_compat import OpenAICompatProvider

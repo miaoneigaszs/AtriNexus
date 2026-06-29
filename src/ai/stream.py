@@ -1,11 +1,8 @@
-"""SSE 行解析与 OpenAI chat-completions 流式 chunk 累积。
+"""SSE parsing and OpenAI-compatible chat stream accumulation.
 
-单独成模块是因为：解析逻辑跟具体 provider 无关；OpenAI、DeepSeek、Moonshot、
-LiteLLM 等所有 OpenAI 兼容代理共享同一份。Anthropic native（PR13）会有自己
-不同的事件流（content_block_start / content_block_delta / message_delta），
-另写一个解析器。
+The parser is provider-neutral for OpenAI-compatible services such as OpenAI,
+DeepSeek, Moonshot, LiteLLM, and local vLLM-compatible gateways.
 """
-
 from __future__ import annotations
 
 import json

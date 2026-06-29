@@ -1,11 +1,4 @@
-"""PR18 — todo 工具在 ToolCatalog 里注册 + 经 tool handler 修改后能被 system
-prompt snapshot 拾到的行为检查。
-
-不启动完整 agent loop（DB / LLM 依赖太重）。用 importlib 隔离 tool_profiles
-+ prompt_manager，再构造极小的 ToolBundle-like 替身验证 runtime prompt 的
-`【当前待办】` 段会按期望渲染。
-"""
-
+"""Smoke tests for todo tools in ToolCatalog and runtime prompts."""
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +11,7 @@ from pathlib import Path
 from typing import List
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOL_CATALOG_PATH = REPO_ROOT / "src" / "agent_runtime" / "tool_catalog.py"
 PROMPT_MANAGER_PATH = REPO_ROOT / "src" / "prompting" / "prompt_manager.py"
 

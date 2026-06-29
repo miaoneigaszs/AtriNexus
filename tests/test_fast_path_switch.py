@@ -1,5 +1,4 @@
-"""PR13 的行为测试：env 总开关、/agent 前缀、trajectory 观测字段。"""
-
+"""FastPath environment switch, /agent prefix, and trajectory behavior tests."""
 from __future__ import annotations
 
 import importlib.util
@@ -11,7 +10,7 @@ import unittest
 from pathlib import Path
 
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_config.py"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "src" / "conversation" / "fast_path_config.py"
 CONFIG_SPEC = importlib.util.spec_from_file_location("fast_path_config_under_test", CONFIG_PATH)
 CONFIG_MODULE = importlib.util.module_from_spec(CONFIG_SPEC)
 assert CONFIG_SPEC and CONFIG_SPEC.loader
@@ -36,8 +35,8 @@ from src.agent_runtime.trajectory import (
 )
 
 
-ROUTER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "fast_path_router.py"
-MESSAGE_HANDLER_PATH = Path(__file__).resolve().parents[1] / "conversation" / "message_handler.py"
+ROUTER_PATH = Path(__file__).resolve().parents[1] / "src" / "conversation" / "fast_path_router.py"
+MESSAGE_HANDLER_PATH = Path(__file__).resolve().parents[1] / "src" / "conversation" / "message_handler.py"
 
 
 class FastPathOutcomeTest(unittest.TestCase):
@@ -128,7 +127,7 @@ class RouterEnvGateSourceTest(unittest.TestCase):
         self.assertIn("return FastPathOutcome.miss(INTENT_DISABLED)", source)
 
     def test_try_handle_has_no_resolver_interaction(self):
-        # PR17 之后 try_handle 不再触碰 path_resolver（normalize_request_text 已删）；
+        # try_handle no longer touches path_resolver;
         # 所有非空消息都交给 agent loop。
         source = ROUTER_PATH.read_text(encoding="utf-8")
         try_handle_start = source.index("def try_handle(")

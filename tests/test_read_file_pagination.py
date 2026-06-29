@@ -1,9 +1,4 @@
-"""PR19 — read_file offset/limit + glob 行为测试。
-
-直接在 WorkspaceRuntime 上跑，绕开 DB 链——runtime 构造只要一个 workspace
-路径，不依赖 SessionService / LLM。
-"""
-
+"""read_file offset/limit and glob behavior tests."""
 from __future__ import annotations
 
 import tempfile
@@ -124,7 +119,7 @@ class ReadFileToolSpecTest(unittest.TestCase):
     def test_spec_lists_offset_and_limit_params(self):
         from pathlib import Path
 
-        tool_catalog_path = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
+        tool_catalog_path = Path(__file__).resolve().parents[1] / "src" / "agent_runtime" / "tool_catalog.py"
         source = tool_catalog_path.read_text(encoding="utf-8")
         self.assertIn('"offset"', source)
         self.assertIn('"limit"', source)
@@ -135,7 +130,7 @@ class GlobToolSpecTest(unittest.TestCase):
     def test_glob_tool_registered_in_catalog(self):
         from pathlib import Path
 
-        tool_catalog_path = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
+        tool_catalog_path = Path(__file__).resolve().parents[1] / "src" / "agent_runtime" / "tool_catalog.py"
         source = tool_catalog_path.read_text(encoding="utf-8")
         self.assertIn('name="glob"', source)
         self.assertIn("Find paths by glob pattern", source)
@@ -143,7 +138,7 @@ class GlobToolSpecTest(unittest.TestCase):
     def test_workspace_read_detailed_lines_mention_new_tools(self):
         from pathlib import Path
 
-        tool_catalog_path = Path(__file__).resolve().parents[1] / "agent_runtime" / "tool_catalog.py"
+        tool_catalog_path = Path(__file__).resolve().parents[1] / "src" / "agent_runtime" / "tool_catalog.py"
         source = tool_catalog_path.read_text(encoding="utf-8")
         self.assertIn("- glob:", source)
         self.assertIn("- read_file: 读文件，带行号", source)

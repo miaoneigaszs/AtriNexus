@@ -1,23 +1,7 @@
-"""PR10 ContextEngine + DefaultCompressor 聚焦测试。
-
-覆盖：
-- DefaultCompressor 的 token 估算
-- 阈值未到不压缩 / 超过阈值压缩
-- 头尾保留 + 中段占位符
-- 消息数过少（<= protect_first + protect_last）时不动
-- update_from_response 兼容多种 usage 字段命名
-- on_session_reset 重置计数
-- update_model 切上下文长度
-- get_status 字段齐备
-"""
-
+"""Focused tests for ContextEngine and DefaultCompressor."""
 from __future__ import annotations
 
-import os
-import sys
 import unittest
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.agent_runtime.context_engine import ContextEngine, DefaultCompressor
 

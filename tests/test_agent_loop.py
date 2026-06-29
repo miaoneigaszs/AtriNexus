@@ -1,26 +1,14 @@
-"""PR12 自建 agent loop 聚焦测试。
+"""Focused tests for the streaming agent loop.
 
-用 FakeProvider 模拟 provider.stream 的事件序列，覆盖：
-- 单轮完成（无工具）
-- 一轮工具调用 → 给出结果 → 二轮完成
-- 工具不存在 → 错误结果消息
-- before_tool_call 阻断
-- 取消信号在工具边界生效
-- max_iterations 截停
-- consume_stream 正确累积 text + tool_calls + usage
-
-不发任何真实 HTTP 请求。
+FakeProvider supplies deterministic stream events so tests cover normal replies,
+tool execution, missing tools, hook blocks, cancellation, max-iteration stops,
+and stream usage accumulation without real HTTP calls.
 """
-
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 import unittest
 from typing import AsyncIterator, Dict, List
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from src.agent_runtime.agent_loop import LoopResult, ToolEvent, run_agent_loop
 from src.agent_runtime.context_engine import DefaultCompressor

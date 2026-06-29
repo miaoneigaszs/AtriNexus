@@ -1,19 +1,10 @@
-"""Anthropic prompt caching 标记工具（system_and_3 策略）。
+"""Anthropic prompt-cache marker helpers.
 
-对长多轮对话应用 Anthropic 的 cache_control 断点，可把输入 token 成本降 ~75%。
-放 4 个断点（Anthropic 上限）：
-  1. system prompt（整会话稳定）
-  2-4. 最近 3 条非 system 消息（滚动窗口）
-
-纯函数，无类状态，无 AIAgent 依赖。参考 hermes-agent/agent/prompt_caching.py。
-
-**当前整合状态**：AtriNexus 目前通过 LangChain ChatOpenAI 访问模型。LangChain 把
-消息转成 `BaseMessage` 对象送入 provider SDK，cache_control 字段是否被透传取决于
-具体 provider（OpenAI 兼容代理通常会透传，原生 Anthropic SDK 则需要 native_anthropic
-模式）。本工具作为未来自建 provider 层（Phase 4，对标 pi-ai）的一部分预先就位，
-在替代 LangChain 之后会成为 Anthropic 请求发送前的标准预处理步骤。
+For models that support manual cache-control markers, AtriNexus marks the stable
+system prompt and the latest three non-system messages. Providers that do not
+understand these fields can ignore them; OpenAI and DeepSeek server-side caching
+needs no explicit markers.
 """
-
 from __future__ import annotations
 
 import copy

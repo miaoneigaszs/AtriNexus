@@ -293,27 +293,6 @@ def record_llm_request(model: str, status: str, duration: float,
             Metrics.llm_tokens_total.labels(model=model, type='completion').inc(completion_tokens)
 
 
-def record_rag_retrieval(user_id: str, duration: float, result_count: int):
-    """记录 RAG 检索指标"""
-    if not PROMETHEUS_AVAILABLE:
-        return
-    
-    if Metrics.rag_retrieval_duration:
-        Metrics.rag_retrieval_duration.labels(user_id=user_id).observe(duration)
-    
-    if Metrics.rag_retrieval_results:
-        Metrics.rag_retrieval_results.labels(user_id=user_id).observe(result_count)
-
-
-def record_memory_operation(operation: str, memory_type: str, duration: float):
-    """记录记忆操作指标"""
-    if not PROMETHEUS_AVAILABLE or not Metrics.memory_operation_duration:
-        return
-    
-    Metrics.memory_operation_duration.labels(
-        operation=operation, 
-        memory_type=memory_type
-    ).observe(duration)
 
 
 def record_http_request(method: str, endpoint: str, status: int, duration: float):

@@ -51,8 +51,8 @@ class FastPathRouter:
         if read_fast_path_mode() == FAST_PATH_MODE_DISABLED:
             return FastPathOutcome.miss(INTENT_DISABLED)
 
-        # Phase A 完成后，FastPath 不再做消息归一化或意图识别——所有非空消息直接落到
-        # agent loop；FastPathRouter 只剩候选解析状态机入口（try_handle_pending_resolution）。
+        # FastPath only keeps the pending workspace-resolution state machine;
+        # normal non-empty chat messages go through the agent loop.
         return FastPathOutcome.miss()
 
     def try_handle_pending_resolution(self, user_id: str, message: str) -> Optional[str]:

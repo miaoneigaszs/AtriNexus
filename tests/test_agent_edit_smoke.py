@@ -1,16 +1,4 @@
-"""PR15 冒烟：edit 意图从 FastPath 下线后，agent 仍能通过工具处理。
-
-三点到位：
-1. 系统 prompt 告诉 agent 遇到改写/替换/追加/重命名时直接调 preview_* 工具，不要
-   先反问确认；
-2. ToolCatalog 的 workspace-edit / workspace-rename 段注册了
-   preview_edit_file / preview_write_file / preview_append_file / rename_path；
-3. `should_enable_workspace_edit` 对 workspace_edit 及以上档位放行。
-
-真正的端到端回归在 `/opt/AtriNexus-v1` 手工冒烟："把 README 里的 foo 改成 bar"
-→ agent 调 preview_edit_file → 用户回复"通过"→ 落盘。
-"""
-
+"""Smoke tests for edit requests handled through agent tools."""
 from __future__ import annotations
 
 import importlib.util
@@ -19,7 +7,7 @@ import unittest
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_MD = REPO_ROOT / "src" / "prompting" / "system" / "tools.md"
 TOOL_CATALOG_PATH = REPO_ROOT / "src" / "agent_runtime" / "tool_catalog.py"
 

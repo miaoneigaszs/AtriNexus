@@ -1,24 +1,11 @@
-"""自建 agent loop，替代 langchain.agents.create_agent。
+"""Core streaming agent loop.
 
-把 PR7-PR11 的所有横切件串起来：
-- provider.stream() 走 PR11 的 OpenAICompatProvider
-- 工具调用前后跑 PR8 的 hook（before_tool_call / after_tool_call）
-- transform_context hook 在每轮发请求前对消息做最后修饰（如 Anthropic prompt cache）
-- on_response hook 在每轮响应后跑（如 rate-limit 头抓取、context_engine 喂 usage）
-- abort 信号通过 PR9 的 contextvar 在 hook 边界即时生效
-- context_engine 在每轮 invoke 前 preflight 压缩消息
-
-Loop 的形态对标 pi-mono 的 agent-loop.ts，但保持显式与可读：
-1. 取消？stop_reason="cancelled"。
-2. 压缩历史。
-3. transform_context hook。
-4. provider.stream → consume_stream → 拿 text + tool_calls + usage。
-5. 没工具调用：写入最终 assistant 消息，结束。
-6. 有工具调用：把 assistant 消息写入历史，依次执行每个工具（受 hook 控制），
-   把 tool 结果消息写入历史，进入下一轮。
-7. 超过 max_iterations：写一条系统警示 + 结束。
+The loop prepares context, lets hooks adjust outbound messages, streams one
+provider response, executes requested tools, appends tool observations, and
+continues until the model produces a final answer or a guard condition stops the
+run. Cancellation is checked between hook and tool boundaries so user aborts can
+stop long-running work promptly.
 """
-
 from __future__ import annotations
 
 import asyncio

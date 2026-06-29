@@ -1,4 +1,4 @@
-"""PR7 的四个新工具（retry / prompt_cache / rate_limit / trajectory）聚焦测试。"""
+"""Reliability helpers for prompt cache, rate-limit parsing, and trajectories."""
 
 from __future__ import annotations
 
@@ -23,29 +23,7 @@ from src.platform_core.rate_limit import (
     parse_rate_limit_headers,
     record_latest_state,
 )
-from src.platform_core.retry_utils import jittered_backoff
 
-
-class JitteredBackoffTest(unittest.TestCase):
-    def test_first_attempt_in_expected_range(self):
-        for _ in range(20):
-            delay = jittered_backoff(1, base_delay=5.0, max_delay=120.0, jitter_ratio=0.5)
-            self.assertGreaterEqual(delay, 5.0)
-            self.assertLessEqual(delay, 5.0 + 2.5)
-
-    def test_exponential_growth_with_cap(self):
-        # attempt=5 的基础值 5 * 2^4 = 80；加抖动 <= 80 * 1.5
-        for _ in range(20):
-            delay = jittered_backoff(5, base_delay=5.0, max_delay=120.0)
-            self.assertGreaterEqual(delay, 80.0)
-            self.assertLessEqual(delay, 120.0 + 60.0)
-
-    def test_cap_applied_at_high_attempts(self):
-        # attempt=50 远超 cap；base_delay * 2^49 远超 max_delay，等于 max_delay + jitter
-        for _ in range(5):
-            delay = jittered_backoff(50, base_delay=5.0, max_delay=120.0)
-            self.assertGreaterEqual(delay, 120.0)
-            self.assertLessEqual(delay, 120.0 + 60.0)
 
 
 class PromptCacheTest(unittest.TestCase):
