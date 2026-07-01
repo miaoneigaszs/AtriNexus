@@ -1,4 +1,4 @@
-"""Structure checks for core AtriNexus modules."""
+"""核心 AtriNexus 模块的结构检查。"""
 
 import ast
 from pathlib import Path

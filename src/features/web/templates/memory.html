@@ -537,14 +537,14 @@
     </div>
 
     <script>
-        // Elements
+        // 元素
         const userIdInput = document.getElementById('userId');
         const avatarNameInput = document.getElementById('avatarName');
         const loadMemoryBtn = document.getElementById('loadMemoryBtn');
         const statsBtn = document.getElementById('statsBtn');
         const statsCards = document.getElementById('statsCards');
 
-        // Tabs
+        // 标签页
         const tabs = ['Core', 'Short', 'Vector', 'Diary', 'Search'];
         const panels = {
             Core: document.getElementById('panelCore'),
@@ -554,29 +554,29 @@
             Search: document.getElementById('panelSearch')
         };
 
-        // Memory elements
+        // 记忆元素
         const coreMemoryContent = document.getElementById('coreMemoryContent');
         const shortMemoryList = document.getElementById('shortMemoryList');
         const vectorMemoryList = document.getElementById('vectorMemoryList');
         const searchQuery = document.getElementById('searchQuery');
         const searchResults = document.getElementById('searchResults');
 
-        // Diary elements
+        // 日记元素
         const diaryDate = document.getElementById('diaryDate');
         const diaryContent = document.getElementById('diaryContent');
 
-        // Modal
+        // 弹窗
         const modal = document.getElementById('modal');
         const modalTitle = document.getElementById('modalTitle');
         const modalContent = document.getElementById('modalContent');
 
-        // Load saved values
+        // 加载已保存的值
         const savedUserId = localStorage.getItem('kb_user_id');
         if (savedUserId) {
             userIdInput.value = savedUserId;
         }
 
-        // Tab switching
+        // 标签页切换
         tabs.forEach(tab => {
             document.getElementById(`tab${tab}`).addEventListener('click', () => {
                 tabs.forEach(t => {
@@ -588,7 +588,7 @@
             });
         });
 
-        // Toast
+        // 提示消息
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             const msgEl = document.getElementById('toast-message');
@@ -604,7 +604,7 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
 
-        // Modal
+        // 弹窗
         function showModal(title, content) {
             modalTitle.textContent = title;
             modalContent.innerHTML = content;
@@ -619,7 +619,7 @@
             if (e.target === modal) hideModal();
         });
 
-        // API calls
+        // 接口调用
         async function fetchApi(url, options = {}) {
             try {
                 const response = await fetch(url, options);
@@ -630,7 +630,7 @@
             }
         }
 
-        // Load all memories
+        // 加载全部记忆
         async function loadMemories() {
             const userId = userIdInput.value.trim();
             const avatarName = avatarNameInput.value.trim() || 'ATRI';
@@ -642,7 +642,7 @@
 
             localStorage.setItem('kb_user_id', userId);
 
-            // Load core memory
+            // 加载核心记忆
             const coreResult = await fetchApi(`/api/memory/core?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
             if (coreResult.ok) {
                 const raw = coreResult.data.content || '';
@@ -662,21 +662,21 @@
                 document.getElementById('coreRecentContent').value = recent;
             }
 
-            // Load short memory
+            // 加载短期记忆
             const shortResult = await fetchApi(`/api/memory/short?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
             if (shortResult.ok) {
                 renderShortMemory(shortResult.data.memories);
                 document.getElementById('statShort').textContent = shortResult.data.count;
             }
 
-            // Load vector memory
+            // 加载向量记忆
             const vectorResult = await fetchApi(`/api/memory/vector?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}&limit=50`);
             if (vectorResult.ok) {
                 renderVectorMemory(vectorResult.data.memories);
                 document.getElementById('statVector').textContent = vectorResult.data.total_in_store;
             }
 
-            // Load stats
+            // 加载统计信息
             const statsResult = await fetchApi(`/api/memory/stats?user_id=${encodeURIComponent(userId)}&avatar_name=${encodeURIComponent(avatarName)}`);
             if (statsResult.ok) {
                 document.getElementById('statCore').textContent = statsResult.data.total_core_memories;
@@ -734,7 +734,7 @@
             return div.innerHTML;
         }
 
-        // Save core memory
+        // 保存核心记忆
         document.getElementById('saveCoreBtn').addEventListener('click', async () => {
             const userId = userIdInput.value.trim();
             const avatarName = avatarNameInput.value.trim() || 'ATRI';
@@ -756,7 +756,7 @@
             }
         });
 
-        // Clear core memory
+        // 清空核心记忆
         document.getElementById('clearCoreBtn').addEventListener('click', async () => {
             if (!confirm('确定要清空核心记忆吗？此操作不可撤销。')) return;
 
@@ -777,7 +777,7 @@
             }
         });
 
-        // Clear short memory
+        // 清空短期记忆
         document.getElementById('clearShortBtn').addEventListener('click', async () => {
             if (!confirm('确定要清空短期记忆吗？此操作不可撤销。')) return;
 
@@ -797,7 +797,7 @@
             }
         });
 
-        // Search
+        // 搜索
         document.getElementById('searchBtn').addEventListener('click', async () => {
             const userId = userIdInput.value.trim();
             const avatarName = avatarNameInput.value.trim() || 'ATRI';
@@ -829,7 +829,7 @@
             }
         });
 
-        // Delete vector memory
+        // 删除向量记忆
         async function deleteVectorMemory(memoryId) {
             if (!confirm('确定要删除这条记忆吗？')) return;
 
@@ -848,7 +848,7 @@
             }
         }
 
-        // Event listeners
+        // 事件监听器
         loadMemoryBtn.addEventListener('click', loadMemories);
 
         statsBtn.addEventListener('click', async () => {
@@ -894,7 +894,7 @@
             }
         });
 
-        // Enter key to search
+        // 回车键触发搜索
         searchQuery.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 document.getElementById('searchBtn').click();

@@ -1,4 +1,4 @@
-"""Focused tests for ContextEngine and DefaultCompressor."""
+"""ContextEngine 和 DefaultCompressor 的聚焦测试。"""
 from __future__ import annotations
 
 import unittest
@@ -17,7 +17,7 @@ class DefaultCompressorTokenEstimateTest(unittest.TestCase):
 
     def test_string_content_estimated(self):
         engine = DefaultCompressor(chars_per_token=4)
-        msgs = [{"role": "user", "content": "abcd" * 25}]  # 100 chars
+        msgs = [{"role": "user", "content": "abcd" * 25}]  # 100 个字符
         self.assertEqual(engine.estimate_tokens(msgs), 25)
 
     def test_list_content_aggregated(self):
@@ -25,7 +25,7 @@ class DefaultCompressorTokenEstimateTest(unittest.TestCase):
         msgs = [
             {"role": "user", "content": [{"type": "text", "text": "abcd" * 10}, "extra"]},
         ]
-        # 40 chars + 5 chars = 45 → 11 tokens
+        # 40 个字符 + 5 个字符 = 45，约 11 个 token
         self.assertEqual(engine.estimate_tokens(msgs), 11)
 
 
@@ -43,7 +43,7 @@ class DefaultCompressorTriggerTest(unittest.TestCase):
         self.assertTrue(engine.should_compress(msgs))
 
     def test_too_few_messages_no_compress(self):
-        engine = DefaultCompressor(context_length=200)  # threshold=150
+        engine = DefaultCompressor(context_length=200)  # 阈值为 150
         # 默认 protect_first_n=3 + protect_last_n=6 = 9；只给 9 条
         msgs = _make_messages(9, chars=500)
         self.assertFalse(engine.should_compress(msgs))

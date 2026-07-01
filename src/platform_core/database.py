@@ -34,7 +34,7 @@ class SessionState(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(String(100), unique=True, nullable=False)  # 企微UserID
-    mode = Column(String(20), default='work')                   # 当前模式: work / companion
+    mode = Column(String(20), default='work')                   # 当前模式：work / companion
     avatar_name = Column(String(100), default='ATRI')           # 当前使用的人设名称
     last_active = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     variables = Column(Text, default='{}')                      # 扩展变量（JSON）
@@ -47,8 +47,8 @@ class MemorySnapshot(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(String(100), nullable=False)               # 企微UserID
     avatar_name = Column(String(100), nullable=False)           # 人设名称
-    memory_type = Column(String(20), nullable=False)            # short / core
-    content = Column(Text, default='[]')                        # JSON Blob
+    memory_type = Column(String(20), nullable=False)            # 记忆类型：short / core
+    content = Column(Text, default='[]')                        # JSON 内容块
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 

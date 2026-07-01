@@ -1,4 +1,4 @@
-"""Pytest bootstrap for local imports."""
+"""pytest 本地导入引导。"""
 
 import sys
 from pathlib import Path

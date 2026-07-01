@@ -1,7 +1,6 @@
-"""SSE parsing and OpenAI-compatible chat stream accumulation.
+"""SSE 解析与 OpenAI 兼容聊天流累积。
 
-The parser is provider-neutral for OpenAI-compatible services such as OpenAI,
-DeepSeek, Moonshot, LiteLLM, and local vLLM-compatible gateways.
+该解析器对 OpenAI 兼容服务保持 provider 中立，适用于 OpenAI、DeepSeek、Moonshot、LiteLLM 以及本地 vLLM 兼容网关。
 """
 from __future__ import annotations
 
@@ -156,7 +155,7 @@ class StreamAccumulator:
         return results
 
 
-# ── 顶层 driver：把 SSE 字节流变成 StreamEvent ─────────────────────────
+# ── 顶层驱动：把 SSE 字节流变成 StreamEvent ───────────────────────
 
 
 async def stream_openai_chunks(
@@ -186,7 +185,7 @@ async def stream_openai_chunks(
         if not isinstance(chunk, dict):
             continue
 
-        # provider 把错误以 chunk 形式塞回来时（如限流）这里转成 StreamError
+        # 模型提供方把错误以 chunk 形式塞回来时（如限流），这里转成 StreamError
         if "error" in chunk:
             err = chunk["error"]
             message = err.get("message") if isinstance(err, dict) else str(err)
@@ -209,12 +208,12 @@ __all__ = [
 ]
 
 
-# ── Agent loop 用的高层 helper ─────────────────────────────────────────
+# ── Agent loop 使用的高层辅助函数 ───────────────────────────────────
 
 
 @dataclass
 class StreamSummary:
-    """drain 一次 stream 后的整合结果。供 agent loop 直接消费。"""
+    """消费一次 stream 后的整合结果。供 agent loop 直接使用。"""
 
     text: str
     tool_calls: List[Tuple[str, str, dict]]
@@ -224,7 +223,7 @@ class StreamSummary:
 
 
 async def consume_stream(events: AsyncIterator[StreamEvent]) -> StreamSummary:
-    """drain 一次 provider.stream 的事件流，返回组装好的最终状态。
+    """消费一次 provider.stream 的事件流，返回组装好的最终状态。
 
     - 文本按 TextDelta 顺序拼接
     - tool_calls 按 ToolCallDelta.index 累积，结束时 JSON-decode args

@@ -1,4 +1,4 @@
-"""Reliability helpers for prompt cache, rate-limit parsing, and trajectories."""
+"""prompt cache、限流解析和轨迹记录的可靠性辅助测试。"""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ class PromptCacheTest(unittest.TestCase):
             {"role": "user", "content": "q3"},
         ]
         out = apply_anthropic_cache_control(messages)
-        # system 被展平为 list 并带 cache_control
+        # system 消息被展平为列表并带 cache_control
         system_content = out[0]["content"]
         self.assertIsInstance(system_content, list)
         self.assertEqual(system_content[0]["cache_control"]["type"], "ephemeral")
@@ -88,7 +88,7 @@ class RateLimitTest(unittest.TestCase):
         self.assertAlmostEqual(state.requests_min.usage_pct, 58.0)
 
     def test_latest_state_roundtrip(self):
-        record_latest_state(None)  # reset not supported; just verify idempotency
+        record_latest_state(None)  # 不支持 reset；这里只验证幂等性
         state = parse_rate_limit_headers(
             {"x-ratelimit-limit-tokens": "1000", "x-ratelimit-remaining-tokens": "900"}
         )
@@ -128,10 +128,10 @@ class TrajectoryTest(unittest.TestCase):
                 {"name": "read_file", "args": {"path": "a.md"}, "result": "content"},
             ],
         )
-        # 第一条 system，紧跟 human
+        # 第一条是 system，紧跟 human
         self.assertEqual(entry["conversations"][0]["from"], "system")
         self.assertEqual(entry["conversations"][1]["from"], "human")
-        # 工具调用展开为 function_call + observation 两条
+        # 工具调用展开为 function_call 和 observation 两条
         froms = [c["from"] for c in entry["conversations"]]
         self.assertIn("function_call", froms)
         self.assertIn("observation", froms)

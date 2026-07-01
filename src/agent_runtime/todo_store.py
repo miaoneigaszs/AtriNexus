@@ -1,12 +1,4 @@
-"""Per-user todo state, used by the `todo` agent tool + system prompt snapshot.
-
-存储为 in-memory dict，随进程生命周期存活，不持久化 —— 参考 hermes-agent
-`tools/todo_tool.py`：todo 的角色是"把一轮对话里要走的多步骤记在 agent 看得见
-的地方"，会话重启即清空是预期行为。
-
-每项 `{id, content, status}`，status ∈ {pending, in_progress, completed, cancelled}。
-通过模块级 `todo_store` 单例访问。
-"""
+"""按用户隔离的待办状态，供 `todo` agent 工具和系统 prompt 快照使用。"""
 
 from __future__ import annotations
 
@@ -49,7 +41,7 @@ class TodoItem:
 
 
 class TodoStore:
-    """Per-user todo list，进程内状态。"""
+    """按用户隔离的进程内待办列表。"""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -66,7 +58,7 @@ class TodoStore:
             return list(cleaned)
 
     def merge(self, user_id: str, updates: Iterable[TodoItem]) -> List[TodoItem]:
-        """Upsert by id：已有 id 更新 content/status，新 id 追加，其余保留。"""
+        """按 id upsert：已有 id 更新 content/status，新 id 追加，其余保留。"""
         update_list = list(updates)
         with self._lock:
             existing = list(self._items.get(user_id, []))

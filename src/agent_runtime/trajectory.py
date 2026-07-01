@@ -138,7 +138,7 @@ def record_fast_path_turn(
     assistant_reply: str,
     intent: str,
 ) -> None:
-    """FastPath/状态机命中时的轨迹落盘。
+    """FastPath 或状态机命中时的轨迹落盘。
 
     model 固定 "fast_path" 便于离线过滤；不带 system prompt 和 tool_events。
     """

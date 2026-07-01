@@ -1,4 +1,4 @@
-"""Provider 与模型能力 registry。
+"""模型提供方与模型能力注册表。
 
 不依赖外部 catalog（如 models.dev）；保持轻量、本地可控。新增 model 时直接
 在这里登记一行；未登记的 model 走默认条目（OpenAI 兼容 + 32k 上下文）。
@@ -23,7 +23,7 @@ class ModelCapabilities:
     """完整 model 名（如 `deepseek-ai/DeepSeek-V3`）。"""
 
     provider: str
-    """provider 标识：openai / anthropic / deepseek / openai_compat / ..."""
+    """模型提供方标识：openai / anthropic / deepseek / openai_compat / ..."""
 
     context_length: int
     """模型声明的上下文窗口（token 数）。"""
@@ -107,7 +107,7 @@ register(ModelCapabilities(
     model_id="deepseek-ai/deepseek-r1",
     provider="openai_compat",
     context_length=64_000,
-    supports_tools=False,  # reasoning 模型不支持 tool calling
+    supports_tools=False,  # 推理模型不支持工具调用
     is_reasoning=True,
 ))
 register(ModelCapabilities(
@@ -135,7 +135,7 @@ register(ModelCapabilities(
     context_length=128_000,
 ))
 
-# Anthropic capability entries used for cache-control decisions.
+# Anthropic 能力条目用于 cache-control 决策。
 register(ModelCapabilities(
     model_id="claude-3-5-sonnet",
     provider="anthropic",

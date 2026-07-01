@@ -1,4 +1,4 @@
-"""OpenAI 兼容 provider：覆盖 OpenAI / DeepSeek / Moonshot / vLLM / LiteLLM 等。
+"""OpenAI 兼容模型提供方：覆盖 OpenAI / DeepSeek / Moonshot / vLLM / LiteLLM 等。
 
 依赖 httpx 异步客户端。请求体走 chat-completions 标准；流式响应通过
 `src.ai.stream.stream_openai_chunks` 解析成 StreamEvent。
@@ -35,7 +35,7 @@ logger = logging.getLogger("wecom")
 
 
 class OpenAICompatProvider(ProviderAdapter):
-    """OpenAI 兼容协议的最小 provider 实现。"""
+    """OpenAI 兼容协议的最小模型提供方实现。"""
 
     name = "openai_compat"
 

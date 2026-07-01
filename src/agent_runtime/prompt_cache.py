@@ -1,9 +1,6 @@
-"""Anthropic prompt-cache marker helpers.
+"""Anthropic prompt cache 标记辅助函数。
 
-For models that support manual cache-control markers, AtriNexus marks the stable
-system prompt and the latest three non-system messages. Providers that do not
-understand these fields can ignore them; OpenAI and DeepSeek server-side caching
-needs no explicit markers.
+对于支持手动 cache_control 标记的模型，AtriNexus 会标记稳定的 system prompt 和最近三条非 system 消息。不理解这些字段的 provider 可以忽略它们；OpenAI 和 DeepSeek 的服务端缓存不需要显式标记。
 """
 from __future__ import annotations
 

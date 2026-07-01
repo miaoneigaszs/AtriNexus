@@ -1,6 +1,6 @@
-"""Readonly command planning tests.
+"""只读命令规划测试。
 
-Unit tests cover WorkspaceRuntime._build_command_plan without running subprocesses.
+单元测试覆盖 WorkspaceRuntime._build_command_plan，不实际运行 subprocess。
 """
 from __future__ import annotations
 
@@ -58,14 +58,14 @@ class ReadonlyPipelinePlanTest(unittest.TestCase):
         self.assertEqual(plan.reason, "shell-operator")
 
     def test_env_prefix_without_pipeline_stays_direct(self):
-        # No shell operators → direct argv path; the env-readonly check only
-        # kicks in for pipelines. Non-pipeline commands keep their previous
-        # behavior (argv exec with shell=False).
+        # 没有 shell 操作符时走 direct 参数路径；env 只读检查只会
+        # 在管道场景生效。非管道命令保持原有
+        # 行为（使用 shell=False 的参数列表执行）。
         plan = self._plan("env FOO=bar find src")
         self.assertEqual(plan.mode, "direct")
 
     def test_pipeline_with_nonreadonly_segment_requires_confirm(self):
-        # tee writes output files — not in readonly list
+        # tee 会写输出文件，不在只读名单中
         plan = self._plan("find src | tee out.txt")
         self.assertEqual(plan.mode, "confirm")
 
@@ -79,7 +79,7 @@ class ReadonlyPipelinePlanTest(unittest.TestCase):
         self.assertEqual(plan.mode, "confirm")
 
     def test_destructive_confirm_pattern_still_wins(self):
-        # Even if wrapped in a readonly-looking pipeline, confirm_patterns trip first.
+        # 即使包在看似只读的管道里，也优先命中确认规则。
         plan = self._plan("find src && rm -rf build")
         self.assertEqual(plan.mode, "confirm")
         self.assertEqual(plan.reason, "confirm-pattern")
@@ -89,8 +89,8 @@ class ReadonlyPipelinePlanTest(unittest.TestCase):
         self.assertEqual(plan.mode, "shell-safe")
 
     def test_unknown_bin_is_still_direct_without_operators(self):
-        # Without shell operators, we go the normal argv path, which returns `direct`.
-        # Policy stays unchanged for non-pipeline commands.
+        # 没有 shell 操作符时走普通参数路径，返回 `direct`。
+        # 非管道命令的策略保持不变。
         plan = self._plan("python -V")
         self.assertEqual(plan.mode, "direct")
 
@@ -114,7 +114,7 @@ class SafeBinReadonlyPolicyTest(unittest.TestCase):
         self.assertTrue(expected.issubset(set(policy.safe_bin_readonly)))
 
     def test_expansion_includes_common_inspection_bins(self):
-        """Common inspection commands should be treated as readonly."""
+        """常见巡检命令应视为只读。"""
         policy = CommandExecutionPolicy()
         expected_inspection_bins = {
             # 输出类
@@ -137,14 +137,14 @@ class SafeBinReadonlyPolicyTest(unittest.TestCase):
         self.assertTrue(expected_inspection_bins.issubset(set(policy.safe_bin_readonly)))
 
     def test_expansion_excludes_write_capable_bins(self):
-        """Write-capable commands must stay outside the readonly allowlist."""
+        """具备写入能力的命令必须排除在只读白名单之外。"""
         policy = CommandExecutionPolicy()
         forbidden = {"sed", "awk", "xargs", "tee", "dd", "cp", "chmod", "chown"}
         self.assertEqual(set(policy.safe_bin_readonly) & forbidden, set())
 
 
 class ExpandedReadonlyPipelineTest(unittest.TestCase):
-    """Common readonly inspection pipelines should use shell-safe mode."""
+    """常见只读巡检管道应使用 shell-safe 模式。"""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -169,7 +169,7 @@ class ExpandedReadonlyPipelineTest(unittest.TestCase):
 
     def test_gpu_query_is_shell_safe(self):
         plan = self._plan("nvidia-smi --query-gpu=name,memory.used --format=csv")
-        # 无 pipeline operator 时走 direct
+        # 无管道操作符时走 direct
         self.assertEqual(plan.mode, "direct")
 
     def test_grep_sort_pipeline_is_shell_safe(self):
@@ -177,7 +177,7 @@ class ExpandedReadonlyPipelineTest(unittest.TestCase):
         self.assertEqual(plan.mode, "shell-safe")
 
     def test_sed_inplace_still_requires_confirm(self):
-        """sed 绝不入白名单；即使和 readonly 拼在一起也要过确认。"""
+        """sed 绝不入白名单；即使和只读命令拼在一起也要过确认。"""
         plan = self._plan("cat foo | sed -i 's/a/b/' foo")
         self.assertEqual(plan.mode, "confirm")
 

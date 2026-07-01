@@ -1,4 +1,4 @@
-"""read_file offset/limit and glob behavior tests."""
+"""read_file offset/limit 与 glob 行为测试。"""
 from __future__ import annotations
 
 import tempfile

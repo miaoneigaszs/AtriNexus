@@ -1,4 +1,4 @@
-"""FastPath environment switch, /agent prefix, and trajectory behavior tests."""
+"""FastPath 环境开关、/agent 前缀和轨迹记录行为测试。"""
 from __future__ import annotations
 
 import importlib.util
@@ -119,7 +119,7 @@ class StripAgentPrefixTest(unittest.TestCase):
 
 
 class RouterEnvGateSourceTest(unittest.TestCase):
-    """try_handle 的 env 短路应立即返回——源码文本断言。"""
+    """try_handle 的环境变量短路应立即返回——源码文本断言。"""
 
     def test_disabled_branch_returns_disabled_outcome(self):
         source = ROUTER_PATH.read_text(encoding="utf-8")
@@ -127,7 +127,7 @@ class RouterEnvGateSourceTest(unittest.TestCase):
         self.assertIn("return FastPathOutcome.miss(INTENT_DISABLED)", source)
 
     def test_try_handle_has_no_resolver_interaction(self):
-        # try_handle no longer touches path_resolver;
+        # try_handle 不再触碰 path_resolver；
         # 所有非空消息都交给 agent loop。
         source = ROUTER_PATH.read_text(encoding="utf-8")
         try_handle_start = source.index("def try_handle(")

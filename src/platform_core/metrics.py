@@ -94,7 +94,7 @@ class Metrics:
         cls.llm_tokens_total = Counter(
             'atrinexus_llm_tokens_total',
             'Total LLM tokens used',
-            ['model', 'type'],  # type: prompt/completion
+            ['model', 'type'],  # type 表示 prompt/completion
             registry=registry
         )
         

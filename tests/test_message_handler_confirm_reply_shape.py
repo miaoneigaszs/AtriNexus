@@ -1,4 +1,4 @@
-"""User-facing compact display tests for long confirm_reply content."""
+"""长 confirm_reply 内容的用户侧精简展示测试。"""
 from __future__ import annotations
 
 import ast
@@ -45,7 +45,7 @@ class CompactConfirmReplyShortOutputTest(unittest.TestCase):
     def test_output_just_below_threshold_untouched(self):
         body = "\n".join(f"line {i}" for i in range(18))
         text = f"命令: cat x\n退出码: 0\n执行模式: shell-readonly\n\n标准输出:\n{body}"
-        # 总行数 = 5 (meta + blank + marker) + 18 = 23 < 25, chars < 1500
+        # 总行数 = 5（元信息 + 空行 + 标记）+ 18 = 23，小于 25；字符数小于 1500
         self.assertEqual(self.compact(text), text)
 
 

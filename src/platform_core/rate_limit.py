@@ -1,4 +1,4 @@
-"""Provider 速率限制头解析与展示。
+"""模型提供方速率限制响应头解析与展示。
 
 从 API 响应头（`x-ratelimit-*`）解析出请求/token 的分钟/小时配额，生成
 ASCII 进度条用于 `/usage` 类命令。参考 hermes-agent/agent/rate_limit_tracker.py。
@@ -229,7 +229,7 @@ _latest_state: Optional[RateLimitState] = None
 
 
 def record_latest_state(state: Optional[RateLimitState]) -> None:
-    """middleware 在每次响应后调一次；provider 没提供头则传 None。"""
+    """中间件在每次响应后调用一次；模型提供方没提供响应头则传 None。"""
     global _latest_state
     if state is not None:
         _latest_state = state

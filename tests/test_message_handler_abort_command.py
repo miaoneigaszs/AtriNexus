@@ -1,4 +1,4 @@
-"""message_handler 顶层 abort 命令匹配测试。"""
+"""message_handler 顶层中止命令匹配测试。"""
 
 from __future__ import annotations
 

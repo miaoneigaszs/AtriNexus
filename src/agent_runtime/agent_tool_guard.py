@@ -1,8 +1,6 @@
-"""Tool-call guardrails and result shaping.
+"""工具调用护栏与结果整形。
 
-AgentToolGuard validates tool arguments before execution, blocks unsafe calls,
-normalizes workspace paths, trims large observations, and tracks repeated tool
-failures for a single run.
+AgentToolGuard 会在执行前校验工具参数、拦截不安全调用、规范化工作区路径、裁剪过大的观测结果，并跟踪单轮 run 内的重复工具失败。
 """
 from __future__ import annotations
 
@@ -37,9 +35,9 @@ SEARCH_FILES_TOOL_NAME = "search_files"
 GLOB_TOOL_NAME = "glob"
 EXPLORATION_TOOL_NAMES = {LIST_DIRECTORY_TOOL_NAME, SEARCH_FILES_TOOL_NAME}
 
-# 只读浏览类工具：重复调用通常是在换 query / offset / limit 继续翻内容，不是
+# 只读浏览类工具：重复调用通常是在更换查询词、偏移量或数量限制继续翻内容，不是
 # 死循环。对这些工具放宽重复上限，并且判重签名只看 tool_name + primary_path，
-# 避免 offset=10 / offset=20 被当成"同一签名"触发 loop guard。
+# 避免 offset=10 / offset=20 被当成“同一签名”触发循环护栏。
 RELAXED_LOOP_TOOL_NAMES = {
     SEARCH_FILES_TOOL_NAME,
     LIST_DIRECTORY_TOOL_NAME,
@@ -72,7 +70,7 @@ class AgentToolGuard:
     def __init__(self, tool_catalog: Any) -> None:
         self.tool_catalog = tool_catalog
 
-    # ── Loop 状态生命周期 ───────────────────────────────────────────────
+    # ── 循环状态生命周期 ───────────────────────────────────────────────
 
     def create_loop_state(self) -> Dict[str, Any]:
         return {"counts": {}, "recent": []}
@@ -88,7 +86,7 @@ class AgentToolGuard:
     async def before_tool_call(
         self, ctx: BeforeToolCallContext
     ) -> Optional[BeforeToolCallResult]:
-        # 在任何工具调用前先检查用户是否要求取消；是则让 agent loop 捕获 CancelledError。
+        # 在任何工具调用前先检查用户是否要求取消；是则让 agent loop 捕获取消异常。
         if abort_requested():
             logger.info("Tool call aborted: name=%s reason=user-abort", ctx.tool_name)
             raise asyncio.CancelledError("user requested abort")
@@ -146,7 +144,7 @@ class AgentToolGuard:
             return AfterToolCallResult(content=shaped)
         return None
 
-    # ── Arg repair ──────────────────────────────────────────────────────
+    # ── 参数修复 ───────────────────────────────────────────────────────
 
     def summarize_tool_args(self, tool_args: Any) -> str:
         raw = str(tool_args)
@@ -219,7 +217,7 @@ class AgentToolGuard:
             return repaired, "path-repaired"
         return normalized, ""
 
-    # ── Loop guard ──────────────────────────────────────────────────────
+    # ── 循环护栏 ───────────────────────────────────────────────────────
 
     def check_tool_loop(self, tool_name: str, tool_args: Any) -> Optional[str]:
         loop_state = TOOL_LOOP_STATE.get()
@@ -317,7 +315,7 @@ class AgentToolGuard:
             return True
         return False
 
-    # ── Arg validation ──────────────────────────────────────────────────
+    # ── 参数校验 ───────────────────────────────────────────────────────
 
     def validate_tool_args(self, tool_name: str, tool_args: Any) -> Optional[str]:
         if not isinstance(tool_args, dict):
@@ -369,7 +367,7 @@ class AgentToolGuard:
                 return value
         return ""
 
-    # ── Result shaping ──────────────────────────────────────────────────
+    # ── 结果整形 ───────────────────────────────────────────────────────
 
     def shape_tool_result(self, tool_name: str, tool_args: Any, content: str) -> str:
         if tool_name == LIST_DIRECTORY_TOOL_NAME:
@@ -419,7 +417,7 @@ class AgentToolGuard:
             return text
         return text[:MAX_TOOL_RESULT_CHARS] + "\n\n[工具输出过长，已截断]"
 
-    # ── Shared utilities ────────────────────────────────────────────────
+    # ── 共享工具函数 ───────────────────────────────────────────────────
 
     def build_tool_signature(self, tool_name: str, tool_args: Any) -> str:
         if tool_name in RELAXED_LOOP_TOOL_NAMES:

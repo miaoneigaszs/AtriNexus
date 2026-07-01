@@ -1,10 +1,6 @@
-"""Core streaming agent loop.
+"""核心流式 agent 循环。
 
-The loop prepares context, lets hooks adjust outbound messages, streams one
-provider response, executes requested tools, appends tool observations, and
-continues until the model produces a final answer or a guard condition stops the
-run. Cancellation is checked between hook and tool boundaries so user aborts can
-stop long-running work promptly.
+循环会准备上下文，允许 hook 调整出站消息，流式读取一次 provider 响应，执行模型请求的工具，追加工具观测结果，并持续运行到模型产出最终回复或护栏条件终止本轮。取消信号会在 hook 与工具边界之间检查，确保用户中止可以及时停止长任务。
 """
 from __future__ import annotations
 
@@ -52,7 +48,7 @@ class ToolEvent:
     name: str
     args: Dict[str, Any]
     result: str
-    status: str  # "ok" / "error" / "blocked"
+    status: str  # 状态取值："ok" / "error" / "blocked"
 
 
 @dataclass
@@ -265,7 +261,7 @@ async def run_agent_loop(
     )
 
 
-# ── 内部 helper ─────────────────────────────────────────────────────────
+# ── 内部辅助函数 ───────────────────────────────────────────────────────
 
 
 def _maybe_compress(messages: List[Message], engine: Optional[ContextEngine]) -> List[Message]:
@@ -316,7 +312,7 @@ def _from_openai_dicts(items: List[Dict[str, Any]]) -> List[Message]:
                 content=str(content),
                 name=item.get("name"),
             ))
-        # 未识别 role 直接忽略——压缩器只产合法消息
+        # 未识别角色直接忽略——压缩器只产合法消息
     return converted
 
 
@@ -352,7 +348,7 @@ def _fire_on_response(
         on_response(OnResponseContext(
             model=model,
             response=summary,
-            response_metadata=None,  # 自建 provider 当前不暴露原始头；后续接 Anthropic native 时可补
+            response_metadata=None,  # 当前模型提供方不暴露原始响应头；后续接入 Anthropic 原生接口时可补充
             duration_ms=duration_ms,
         ))
     except Exception as exc:

@@ -8,7 +8,7 @@ GENERIC_REJECTION_WORDS = {"拒绝", "不同意", "不通过", "取消", "算了
 
 
 class PendingConfirmationHandler:
-    """Handle pending command/change confirmations before the normal message flow."""
+    """在普通消息流程前处理待确认的命令和修改。"""
 
     def __init__(
         self,

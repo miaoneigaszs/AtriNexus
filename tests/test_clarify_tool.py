@@ -1,4 +1,4 @@
-"""Clarify tool behavior and agent-loop integration tests."""
+"""clarify 工具行为与 agent loop 集成测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -157,7 +157,7 @@ class ClarifyLoopIntegrationTest(unittest.TestCase):
         )
 
     def test_clarify_call_terminates_loop_with_stop_reason_clarify(self):
-        # Script: agent first responds with a clarify tool call. No second turn needed.
+        # 脚本：agent 首轮返回 clarify 工具调用，不需要第二轮。
         script = [
             [
                 _tool_call_event(
@@ -185,13 +185,13 @@ class ClarifyLoopIntegrationTest(unittest.TestCase):
         self.assertEqual(result.stop_reason, "clarify")
         self.assertIn("改哪个文件？", result.text)
         self.assertIn("1. README.md", result.text)
-        # Did NOT go past 1 iteration (no second provider call needed).
+        # 不应超过 1 次迭代（不需要第二次 provider 调用）。
         self.assertEqual(provider.calls, 1)
-        # Contextvar cleared after being taken.
+        # contextvar 被取出后会清空。
         self.assertIsNone(CLARIFY_PENDING.get())
 
     def test_non_clarify_tool_call_does_not_terminate(self):
-        # Script: first turn calls `other_tool`; second turn stops with plain text.
+        # 脚本：第一轮调用 `other_tool`，第二轮以普通文本结束。
         async def other_handler(args: Dict[str, Any]) -> str:
             return "ok"
 

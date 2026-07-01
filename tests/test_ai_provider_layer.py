@@ -1,4 +1,4 @@
-"""Focused tests for the framework-neutral AI provider layer."""
+"""框架中立 AI provider 层的聚焦测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -47,7 +47,7 @@ async def _async_iter(items: List[bytes]) -> AsyncIterator[bytes]:
         yield item
 
 
-# ── types ────────────────────────────────────────────────────────────────
+# ── 类型 ─────────────────────────────────────────────────────────────
 
 
 class TypesSerializationTest(unittest.TestCase):
@@ -114,7 +114,7 @@ class TypesSerializationTest(unittest.TestCase):
         self.assertEqual(merged.cache_read_tokens, 8)
 
 
-# ── registry ────────────────────────────────────────────────────────────
+# ── 注册表 ─────────────────────────────────────────────────────────
 
 
 class RegistryTest(unittest.TestCase):
@@ -148,7 +148,7 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("deepseek-ai/deepseek-v3", models)
 
 
-# ── stream parsing ──────────────────────────────────────────────────────
+# ── 流解析 ─────────────────────────────────────────────────────────
 
 
 class StreamSseLineTest(unittest.TestCase):
@@ -194,7 +194,7 @@ class StreamAccumulatorTest(unittest.TestCase):
 
     def test_two_concurrent_tool_calls_by_index(self):
         acc = StreamAccumulator()
-        # 两个 tool call 交替送
+        # 两个工具调用交替发送
         acc.feed_chunk({"choices": [{"delta": {"tool_calls": [
             {"index": 0, "id": "a", "function": {"name": "f1", "arguments": "{}"}},
             {"index": 1, "id": "b", "function": {"name": "f2", "arguments": "{\"x\":1}"}},
@@ -258,7 +258,7 @@ class StreamDriverTest(unittest.TestCase):
         self.assertTrue(any(isinstance(e, StreamDone) for e in events))
 
 
-# ── openai_compat provider ──────────────────────────────────────────────
+# ── openai_compat 模型提供方 ───────────────────────────────────────
 
 
 class _FakeAsyncResponse:
@@ -316,7 +316,7 @@ class OpenAICompatProviderTest(unittest.TestCase):
         events = _run(consume())
         self.assertTrue(any(isinstance(e, TextDelta) for e in events))
         self.assertTrue(any(isinstance(e, StreamDone) for e in events))
-        # 验证 url + headers + payload
+        # 验证 URL、请求头和载荷
         sent = client.last_request
         self.assertEqual(sent["method"], "POST")
         self.assertEqual(sent["url"], "https://api.test/v1/chat/completions")
@@ -325,7 +325,7 @@ class OpenAICompatProviderTest(unittest.TestCase):
         self.assertEqual(sent["json"]["model"], "deepseek-ai/DeepSeek-V3")
         self.assertEqual(sent["json"]["temperature"], 0.7)
         self.assertEqual(sent["json"]["max_tokens"], 512)
-        self.assertNotIn("tools", sent["json"])  # 没传 tools 时不带
+        self.assertNotIn("tools", sent["json"])  # 没传工具时不带该字段
 
     def test_http_error_becomes_stream_error(self):
         body = b'{"error": {"message": "invalid api key"}}'

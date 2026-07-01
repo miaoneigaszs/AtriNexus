@@ -1,4 +1,4 @@
-"""TodoStore behavior tests."""
+"""TodoStore 行为测试。"""
 from __future__ import annotations
 
 import unittest

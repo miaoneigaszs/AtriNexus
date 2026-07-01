@@ -26,7 +26,7 @@ class ProviderRequest:
 
 
 class ProviderAdapter(ABC):
-    """Provider 抽象。每个具体 provider（OpenAI 兼容、Anthropic native 等）实现一份。"""
+    """模型提供方抽象。每个具体模型提供方（OpenAI 兼容、Anthropic 原生等）实现一份。"""
 
     name: str = "base"
 
@@ -39,11 +39,11 @@ class ProviderAdapter(ABC):
         - 必须在 StreamDone 上挂 usage（如果 provider 没给 usage 字段，也要构造一个空 Usage）
         - 必须支持取消：caller 通过取消外层 task 关闭 generator，实现需在 yield 之间能感知
         """
-        # 让类型检查器知道这是 async generator
+        # 让类型检查器知道这是异步生成器
         if False:
             yield  # pragma: no cover
 
-    def supports_tools(self, model: str) -> bool:  # noqa: ARG002 — provider 子类可重写
+    def supports_tools(self, model: str) -> bool:  # noqa: ARG002 — 模型提供方子类可重写
         """该 provider 在该 model 下是否支持 tool calling。"""
         return True
 

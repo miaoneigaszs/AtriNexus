@@ -1,4 +1,4 @@
-"""Smoke tests for todo tools in ToolCatalog and runtime prompts."""
+"""ToolCatalog 和运行时 prompt 中 todo 工具的冒烟测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +35,7 @@ class TodoToolHandlerBehaviorTest(unittest.TestCase):
     """通过直接调 `_run_todo_tool` 验证 handler 逻辑，不经 ToolCatalog 构造。"""
 
     def setUp(self):
-        # 每个 test 使用一个独立 TodoStore，避免全局单例污染
+        # 每个测试使用一个独立 TodoStore，避免全局单例污染
         from src.agent_runtime.todo_store import TodoStore, TodoItem
 
         self.TodoStore = TodoStore

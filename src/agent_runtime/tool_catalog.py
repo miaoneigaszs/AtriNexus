@@ -1,8 +1,6 @@
-"""Agent tool catalog.
+"""Agent 工具目录。
 
-Each tool is registered as a ToolSpec plus an async handler that accepts parsed
-arguments and returns a text observation. Session tool profiles decide which
-sections are exposed; hooks enforce finer-grained permission and safety checks.
+每个工具由 ToolSpec 和异步 handler 组成；handler 接收解析后的参数并返回文本观测结果。会话工具档位决定暴露哪些 section，hooks 负责更细粒度的权限和安全检查。
 """
 from __future__ import annotations
 
@@ -114,7 +112,7 @@ def _sync_handler(fn: Callable[..., str]) -> ToolHandler:
 
 
 def _run_todo_tool(user_id: str, kwargs: Dict[str, Any]) -> str:
-    """todo 工具 handler：读 / 写 per-user 待办清单，返回渲染后的清单文本。"""
+    """todo 工具处理器：读写按用户隔离的待办清单，返回渲染后的清单文本。"""
     raw_todos = kwargs.get("todos")
     if raw_todos is None:
         items = todo_store.get(user_id)
@@ -159,7 +157,7 @@ def _format_todo_reply(items: List["TodoItem"], *, action: str) -> str:
 
 
 def _run_clarify_tool(kwargs: Dict[str, Any]) -> str:
-    """Clarify handler：写入 clarify 信号，返回拼好的问题 + 候选文本。
+    """Clarify 处理器：写入澄清信号，返回拼好的问题和候选文本。
 
     Handler 本身没有副作用的"执行"，它只是（a）把问题送给用户，（b）终止本轮
     agent run。后者由 agent_loop 读 CLARIFY_PENDING 完成。
@@ -186,7 +184,7 @@ def _run_clarify_tool(kwargs: Dict[str, Any]) -> str:
     return formatted
 
 
-# ── ToolCatalog ─────────────────────────────────────────────────────────
+# ── 工具目录 ────────────────────────────────────────────────────────
 
 
 class ToolCatalog:
@@ -330,7 +328,7 @@ class ToolCatalog:
             ),
         ]
 
-    # ── 各 section 的工具构造 ───────────────────────────────────────────
+    # ── 各工具分组的构造 ───────────────────────────────────────────────
 
     def _build_core_tools(self, user_id: str) -> List[RegisteredTool]:
         time_tool = self.time_tool

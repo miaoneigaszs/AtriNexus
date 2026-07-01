@@ -1,8 +1,6 @@
-"""WeCom message orchestration.
+"""企业微信消息编排。
 
-MessageHandler verifies inbound messages, handles commands and fast-path replies,
-invokes the agent service for normal chat, persists chat history, and triggers
-memory updates.
+MessageHandler 校验入站消息，处理命令和 FastPath 回复，为普通聊天调用 agent 服务，持久化聊天历史，并触发记忆更新。
 """
 import logging
 import os
@@ -38,7 +36,7 @@ from src.ingress.middleware.dedup_middleware import DedupMiddleware
 
 logger = logging.getLogger('wecom')
 
-# 当前有活跃 run 时，仅把规范化后的明确取消口令识别为 abort。
+# 当前有活跃 run 时，仅把规范化后的明确取消口令识别为中止。
 _ABORT_COMMANDS = {"取消", "停止", "别弄了", "不做了", "算了", "停", "停停停", "先别做", "stop", "cancel", "abort", "no"}
 _ABORT_TRAILING_PUNCTUATION = "!?！？…。,，;；:：'\"`’”)]}】」』>"
 
@@ -229,7 +227,7 @@ class MessageHandler:
 
         content_trim = content.strip()
 
-        # 2. 当前用户已有活跃 agent run：明确取消口令立即处理；其他消息进 follow-up 队列
+        # 2. 当前用户已有活跃 agent run：明确取消口令立即处理；其他消息进入追发队列
         if await self.reply_service.is_running(user_id):
             if _is_abort_command(content_trim):
                 aborted = await self.reply_service.abort(user_id)
@@ -262,7 +260,7 @@ class MessageHandler:
             await self.client.send_text_async(user_id, _compact_confirm_reply_for_user(confirm_reply))
             return
 
-        # 3. `/agent` 前缀：用户显式绕过 FastPath 意图路由，进 agent loop。
+        # 3. `/agent` 前缀：用户显式绕过 FastPath 意图路由，进入 agent loop。
         agent_payload, bypass_fast_path = strip_agent_prefix(content_trim)
         if bypass_fast_path:
             content = agent_payload
@@ -291,7 +289,7 @@ class MessageHandler:
         # 6. 正常消息处理流程
         await self._execute_kb_search(user_id, content, msg_id)
 
-        # 7. 运行期间用户可能追发了其他消息，依次消耗 follow-up 队列
+        # 7. 运行期间用户可能追发其他消息，依次消费追发队列
         await self._drain_follow_up_queue(user_id)
 
     async def _drain_follow_up_queue(self, user_id: str) -> None:

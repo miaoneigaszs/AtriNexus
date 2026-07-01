@@ -1,9 +1,6 @@
-"""Agent runtime hook interfaces.
+"""Agent 运行时 hook 接口。
 
-Hooks keep cross-cutting concerns outside the core loop: tool permission checks,
-result shaping, outbound context transforms, and response observation. Returning
-None means "leave the current value unchanged"; returning a result object applies
-the fields set on that object.
+Hook 将横切逻辑放在核心循环之外：工具权限检查、结果整形、出站上下文转换和响应观测。返回 None 表示“不修改当前值”；返回 result 对象表示应用该对象中设置的字段。
 """
 from __future__ import annotations
 
@@ -11,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Dict, List, Optional, Protocol, runtime_checkable
 
 
-# ── Tool call hooks ─────────────────────────────────────────────────────
+# ── 工具调用钩子 ───────────────────────────────────────────────────
 
 
 @dataclass
@@ -25,13 +22,13 @@ class BeforeToolCallContext:
 
 @dataclass
 class BeforeToolCallResult:
-    """before_tool_call 的返回值。字段全部可选，只有被设置的才生效。"""
+    """工具调用前钩子的返回值。字段全部可选，只有被设置的才生效。"""
 
     block: bool = False
-    """True 则拒绝执行，用 reason 作为 tool 错误消息返回给 agent。"""
+    """为 True 时拒绝执行，并用 reason 作为工具错误消息返回给 agent。"""
 
     reason: str = ""
-    """block=True 时的用户/agent 可见解释。"""
+    """阻断执行时给用户或 agent 看的解释。"""
 
     repaired_args: Optional[Dict[str, Any]] = None
     """不为 None 则替换原 args。支持轻量修正（路径规范化、去空格等）。"""
@@ -50,7 +47,7 @@ class AfterToolCallContext:
 
 @dataclass
 class AfterToolCallResult:
-    """after_tool_call 的返回值；字段都可选。"""
+    """工具调用后钩子的返回值；字段都可选。"""
 
     content: Optional[str] = None
     """不为 None 则替换结果文本（例如截断、整形）。"""
@@ -59,7 +56,7 @@ class AfterToolCallResult:
     """不为 None 则覆盖错误标志。"""
 
 
-# ── Context / response hooks ────────────────────────────────────────────
+# ── 上下文 / 响应钩子 ──────────────────────────────────────────────
 
 
 @dataclass
@@ -72,7 +69,7 @@ class TransformContextContext:
 
 @dataclass
 class TransformContextResult:
-    """transform_context 的返回值。"""
+    """上下文转换钩子的返回值。"""
 
     messages: Optional[List[Dict[str, Any]]] = None
     """不为 None 则替换消息列表。"""
@@ -84,7 +81,7 @@ class OnResponseContext:
 
     model: str
     response: Any
-    """Provider 原始响应对象或响应摘要。"""
+    """模型提供方的原始响应对象或响应摘要。"""
 
     response_metadata: Optional[Dict[str, Any]] = None
     """若 provider 暴露了 metadata / headers，提前抽出来传入。"""
@@ -92,12 +89,12 @@ class OnResponseContext:
     duration_ms: float = 0.0
 
 
-# ── Protocol ────────────────────────────────────────────────────────────
+# ── 协议 ─────────────────────────────────────────────────────────────
 
 
 @runtime_checkable
 class AgentHooks(Protocol):
-    """Agent 运行时 hook 协议。实现方按需覆盖方法；未实现的按"不改"处理。"""
+    """Agent 运行时钩子协议。实现方按需覆盖方法；未实现的按“不改”处理。"""
 
     async def before_tool_call(
         self, ctx: BeforeToolCallContext
@@ -118,7 +115,7 @@ class AgentHooks(Protocol):
         ...
 
 
-# ── No-op baseline ──────────────────────────────────────────────────────
+# ── 空实现基线 ───────────────────────────────────────────────────────
 
 
 class NoopAgentHooks:

@@ -1,4 +1,4 @@
-"""Smoke tests for edit requests handled through agent tools."""
+"""编辑请求通过 agent 工具处理的冒烟测试。"""
 from __future__ import annotations
 
 import importlib.util

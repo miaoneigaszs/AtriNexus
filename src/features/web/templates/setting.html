@@ -403,12 +403,12 @@
     </div>
 
     <script>
-        // ========== State ==========
+        // ========== 状态 ==========
         let configData = null;
         let currentTab = 'llm';
         let availableModels = [];
 
-        // ========== Tab definitions ==========
+        // ========== 标签页定义 ==========
         const TAB_DEFS = {
             llm: {
                 title: '大语言模型配置',
@@ -452,7 +452,7 @@
             }
         };
 
-        // ========== Toast ==========
+        // ========== 提示消息 ==========
         function showToast(message, type = 'success') {
             const toast = document.getElementById('toast');
             const msgEl = document.getElementById('toast-message');
@@ -466,7 +466,7 @@
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
 
-        // ========== API ==========
+        // ========== 接口 ==========
         async function fetchApi(url, options = {}) {
             try {
                 const response = await fetch(url, options);
@@ -494,7 +494,7 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> 保存中...';
 
-            // Collect values from DOM
+            // 从 DOM 收集值
             collectFormValues();
 
             const result = await fetchApi('/api/config', {
@@ -523,7 +523,7 @@
             const result = await fetchApi('/api/models/refresh');
             if (result.success) {
                 availableModels = result.data || [];
-                // Update the datalist
+                // 更新 datalist
                 const datalist = document.getElementById('modelDatalist');
                 if (datalist) {
                     datalist.innerHTML = availableModels.map(m => `<option value="${m}">`).join('');
@@ -539,7 +539,7 @@
             }
         }
 
-        // ========== Rendering ==========
+        // ========== 渲染 ==========
         function getSettings(category, path) {
             let settings = configData[category]?.settings;
             if (!settings) return {};
@@ -611,7 +611,7 @@
                 inputHtml = `<input type="text" class="warm-input" data-field="${id}" value="${escapeHtml(String(value || ''))}">`;
             }
 
-            // Special: model field with refresh button
+            // 特殊项：带刷新按钮的模型字段
             if (key === 'model' && id.startsWith('llm_settings')) {
                 inputHtml = `
                     <div class="flex gap-2 items-center">
@@ -640,7 +640,7 @@
             return html;
         }
 
-        // ========== Tasks Panel ==========
+        // ========== 任务面板 ==========
         let tasksData = [];
 
         async function loadTasks() {
@@ -706,7 +706,7 @@
             let html = '<div class="section-title">定时任务管理</div>';
             html += '<p class="text-xs text-[#A8A29A] mb-4">任务到点后将加载人设和记忆，由 LLM 生成自然消息发送给用户。</p>';
 
-            // Task list
+            // 任务列表
             if (tasksData.length === 0) {
                 html += '<div class="text-center text-[#A8A29A] py-4">暂无定时任务，请在下方添加</div>';
             } else {
@@ -730,7 +730,7 @@
                 }
             }
 
-            // Add task form
+            // 新增任务表单
             html += `
             <div class="section-title mt-6">添加新任务</div>
             <div class="field-group">
@@ -788,7 +788,7 @@
             container.innerHTML = `<div class="glass-card rounded-2xl p-6 panel-enter">${content}</div>`;
         }
 
-        // ========== Collect form values ==========
+        // ========== 收集表单值 ==========
         function collectFormValues() {
             document.querySelectorAll('[data-field]').forEach(el => {
                 const fieldPath = el.dataset.field;
@@ -811,22 +811,22 @@
         function setNestedValue(path, value) {
             const parts = path.split('.');
 
-            // Standard categories: llm_settings.api_key -> categories.llm_settings.settings.api_key.value
+            // 标准分类：llm_settings.api_key -> categories.llm_settings.settings.api_key.value
             if (parts.length === 2) {
                 const [category, key] = parts;
                 if (configData[category]?.settings?.[key]) {
                     configData[category].settings[key].value = value;
                 }
             }
-            // Media: media_settings.image_recognition.api_key
+            // 媒体配置：media_settings.image_recognition.api_key
             else if (parts.length === 3 && parts[0] !== 'behavior' && parts[0] !== 'system') {
                 const [category, sub, key] = parts;
                 if (configData[category]?.settings?.[sub]?.[key]) {
                     configData[category].settings[sub][key].value = value;
                 }
             }
-            // (tasks tab is managed separately via /api/tasks, not via config save)
-            // System performance
+            // 任务标签页通过 /api/tasks 单独管理，不随配置保存
+            // 系统性能
             else if (parts[0] === 'system') {
                 const sysSettings = configData.system_performance_settings?.settings;
                 if (!sysSettings) return;
@@ -836,7 +836,7 @@
             }
         }
 
-        // ========== Helpers ==========
+        // ========== 辅助函数 ==========
         function escapeHtml(text) {
             if (!text) return '';
             const div = document.createElement('div');
@@ -865,10 +865,10 @@
             }
         }
 
-        // ========== Tab Switching ==========
+        // ========== 标签页切换 ==========
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                // Collect current form values before switching
+                // 切换前收集当前表单值
                 if (configData) collectFormValues();
 
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -878,11 +878,11 @@
             });
         });
 
-        // ========== Event Listeners ==========
+        // ========== 事件监听器 ==========
         document.getElementById('saveBtn').addEventListener('click', saveConfig);
         document.getElementById('reloadBtn').addEventListener('click', loadConfig);
 
-        // ========== Init ==========
+        // ========== 初始化 ==========
         async function init() {
             await loadConfig();
             await loadTasks();

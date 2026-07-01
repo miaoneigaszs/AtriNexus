@@ -1,8 +1,6 @@
-"""Per-user agent runtime state.
+"""按用户隔离的 agent 运行时状态。
 
-A user can have one active run at a time. Messages sent during that run are queued
-as follow-ups, and abort requests are exposed through an event checked between
-provider, hook, and tool boundaries.
+每个用户同一时间只能有一个活跃 run。run 期间发送的新消息会进入 follow-up 队列；取消请求通过事件暴露，并在 provider、hook 和工具边界之间检查。
 """
 from __future__ import annotations
 
@@ -58,7 +56,7 @@ class PendingMessageQueue:
         return len(self._items)
 
 
-# ── Per-user 运行状态 ───────────────────────────────────────────────────
+# ── 按用户隔离的运行状态 ─────────────────────────────────────────────
 
 
 @dataclass
@@ -73,10 +71,10 @@ class UserRunState:
         self.abort_event = asyncio.Event()
 
 
-# ── Abort 信号穿透：contextvar ──────────────────────────────────────────
+# ── 取消信号穿透：contextvar ───────────────────────────────────────
 
 
-# hook 里可以通过 CURRENT_ABORT_EVENT.get() 取到当前 run 的取消信号。
+# 钩子里可以通过 CURRENT_ABORT_EVENT.get() 取到当前 run 的取消信号。
 # 没处于 run 里时值为 None。
 CURRENT_ABORT_EVENT: contextvars.ContextVar[Optional[asyncio.Event]] = contextvars.ContextVar(
     "atrinexus_current_abort_event",
@@ -85,12 +83,12 @@ CURRENT_ABORT_EVENT: contextvars.ContextVar[Optional[asyncio.Event]] = contextva
 
 
 def abort_requested() -> bool:
-    """hook 或工具内部的便捷查询：当前 run 是否被要求取消。"""
+    """钩子或工具内部的便捷查询：当前 run 是否被要求取消。"""
     event = CURRENT_ABORT_EVENT.get()
     return event is not None and event.is_set()
 
 
-# ── Registry ────────────────────────────────────────────────────────────
+# ── 注册表 ─────────────────────────────────────────────────────────
 
 
 class UserRuntimeRegistry:

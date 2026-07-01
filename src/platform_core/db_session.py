@@ -4,5 +4,5 @@ from src.platform_core.database import Session
 
 
 def new_session(**kwargs):
-    """Create a synchronous SQLAlchemy session."""
+    """创建同步 SQLAlchemy 会话。"""
     return Session(**kwargs)

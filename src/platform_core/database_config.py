@@ -11,7 +11,7 @@ def _require_database_url() -> str:
 
 
 def build_sync_database_url() -> str:
-    """Build the PostgreSQL URL used by the synchronous SQLAlchemy engine."""
+    """构建同步 SQLAlchemy 引擎使用的 PostgreSQL URL。"""
     raw_url = _require_database_url()
 
     if raw_url.startswith("postgresql+asyncpg://"):

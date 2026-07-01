@@ -38,7 +38,7 @@ class TokenUsageRecord:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
-    request_type: str = "chat"  # chat, intent, rag, etc.
+    request_type: str = "chat"  # 请求类型：chat、intent、rag 等
     # 详细 token 分解（可选）
     system_prompt_tokens: int = 0      # 人设+规则
     core_memory_tokens: int = 0        # 核心记忆
@@ -184,7 +184,7 @@ class TokenMonitor:
                     record_llm_request(
                         model=model,
                         status="success",
-                        duration=0,  # duration 不在这里记录
+                        duration=0,  # 耗时不在这里记录
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens
                     )

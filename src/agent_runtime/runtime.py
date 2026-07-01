@@ -86,11 +86,11 @@ class CommandExecutionPolicy:
     )
 
 
-# 命令分隔符：用于切割 "cmd1 | cmd2; cmd3 && cmd4" 之类的 pipeline，
-# 每段都要独立判定是否 readonly。`&&` / `||` 必须放在单字符 `&` / `|` 之前，
-# 否则 alternation 会先匹配单字符。
+# 命令分隔符：用于切割 "cmd1 | cmd2; cmd3 && cmd4" 之类的管道命令，
+# 每段都要独立判定是否只读。`&&` / `||` 必须放在单字符 `&` / `|` 之前，
+# 否则正则分支会先匹配单字符。
 _PIPELINE_SEPARATORS = re.compile(r"\|\||&&|\||;|&")
-# 重定向操作符：右侧是文件名，不是命令——只保留左侧做 readonly 判定。
+# 重定向操作符：右侧是文件名，不是命令——只保留左侧做只读判定。
 _REDIRECT_OPERATORS = re.compile(r"2>|>>|>|<")
 
 
@@ -612,7 +612,7 @@ class WorkspaceRuntime:
         return CommandExecutionPlan(mode="direct", reason="direct", argv=argv)
 
     def _is_readonly_pipeline(self, command: str) -> bool:
-        """Return True 当整条 shell 命令里每个管道段都只调 SAFE_BIN_READONLY。
+        """判断整条 shell 命令里的每个管道段是否都只调用 SAFE_BIN_READONLY。
 
         接受：`|`、`;`、`&&`、`||`、`&`，以及 `>`、`>>`、`<`、`2>` 这类把文件名作为
         RHS 的重定向（LHS 的命令会被单独校验）。拒绝：`$(...)` 或 backtick 命令替换

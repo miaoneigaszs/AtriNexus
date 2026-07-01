@@ -1,8 +1,6 @@
-"""Context-window management for a single agent run.
+"""单轮 agent run 的上下文窗口管理。
 
-ContextEngine decides when model-bound messages are too large and compresses them
-before the next provider call. It only manages the short-lived message window;
-long-term memory remains in src/memory.
+ContextEngine 判断即将发送给模型的消息是否过大，并在下一次 provider 调用前压缩它们。它只管理短生命周期的消息窗口；长期记忆仍由 src/memory 负责。
 """
 from __future__ import annotations
 
@@ -40,7 +38,7 @@ class ContextEngine(ABC):
         self.context_length: int = max(1, int(context_length))
         self.threshold_tokens: int = int(self.context_length * self.threshold_percent)
 
-    # -- Core ---------------------------------------------------------------
+    # -- 核心接口 ------------------------------------------------------------
 
     @abstractmethod
     def should_compress(
@@ -58,13 +56,13 @@ class ContextEngine(ABC):
     ) -> List[Dict[str, Any]]:
         """返回压缩后的消息列表（必须是合法的 OpenAI 风格序列）。"""
 
-    # -- Optional preflight -------------------------------------------------
+    # -- 可选预检 ------------------------------------------------------------
 
     def should_compress_preflight(self, messages: List[Dict[str, Any]]) -> bool:
         """LLM 调用前的廉价估算。默认走 should_compress。"""
         return self.should_compress(messages)
 
-    # -- Token bookkeeping --------------------------------------------------
+    # -- token 记账 ----------------------------------------------------------
 
     def update_from_response(self, usage: Dict[str, Any]) -> None:
         """收到 LLM 响应后更新 token 计数。usage 接受 OpenAI 风格字段。"""
@@ -77,7 +75,7 @@ class ContextEngine(ABC):
             self.last_completion_tokens = completion
             self.last_total_tokens = prompt + completion
 
-    # -- Lifecycle ----------------------------------------------------------
+    # -- 生命周期 ------------------------------------------------------------
 
     def on_session_start(self, session_id: str, **kwargs: Any) -> None:
         """会话开启钩子。默认无操作。"""
@@ -102,7 +100,7 @@ class ContextEngine(ABC):
         self.context_length = max(1, int(context_length))
         self.threshold_tokens = int(self.context_length * self.threshold_percent)
 
-    # -- Status -------------------------------------------------------------
+    # -- 状态 ----------------------------------------------------------------
 
     def get_status(self) -> Dict[str, Any]:
         usage_pct = 0.0
@@ -145,7 +143,7 @@ class DefaultCompressor(ContextEngine):
         super().__init__(context_length=context_length)
         self.chars_per_token = max(1, chars_per_token)
 
-    # -- Token estimation ---------------------------------------------------
+    # -- token 估算 ----------------------------------------------------------
 
     def estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """字符长度粗估 token；与 platform_core/token_monitor 估算口径一致。"""
@@ -168,7 +166,7 @@ class DefaultCompressor(ContextEngine):
             return 0
         return max(1, total_chars // self.chars_per_token)
 
-    # -- Decisions ----------------------------------------------------------
+    # -- 决策 ----------------------------------------------------------------
 
     def should_compress(
         self,

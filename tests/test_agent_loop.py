@@ -1,9 +1,4 @@
-"""Focused tests for the streaming agent loop.
-
-FakeProvider supplies deterministic stream events so tests cover normal replies,
-tool execution, missing tools, hook blocks, cancellation, max-iteration stops,
-and stream usage accumulation without real HTTP calls.
-"""
+"""流式 agent loop 的聚焦测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -136,7 +131,7 @@ class AgentLoopHappyPathTest(unittest.TestCase):
         self.assertEqual(len(result.tool_events), 1)
         self.assertEqual(result.tool_events[0].status, "ok")
         self.assertIn("11:11", result.tool_events[0].result)
-        # 第二轮请求里应该有 4 条消息：sys + user + assistant + tool
+        # 第二轮请求里应该有 4 条消息：系统、用户、助手、工具
         second_request = provider.requests[1]
         roles = [m.role for m in second_request.messages]
         self.assertEqual(roles[-2:], ["assistant", "tool"])
@@ -243,7 +238,7 @@ class AgentLoopAbortTest(unittest.TestCase):
         self.assertEqual(len(provider.requests), 0)
 
     def test_abort_between_tool_calls(self):
-        # 第一轮 → tool call；abort 在 tool 执行前，因此第二轮不发生
+        # 第一轮触发工具调用；取消发生在工具执行前，因此第二轮不发生
         tool = _make_tool("any")
         provider = FakeProvider([
             _tool_call_then_done("c1", "any", "{}"),
@@ -278,7 +273,7 @@ class AgentLoopBoundaryTest(unittest.TestCase):
         # 反复让模型调用工具，永不收敛 → 被 max_iterations 卡住
         tool = _make_tool("any")
         scripts = []
-        # max_iterations=3 → loop 内消耗 3 个 tool_call 脚本
+        # max_iterations=3 时，循环内消耗 3 个工具调用脚本
         for _ in range(3):
             scripts.append(_tool_call_then_done("c1", "any", "{}"))
         # 收尾轮（max_iterations 后会再发一次给模型机会）

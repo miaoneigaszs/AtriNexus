@@ -1,4 +1,4 @@
-"""Clarify tool 的跨层信号。
+"""clarify 工具的跨层信号。
 
 `clarify` 工具 handler 调用 `mark_clarify(...)` 把澄清问题写进 contextvar；
 agent_loop 在处理完一轮 tool call 后读取，一旦拿到非空问题，立即返回
@@ -21,12 +21,12 @@ CLARIFY_PENDING: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 
 
 def mark_clarify(question: str) -> None:
-    """Clarify 工具 handler 调用这个写入澄清文本。"""
+    """clarify 工具处理器调用这个函数写入澄清文本。"""
     CLARIFY_PENDING.set(question or None)
 
 
 def take_clarify() -> Optional[str]:
-    """Agent loop 每轮结束时调一次。有值就返回并清空，让下一轮从干净状态开始。"""
+    """Agent loop 每轮结束时调用一次。有值就返回并清空，让下一轮从干净状态开始。"""
     value = CLARIFY_PENDING.get()
     if value is not None:
         CLARIFY_PENDING.set(None)
@@ -34,10 +34,10 @@ def take_clarify() -> Optional[str]:
 
 
 def reset_clarify():
-    """Run 开始时调一次，清掉上一轮残留。返回 token，配合 `restore_clarify`。"""
+    """run 开始时调用一次，清掉上一轮残留。返回 token，配合 `restore_clarify` 使用。"""
     return CLARIFY_PENDING.set(None)
 
 
 def restore_clarify(token) -> None:
-    """Run 结束时调一次。"""
+    """run 结束时调用一次。"""
     CLARIFY_PENDING.reset(token)

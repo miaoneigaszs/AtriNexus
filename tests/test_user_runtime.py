@@ -1,4 +1,4 @@
-"""User runtime steering, abort, and follow-up queue tests."""
+"""用户运行时 steering、abort 和 follow-up 队列测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -88,7 +88,7 @@ class UserRuntimeRegistryTest(unittest.TestCase):
     def test_abort_sets_event_and_clears_on_next_run(self):
         async def scenario():
             registry = UserRuntimeRegistry()
-            # 没活跃 run 时 abort 返回 False
+            # 没有活跃 run 时，中止请求返回 False
             self.assertFalse(await registry.abort("u1"))
 
             captured = {}
@@ -108,7 +108,7 @@ class UserRuntimeRegistryTest(unittest.TestCase):
             self.assertTrue(captured["event"].is_set())
             self.assertTrue(captured["aborted_midrun"])
 
-            # 下一次 run 的 abort event 是全新的
+            # 下一次 run 的中止事件是全新的
             async with registry.claim_run("u1"):
                 new_event = CURRENT_ABORT_EVENT.get()
                 self.assertIsNotNone(new_event)
@@ -123,7 +123,7 @@ class UserRuntimeRegistryTest(unittest.TestCase):
             self.assertEqual(await registry.queue_follow_up("u1", "m2"), 2)
             drained = await registry.drain_follow_up("u1")
             self.assertEqual(drained, ["m1", "m2"])
-            # drain 后队列清空
+            # 消费后队列清空
             self.assertEqual(await registry.drain_follow_up("u1"), [])
 
         _run(scenario())

@@ -1,8 +1,4 @@
-"""Focused tests for agent hooks and default hook behavior.
-
-Covers the AgentHooks protocol, AgentToolGuard before/after flow, Anthropic
-prompt-cache context transforms, and rate-limit response observation.
-"""
+"""agent hooks 与默认 hook 行为的聚焦测试。"""
 from __future__ import annotations
 
 import asyncio
@@ -138,7 +134,7 @@ class AgentToolGuardHookTest(unittest.TestCase):
                 args={"command": "git status"},
                 call_id="c1",
             )
-            # MAX_TOOL_REPEAT_COUNT 次允许，再多一次 block
+            # 允许 MAX_TOOL_REPEAT_COUNT 次，再多一次会被阻断
             for _ in range(MAX_TOOL_REPEAT_COUNT):
                 self.assertIsNone(_run(self.guard.before_tool_call(ctx)))
             blocked = _run(self.guard.before_tool_call(ctx))
@@ -193,7 +189,7 @@ class DefaultAgentHooksTest(unittest.TestCase):
         )
         result = self.hooks.transform_context(ctx)
         self.assertIsNotNone(result)
-        # system 消息被展平为 list 并带 cache_control
+        # system 消息被展平为列表并带 cache_control
         sys_content = result.messages[0]["content"]
         self.assertIsInstance(sys_content, list)
         self.assertEqual(sys_content[0]["cache_control"]["type"], "ephemeral")

@@ -1,4 +1,4 @@
-"""Runtime prompt capability tests."""
+"""运行时 prompt 能力测试。"""
 from __future__ import annotations
 
 import unittest

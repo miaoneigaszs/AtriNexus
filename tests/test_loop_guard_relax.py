@@ -1,4 +1,4 @@
-"""Per-tool loop-guard behavior tests."""
+"""按工具区分的循环护栏行为测试。"""
 from __future__ import annotations
 
 import unittest

@@ -1,8 +1,6 @@
-"""Default AgentHooks implementation.
+"""默认 AgentHooks 实现。
 
-The default hook set combines tool permission checks, Anthropic prompt-cache
-markers, rate-limit header capture, and context-engine usage updates. Keeping
-these concerns behind AgentHooks keeps the main loop explicit and testable.
+默认 hook 组合了工具权限检查、Anthropic prompt cache 标记、限流响应头采集和 context engine 用量更新。把这些横切逻辑收在 AgentHooks 后面，可以让主循环保持清晰且便于测试。
 """
 from __future__ import annotations
 

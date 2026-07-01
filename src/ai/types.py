@@ -1,8 +1,6 @@
-"""Framework-neutral AI runtime types.
+"""框架中立的 AI 运行时类型。
 
-These dataclasses describe messages, tool calls, usage, and stream events used by
-the provider layer and agent loop. They convert to OpenAI-compatible dictionaries
-without importing any SDK-specific types.
+这些 dataclass 描述 provider 层和 agent loop 使用的消息、工具调用、用量和流事件。它们可以转换为 OpenAI 兼容字典，同时不导入任何 SDK 专属类型。
 """
 from __future__ import annotations
 
@@ -10,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Union
 
 
-# ── Content blocks ──────────────────────────────────────────────────────
+# ── 内容块 ───────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -46,7 +44,7 @@ def _content_to_openai(content: Union[str, List[ContentBlock]]) -> Any:
     return [block.to_openai_dict() for block in content]
 
 
-# ── Tool calls ──────────────────────────────────────────────────────────
+# ── 工具调用 ─────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -69,7 +67,7 @@ class ToolCall:
         }
 
 
-# ── Messages ────────────────────────────────────────────────────────────
+# ── 消息 ─────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -95,7 +93,7 @@ class AssistantMessage:
     content: Union[str, List[ContentBlock]] = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
     role: Literal["assistant"] = "assistant"
-    # provider 自报的元数据（finish_reason、cache 信息等）原样保留
+    # 模型提供方自报的元数据（finish_reason、cache 信息等）原样保留
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_openai_dict(self) -> Dict[str, Any]:
@@ -131,7 +129,7 @@ class ToolResultMessage:
 Message = Union[SystemMessage, UserMessage, AssistantMessage, ToolResultMessage]
 
 
-# ── Usage ───────────────────────────────────────────────────────────────
+# ── 用量 ─────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -156,7 +154,7 @@ class Usage:
         )
 
 
-# ── Tool spec ───────────────────────────────────────────────────────────
+# ── 工具规格 ─────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -178,7 +176,7 @@ class ToolSpec:
         }
 
 
-# ── Stream events ───────────────────────────────────────────────────────
+# ── 流事件 ───────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -216,7 +214,7 @@ class StreamError:
 StreamEvent = Union[TextDelta, ToolCallDelta, StreamDone, StreamError]
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
+# ── 辅助函数 ─────────────────────────────────────────────────────────
 
 
 def messages_to_openai(messages: List[Message]) -> List[Dict[str, Any]]:

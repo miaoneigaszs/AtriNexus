@@ -1,9 +1,6 @@
-"""AtriNexus agent service.
+"""AtriNexus agent 服务。
 
-AgentService owns the chat run lifecycle: context assembly, provider calls, tool
-execution, cancellation, follow-up queueing, pending workspace confirmations,
-and trajectory recording. MessageHandler uses this as the main chat entry point;
-background summarization and scheduled jobs use LLMService directly.
+AgentService 负责聊天 run 的生命周期：上下文组装、provider 调用、工具执行、取消处理、追发消息队列、待确认工作区操作和轨迹记录。MessageHandler 将它作为主聊天入口；后台摘要和定时任务直接使用 LLMService。
 """
 from __future__ import annotations
 
@@ -186,7 +183,7 @@ class AgentService:
                 logger.error("Agent 调用失败: %s", exc, exc_info=True)
                 return USER_VISIBLE_AGENT_ERROR
 
-    # ── Run 控制对外接口 ───────────────────────────────────────────────
+    # ── 运行控制对外接口 ───────────────────────────────────────────────
 
     async def is_running(self, user_id: str) -> bool:
         return await self.runtime_registry.is_running(user_id)
@@ -200,7 +197,7 @@ class AgentService:
     async def drain_follow_up(self, user_id: str) -> List[str]:
         return await self.runtime_registry.drain_follow_up(user_id)
 
-    # ── pending change/command 转发（保留 message_handler 现有 API） ─
+    # ── 待确认修改/命令转发（保留 message_handler 现有接口） ───────────
 
     def apply_pending_change(self, change_id: str, user_id: str) -> str:
         return self.tool_catalog.runtime.apply_pending_change(change_id, owner_user_id=user_id)
@@ -284,7 +281,7 @@ class AgentService:
                     content=content,
                     name=item.get("name"),
                 ))
-            # 其他 role 跳过
+            # 其他角色跳过
         msgs.append(UserMessage(content=message))
         return msgs
 
@@ -352,7 +349,7 @@ class AgentService:
             logger.debug("trajectory 记录失败: %s", exc)
 
 
-# ── token 估算工具（与 token_monitor 口径一致） ─────────────────────────
+# ── token 估算工具（与 token_monitor 口径一致） ─────────────────────
 
 
 def _estimate(text: Optional[str]) -> int:
